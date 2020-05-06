@@ -270,7 +270,7 @@ export class CiaoService extends EventEmitter {
         nsec.rrtypes.push(Type.AAAA);
       }
 
-      console.log("Adding nsec " + nsec);
+      console.log("Adding nsec " + nsec); // TODO remove
       records.push(nsec);
     }
 

@@ -54,9 +54,6 @@ const longerData = decodedRecords[5];
 // of identical data but one exceeding the length of the other, we craft some malformed data
 longerData.rawData[1] = shortData.rawData[1];
 
-console.log(shortData.rawData.toString("hex"));
-console.log(longerData.rawData.toString("hex"));
-
 describe("tiebreaking", () => {
   describe(rrComparator, () => {
 

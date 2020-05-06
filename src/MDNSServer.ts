@@ -195,8 +195,8 @@ export class MDNSServer {
   }
 
   private handleSocketError(error: Error): void {
-    console.log("Encountered MDNS socket error: " + error.message);
-    console.log(error.stack);
+    console.warn("Encountered MDNS socket error: " + error.message);
+    console.warn(error.stack);
     // TODO do we have any error handlers?
   }
 

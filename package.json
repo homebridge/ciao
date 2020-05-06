@@ -8,11 +8,11 @@
   "homepage": "https://github.com/homebridge/ciao",
   "license": "MIT",
   "scripts": {
-    "clean": "rimraf lib && rimraf coverage && rimraf .nyc_output",
+    "clean": "rimraf lib && rimraf coverage",
     "lint": "eslint 'src/**/*.{js,ts,json}'",
     "build": "npm run clean && tsc",
     "test": "jest",
-    "test-coverage": "nyc --reporter=lcovonly npm test",
+    "test-coverage": "jest --coverage --coverageReporters=lcov",
     "prepublishOnly": "npm run build",
     "postpublish": "npm run clean"
   },
@@ -46,7 +46,6 @@
     "@types/jest": "^25.2.1",
     "typescript": "^3.8.3",
     "ts-node": "^8.9.1",
-    "nyc": "^15.0.1",
     "rimraf": "^3.0.2",
     "eslint": "^6.8.0",
     "@typescript-eslint/parser": "^2.27.0",

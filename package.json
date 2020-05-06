@@ -5,6 +5,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "author": "Andreas Bauer <mail@anderl-bauer.de>",
+  "homepage": "https://github.com/homebridge/ciao",
   "license": "MIT",
   "scripts": {
     "clean": "rimraf lib && rimraf coverage && rimraf .nyc_output",
@@ -26,6 +27,13 @@
     "broadcast",
     "dns-sd"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/homebridge/ciao.git"
+  },
+  "bugs": {
+    "url": "https://github.com/homebridge/ciao/issues"
+  },
   "dependencies": {
     "@homebridge/dns-packet": "~5.4.0",
     "ip": "^1.1.5",

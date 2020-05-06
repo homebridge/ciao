@@ -12,7 +12,7 @@
     "lint": "eslint 'src/**/*.{js,ts,json}'",
     "build": "npm run clean && tsc",
     "test": "jest",
-    "test-coverage": "jest --coverage --coverageReporters=lcov",
+    "test-coverage": "jest --coverage",
     "prepublishOnly": "npm run build",
     "postpublish": "npm run clean"
   },

@@ -8,7 +8,8 @@
 `ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) and compliant `dns-sd` library,
 advertised on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762#section-8)).
 
-It is used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the `bonjour-hap` library, 
+It is used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the 
+[bonjour-hap](https://github.com/homebridge/bonjour) library, 
 aiming to be more robust, more maintainable and RFC compliant.
 
 `ciao` features a multicast dns responder to publish service on the local network.
@@ -19,7 +20,7 @@ The library is currently still under heavy development.
 ## Installation
 
 ```
-npm install @homebridge/ciao
+npm install --save @homebridge/ciao
 ```
 
 ## Usage

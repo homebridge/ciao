@@ -12,6 +12,10 @@
 import {Responder} from "./Responder";
 import {ServerOptions} from "./MDNSServer";
 
+export * from "./CiaoService";
+export * from "./MDNSServer";
+export * from "./Responder";
+
 export const enum Protocol {
   TCP = "tcp",
   UDP = "udp",

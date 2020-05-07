@@ -1,9 +1,9 @@
-import ciao from "./index";
 import {ServiceType} from "./CiaoService";
+import {createResponder} from "./index";
 
 // TODO remove this file, it's only used for testing currently
 
-const responder = ciao.createResponder();
+const responder = createResponder();
 const service = responder.createService({
   name: "My Accessory",
   type: ServiceType.HAP,
@@ -20,12 +20,10 @@ const service = responder.createService({
     "sh": "aaaaaa",
   },
 });
-responder.start().then(() => {
-  service.advertise();
-});
+service.advertise();
 
 
-const responder2 = ciao.createResponder();
+const responder2 = createResponder();
 const service2 = responder2.createService({
   name: "My Accessory",
   type: ServiceType.HAP,
@@ -42,9 +40,7 @@ const service2 = responder2.createService({
     "sh": "bbbbbb",
   },
 });
-responder2.start().then(() => {
-  service2.advertise();
-});
+service2.advertise();
 
 const exitHandler = (signal: number) => {
   Promise.all([responder.shutdown(), responder2.shutdown()])

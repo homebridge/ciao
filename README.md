@@ -30,7 +30,6 @@ const ciao = require("@homebridge/ciao");
 
 
 const responder = ciao.createResponder();
-responder.start(); // this step will not be needed in the future
 
 // create a service defining a web server running on port 3000
 const service = responder.createService({

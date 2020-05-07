@@ -10,6 +10,8 @@ import dnsEqual, {dnsLowerCase} from "./util/dns-equal";
 export class Responder implements PacketHandler {
 
   private readonly server: MDNSServer;
+  private promiseChain: Promise<void>;
+
   private bound = false;
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
@@ -19,15 +21,7 @@ export class Responder implements PacketHandler {
 
   constructor(options?: ServerOptions) {
     this.server = new MDNSServer(this, options);
-  }
-
-  public start(): Promise<void> {
-    if (this.bound) {
-      throw new Error("Server is already bound!");
-    }
-
-    this.bound = true;
-    return this.server.bind();
+    this.promiseChain = this.start();
   }
 
   public createService(options: ServiceOptions): CiaoService {
@@ -51,8 +45,19 @@ export class Responder implements PacketHandler {
       promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets)
     }
 
+    // TODO maybe stop the server as well (would need machanism to restart it again if needed)
+
     // eslint-disable-next-line
     return Promise.all(promises).then(() => {});
+  }
+
+  private start(): Promise<void> {
+    if (this.bound) {
+      throw new Error("Server is already bound!");
+    }
+
+    this.bound = true;
+    return this.server.bind();
   }
 
   private advertiseService(service: CiaoService): Promise<void> {
@@ -65,7 +70,12 @@ export class Responder implements PacketHandler {
 
     // TODO check if the server needs to be bound (for easier API)
 
-    return this.probe(service).then(() => this.announce(service));
+    return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
+      .then(() => this.probe(service))
+      .then(() => this.announce(service))
+      .then(() => {
+        this.announcedServices.set(dnsLowerCase(service.fqdn), service);
+      });
   }
 
   private unpublishService(service: CiaoService): Promise<void> { // TODO unpublish all services on node app exit
@@ -91,10 +101,6 @@ export class Responder implements PacketHandler {
       .then(() => {
         this.currentProber = undefined;
         service.serviceState = ServiceState.ANNOUNCED; // we consider it announced now
-
-        return this.announce(service).then(() => {
-          this.announcedServices.set(dnsLowerCase(service.fqdn), service);
-        });
       }, reason => { // TODO somehow forward the message?
         service.serviceState = ServiceState.UNANNOUNCED;
         this.currentProber = undefined;

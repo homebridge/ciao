@@ -98,15 +98,19 @@ export const enum ServiceState {
 
 export const enum ServiceEvent {
   UPDATED = "updated",
+  PUBLISH = "publish",
   UNPUBLISH = "unpublish",
+  // TODO separate Internal and public api events
 }
 
 export declare interface CiaoService {
 
   on(event: ServiceEvent.UPDATED, listener: (type: Type) => void): this;
+  on(event: ServiceEvent.PUBLISH, listener: () => void): this;
   on(event: ServiceEvent.UNPUBLISH, listener: () => void): this;
 
   emit(event: ServiceEvent.UPDATED, type: Type): boolean;
+  emit(event: ServiceEvent.PUBLISH): boolean;
   emit(event: ServiceEvent.UNPUBLISH): boolean;
 
 }
@@ -172,9 +176,12 @@ export class CiaoService extends EventEmitter {
     this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
   }
 
-  // TODO add a method to republish? it is possbile in theory
+  public advertise() {
+    this.emit(ServiceEvent.PUBLISH);
+    // TODO add the possibility to listen for the promise
+  }
 
-  public unpublish() {
+  public end() {
     this.emit(ServiceEvent.UNPUBLISH);
   }
 

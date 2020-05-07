@@ -32,10 +32,29 @@ const ciao = require("@homebridge/ciao");
 const responder = ciao.createResponder();
 responder.start(); // this step will not be needed in the future
 
-// advertise an HTTP server on port 3000
-responder.advertiseService({ // method returns a Promise, so you can wait until it is published
+// create a service defining a web server running on port 3000
+const service = responder.createService({
     name: 'My Web Server',
     type: 'http',
     port: 3000,
+    txt: {
+      key: "value",
+    }
+})
+
+
+service.advertise(); // this method will return a promise in the future
+//wait for the advertisment...
+
+// ....
+
+service.updateTxt({
+    newKey: "newValue",
 });
+
+// ....
+
+// remove advertisement. The service is now UNANNOUNCED.
+// But can be advertised again by calling the method metioned above
+service.end();
 ```

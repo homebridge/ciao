@@ -27,19 +27,11 @@ export const enum IPFamily {
   IPv6 = "IPv6",
 }
 
-export class Ciao {
+// TODO add more debug
+// TODO add tests
 
-  // TODO add more debug
-  // TODO add tests
-
-  createResponder(options?: ServerOptions): Responder {
-    return new Responder(options);
-  }
-
-  // TODO create browser
-
+export function createResponder(options?: ServerOptions): Responder {
+  return new Responder(options);
 }
 
-const ciao = new Ciao();
-
-export default ciao;
+// TODO create browser

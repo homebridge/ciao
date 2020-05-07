@@ -30,16 +30,14 @@ export class Responder implements PacketHandler {
     return this.server.bind();
   }
 
-  public advertiseService(options: ServiceOptions): Promise<void> {
+  public createService(options: ServiceOptions): CiaoService {
     const service = new CiaoService(options);
 
-    // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
+    service.on(ServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
+    service.on(ServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
+    service.on(ServiceEvent.UPDATED, this.update.bind(this, service));
 
-    // TODO check if there is already a probing process ongoing. If so => enqueue
-
-    // TODO check if the server needs to be bound (for easier API)
-
-    return this.probe(service).then(() => this.announce(service));
+    return service;
   }
 
   /**
@@ -57,13 +55,25 @@ export class Responder implements PacketHandler {
     return Promise.all(promises).then(() => {});
   }
 
+  private advertiseService(service: CiaoService): Promise<void> {
+    if (service.serviceState !== ServiceState.UNANNOUNCED) {
+      throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.fqdn);
+    }
+    // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
+
+    // TODO check if there is already a probing process ongoing. If so => enqueue
+
+    // TODO check if the server needs to be bound (for easier API)
+
+    return this.probe(service).then(() => this.announce(service));
+  }
+
   private unpublishService(service: CiaoService): Promise<void> { // TODO unpublish all services on node app exit
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.fqdn);
     }
 
     this.announcedServices.delete(dnsLowerCase(service.fqdn));
-    service.removeAllListeners();
     service.serviceState = ServiceState.UNANNOUNCED;
 
     return this.goodbye(service);
@@ -83,9 +93,6 @@ export class Responder implements PacketHandler {
         service.serviceState = ServiceState.ANNOUNCED; // we consider it announced now
 
         return this.announce(service).then(() => {
-          service.on(ServiceEvent.UPDATED, this.update.bind(this, service));
-          service.on(ServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
-
           this.announcedServices.set(dnsLowerCase(service.fqdn), service);
         });
       }, reason => { // TODO somehow forward the message?

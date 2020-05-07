@@ -121,7 +121,7 @@ export class CiaoService extends EventEmitter {
   readonly type: ServiceType | string;
   readonly protocol: Protocol;
   // TODO may add support for sub types => a PTR record for every subtype
-  readonly domain: string;
+  readonly serviceDomain: string; // remember: can't be named "domain" => conflicts with EventEmitter
   fqdn: string; // fully qualified domain name // TODO maybe private with getters?
 
   readonly hostname: string;
@@ -144,17 +144,17 @@ export class CiaoService extends EventEmitter {
     this.type = options.type;
     this.protocol = options.protocol || Protocol.TCP;
     // TODO maybe add subtypes support
-    this.domain = options.domain || "local";
+    this.serviceDomain = options.domain || "local";
 
     this.fqdn = domainFormatter.stringifyFQDN({
       name: this.name,
       type: this.type,
       protocol: this.protocol,
-      domain: this.domain,
+      domain: this.serviceDomain,
     });
     assert(this.fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
 
-    this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.domain); // TODO replace spaces with underscore
+    this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain); // TODO replace spaces with underscore
     this.port = options.port;
     if (options.addresses) {
       this.addresses = Array.isArray(options.addresses)? options.addresses: [options.addresses];
@@ -173,6 +173,7 @@ export class CiaoService extends EventEmitter {
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);
+    // TODO only emit when the service is published
     this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
   }
 
@@ -226,7 +227,7 @@ export class CiaoService extends EventEmitter {
       name: this.name,
       type: this.type,
       protocol: this.protocol,
-      domain: this.domain,
+      domain: this.serviceDomain,
     });
   }
 

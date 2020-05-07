@@ -319,7 +319,7 @@ export class Responder implements PacketHandler {
         } else if ("name" in parsed) { // InstanceNameDomain
           if (domainFormatter.isServiceTypeEnumeration(parsed)) { // RFC 6763 9. special case "_services._dns-sd._udp.<Domain>"
             for (const service of this.announcedServices.values()) {
-              if (service.domain !== parsed.domain) { // the domains must match
+              if (service.serviceDomain !== parsed.domain) { // the domains must match
                 continue;
               }
 
@@ -335,7 +335,7 @@ export class Responder implements PacketHandler {
           }
         } else { // PTRQueryDomain
           for (const service of this.announcedServices.values()) {
-            if (service.domain !== parsed.domain || service.protocol !== parsed.protocol || service.type !== parsed.type) {
+            if (service.serviceDomain !== parsed.domain || service.protocol !== parsed.protocol || service.type !== parsed.type) {
               continue;
             }
 

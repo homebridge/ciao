@@ -68,3 +68,4 @@ jobs:
       - run: npm publish --access public --tag=beta # TODO remove the beta tag on release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.npm_token }}
+      - run: node .github/workflows/update-latest-tag.js  # TODO remove once we have a stable branch

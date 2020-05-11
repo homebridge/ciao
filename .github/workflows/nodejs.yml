@@ -69,3 +69,5 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.npm_token }}
       - run: node .github/workflows/update-latest-tag.js  # TODO remove once we have a stable branch
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.npm_token }}

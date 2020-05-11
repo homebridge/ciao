@@ -7,7 +7,7 @@ import {
   ServiceEvent,
   ServiceOptions,
   ServiceState,
-  UnpublishCallback
+  UnpublishCallback,
 } from "./CiaoService";
 import {Prober} from "./Prober";
 import dnsEqual, {dnsLowerCase} from "./util/dns-equal";

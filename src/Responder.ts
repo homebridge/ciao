@@ -1,7 +1,14 @@
 import {DnsResponse, MDNSServer, PacketHandler, ServerOptions} from "./MDNSServer";
 import {AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type} from "@homebridge/dns-packet";
 import {AddressInfo} from "net";
-import {CiaoService, ServiceEvent, ServiceOptions, ServiceState} from "./CiaoService";
+import {
+  CiaoService,
+  PublishCallback,
+  ServiceEvent,
+  ServiceOptions,
+  ServiceState,
+  UnpublishCallback
+} from "./CiaoService";
 import {Prober} from "./Prober";
 import dnsEqual, {dnsLowerCase} from "./util/dns-equal";
 
@@ -68,7 +75,7 @@ export class Responder implements PacketHandler {
     return this.server.bind();
   }
 
-  private advertiseService(service: CiaoService): Promise<void> {
+  private advertiseService(service: CiaoService, callback: PublishCallback): Promise<void> {
     if (service.serviceState !== ServiceState.UNANNOUNCED) {
       throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -76,39 +83,55 @@ export class Responder implements PacketHandler {
 
     // TODO check if there is already a probing process ongoing. If so => enqueue
 
-    // TODO check if the server needs to be bound (for easier API)
+    // TODO check if the server needs to be bound (for easier API) (also rebound)
 
     return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
       .then(() => this.probe(service))
       .then(() => this.announce(service))
       .then(() => {
-        const serviceFQDN = dnsLowerCase(service.getFQDN());
-        const typePTR = dnsLowerCase(service.getTypePTR());
+        const serviceFQDN = service.getFQDN();
+        const typePTR = service.getTypePTR();
         const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
 
         this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-        this.addPTR(typePTR, serviceFQDN);
-
-        if  (subtypePTRs) {
+        this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
+        if (subtypePTRs) {
           for (const ptr of subtypePTRs) {
             this.addPTR(dnsLowerCase(ptr), serviceFQDN);
           }
         }
 
-        this.announcedServices.set(serviceFQDN, service);
-      });
+        this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
+        callback();
+      }, reason => callback(reason));
   }
 
-  private unpublishService(service: CiaoService): Promise<void> { // TODO unpublish all services on node app exit
+  private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    this.announcedServices.delete(dnsLowerCase(service.getFQDN()));
-    // TODO delete pointers
+    const serviceFQDN = service.getFQDN();
+    const typePTR = service.getTypePTR();
+    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+
+    this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
+    if (subtypePTRs) {
+      for (const ptr of subtypePTRs) {
+        this.removePTR(dnsLowerCase(ptr), serviceFQDN);
+      }
+    }
+
+    this.announcedServices.delete(dnsLowerCase(serviceFQDN));
+
     service.serviceState = ServiceState.UNANNOUNCED;
 
-    return this.goodbye(service);
+    let promise = this.goodbye(service);
+    if (callback) {
+      promise = promise.then(() => callback(), reason => callback(reason));
+    }
+    return promise;
   }
 
   private addPTR(ptr: string, name: string): void {
@@ -149,9 +172,10 @@ export class Responder implements PacketHandler {
       .then(() => {
         this.currentProber = undefined;
         service.serviceState = ServiceState.ANNOUNCED; // we consider it announced now
-      }, reason => { // TODO somehow forward the message?
+      }, reason => {
         service.serviceState = ServiceState.UNANNOUNCED;
         this.currentProber = undefined;
+        throw new Error("Failed probing for " + service.getFQDN() +": " + reason);
       });
   }
 
@@ -175,31 +199,36 @@ export class Responder implements PacketHandler {
       }
     });
 
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       // minimum required is to send two unsolicited responses, one second apart
       this.server.sendResponse({ answers: answers }, () => {
         setTimeout(() => { // publish it a second time after 1 second
-          this.server.sendResponse({ answers: answers }, () => {
-            resolve();
+          this.server.sendResponse({ answers: answers }, error => {
+            if (error) {
+              service.serviceState = ServiceState.UNANNOUNCED;
+              reject(error);
+            } else {
+              resolve();
+            }
           });
-        }, 1000); // TODO we could announce up to 8 times in total (time between messages must increas by two every message)
+        }, 1000); // TODO we could announce up to 8 times in total (time between messages must increase by two every message)
       });
     });
   }
 
-  private update(service: CiaoService, type: Type) {
+  private update(service: CiaoService, type: Type): Promise<void> {
     // when updating we just repeat the announce step
     // for shared records we MUST send a goodbye message first (is currently not the case)
 
     // TODO we SHOULD NOT update more than ten times per minute (this is not the case??)
 
     switch (type) {
-      case Type.TXT:
-        // the only updated thing we support right now are txt changes
-        this.announce(service, [service.recordTXT()]);
-        break;
+      case Type.TXT: // the only updated thing we support right now are txt changes
+        return this.announce(service, [service.recordTXT()]);
       // TODO support A and AAAA updates
     }
+
+    return Promise.resolve();
   }
 
   private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
@@ -215,12 +244,12 @@ export class Responder implements PacketHandler {
 
     answers.forEach(answer => answer.ttl = 0); // setting ttl to zero to indicate "goodbye"
 
-    return new Promise<void>(resolve => {
-      this.server.sendResponse({ answers: answers }, resolve);
+    return new Promise<void>((resolve, reject) => {
+      this.server.sendResponse({ answers: answers }, error => error? reject(error): resolve());
     });
   }
 
-  private resolveConflict(service: CiaoService) {
+  private resolveConflict(service: CiaoService): void {
     // TODO implement
   }
 

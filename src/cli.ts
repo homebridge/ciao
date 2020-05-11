@@ -20,11 +20,30 @@ const service = responder.createService({
     "sh": "aaaaaa",
   },
 });
-service.advertise();
+const serviceCopy = responder.createService({
+  name: "My Accessory",
+  type: ServiceType.HAP,
+  port: 1234,
+  txt: {
+    md: "My Accessory",
+    pv: "1.1",
+    id: "A2:00:0A:92:7D:1D",
+    "c#": "1",
+    "s#": "1",
+    "ff": "0",
+    "ci": 11,
+    "sf": "1", // "sf == 1" means "discoverable by HomeKit iOS clients"
+    "sh": "cccccc",
+  },
+});
 
+service.advertise().then(() => {
+  console.log("Advertised service1");
+  return serviceCopy.advertise();
+});
 
 const responder2 = createResponder();
-const service2 = responder2.createService({
+const service2 = responder.createService({
   name: "My Accessory",
   type: ServiceType.HAP,
   port: 1234,
@@ -40,9 +59,10 @@ const service2 = responder2.createService({
     "sh": "bbbbbb",
   },
 });
-service2.advertise();
 
-const exitHandler = (signal: number) => {
+//service2.advertise();
+
+const exitHandler = (signal: number): void => {
   Promise.all([responder.shutdown(), responder2.shutdown()])
     .then(() => {
       process.exit(128 + signal);

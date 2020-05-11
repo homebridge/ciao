@@ -105,15 +105,18 @@ export const enum ServiceEvent {
   // TODO separate Internal and public api events
 }
 
+export type PublishCallback = (error?: Error) => void;
+export type UnpublishCallback = (error?: Error) => void;
+
 export declare interface CiaoService {
 
   on(event: ServiceEvent.UPDATED, listener: (type: Type) => void): this;
-  on(event: ServiceEvent.PUBLISH, listener: () => void): this;
-  on(event: ServiceEvent.UNPUBLISH, listener: () => void): this;
+  on(event: ServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
+  on(event: ServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
 
   emit(event: ServiceEvent.UPDATED, type: Type): boolean;
-  emit(event: ServiceEvent.PUBLISH): boolean;
-  emit(event: ServiceEvent.UNPUBLISH): boolean;
+  emit(event: ServiceEvent.PUBLISH, callback: PublishCallback): boolean;
+  emit(event: ServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
 
 }
 
@@ -211,13 +214,16 @@ export class CiaoService extends EventEmitter {
     this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
   }
 
-  public advertise() {
-    this.emit(ServiceEvent.PUBLISH);
-    // TODO add the possibility to listen for the promise
+  public advertise(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.emit(ServiceEvent.PUBLISH, error => error? reject(error): resolve());
+    });
   }
 
-  public end() {
-    this.emit(ServiceEvent.UNPUBLISH);
+  public end(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.emit(ServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
+    });
   }
 
   public getFQDN(): string {
@@ -248,7 +254,7 @@ export class CiaoService extends EventEmitter {
    * It advices the service to change its name, like incrementing a number appended to the name.
    * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
    */
-  incrementName() {
+  incrementName(): void {
     // TODO check if we are in a correct state
 
     let nameBase;

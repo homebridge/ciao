@@ -133,6 +133,7 @@ export class Prober {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
     if (!this.sentFirstProbeQuery) {
       return;
@@ -161,6 +162,7 @@ export class Prober {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   doTiebreaking(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
@@ -176,10 +178,9 @@ export class Prober {
     if (!conflict) {
       return;
     }
+    // now run the actual tiebreaking algorithm to decide the winner
 
     debug("Detected simultaneous, conflicting probing request for '%s' on the network! Running Tiebreaking...", this.service.getFQDN());
-
-    // now run the actual tiebreaking algorithm to decide the winner
 
     // first of all build our own records
     let answers = dnsPacket.decode( // we encode and decode the records so we get the rawData representation of our records which we need for the comparision

@@ -34,6 +34,8 @@ export interface DnsQuery {
   additionals?: AnswerRecord[];
 }
 
+export type SendCallback = (error: Error | null) => void;
+
 // eslint-disable-next-line
 export interface ServerOptions {
   // TODO add some options
@@ -93,12 +95,13 @@ export class MDNSServer {
     socket.setMulticastTTL(255);
     socket.setTTL(255);
 
-    socket.setMulticastLoopback(false); // loops back packets to our own host TODO change
+    // TODO test this on other platforms:
+    socket.setMulticastLoopback(false); // loops back packets to our own host (seems to do it anyways)
   }
 
-  public sendQuery(query: DnsQuery, callback?: () => void): void
-  public sendQuery(query: DnsQuery, address?: string, port?: number, callback?: () => void): void;
-  public sendQuery(query: DnsQuery, address?: (() => void) | string, port?: number, callback?: () => void): void {
+  public sendQuery(query: DnsQuery, callback?: SendCallback): void
+  public sendQuery(query: DnsQuery, address?: string, port?: number, callback?: SendCallback): void;
+  public sendQuery(query: DnsQuery, address?: string | SendCallback, port?: number, callback?: SendCallback): void {
     if (typeof address === "function") {
       callback = address;
       address = undefined;
@@ -119,9 +122,9 @@ export class MDNSServer {
     this.send(encoded, address, port, callback);
   }
 
-  public sendResponse(response: DnsResponse, callback?: () => void): void;
-  public sendResponse(response: DnsResponse, rinfo?: AddressInfo, callback?: () => void): void;
-  public sendResponse(response: DnsResponse, rinfo?: AddressInfo | (() => void), callback?: () => void): void {
+  public sendResponse(response: DnsResponse, callback?: SendCallback): void;
+  public sendResponse(response: DnsResponse, rinfo?: AddressInfo, callback?: SendCallback): void;
+  public sendResponse(response: DnsResponse, rinfo?: AddressInfo | SendCallback, callback?: SendCallback): void {
     if (typeof rinfo === "function") {
       callback = rinfo;
       rinfo = undefined;
@@ -143,12 +146,13 @@ export class MDNSServer {
     this.send(encoded, rinfo?.address, rinfo?.port, callback);
   }
 
-  private send(message: Buffer, address: string = MULTICAST_IPV4, port: number = MDNS_PORT, callback?: () => void) {
+  private send(message: Buffer, address: string = MULTICAST_IPV4, port: number = MDNS_PORT, callback?: SendCallback): void {
     // TODO check how many answers can fit into one packet
 
     //const socket = rinfo.family === "IPv4"? this.udp4Socket: this.udp6Socket;
     const socket = this.udp4Socket;
-    socket.send(message, port, address, callback); // TODO the callback takes an error in theory
+    socket.send(message, port, address, callback);
+    // TODO if no callback is supplied error event is raised (should we raise the event anyways and not rely on users to handle errors correctly?)
   }
 
   private handleMessage(buffer: Buffer, rinfo: AddressInfo): void {
@@ -218,8 +222,6 @@ export class MDNSServer {
   }
 
   public static getAccessibleAddresses(rinfo?: AddressInfo): string[] {
-    // TODO ebaauw: "Also notice the IPv6 address from HAP isn't correct: %<0> instead of %en1?!"
-
     const addresses: string[] = [];
 
     // TODO only include addresses in the same subnet like the requestor(?)

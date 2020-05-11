@@ -41,8 +41,15 @@ export interface FQDNParts {
   domain?: string; // default local
 }
 
-export function isServiceTypeEnumeration(domain: InstanceNameDomain): boolean { // TODO test this method
-  return domain.protocol === Protocol.UDP && domain.type === ServiceType.DNS_SD && domain.name === "services";
+export interface SubTypePTRParts { // like '_printer._sub._http._tcp.local'
+  subtype: ServiceType | string; // !!! ensure this name matches
+  type: ServiceType | string; // the main type
+  protocol?: Protocol; // default tcp
+  domain?: string; // default local
+}
+
+function isSubTypePTRParts(parts: FQDNParts | SubTypePTRParts): parts is SubTypePTRParts {
+  return "subtype" in parts;
 }
 
 export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | SubTypedNameDomain {
@@ -96,11 +103,18 @@ export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | S
   throw new Error("Unable to parse fqdn: " + fqdn);
 }
 
-export function stringifyFQDN(parts: FQDNParts): string {
+export function stringify(parts: FQDNParts | SubTypePTRParts): string {
   assert(parts.type, "type cannot be undefined");
   assert(parts.type.length <= 15, "type must not be longer than 15 characters");
 
-  return (parts.name? parts.name + ".": "") + "_" + parts.type + "._" + (parts.protocol || Protocol.TCP) + "." + (parts.domain || "local");
+  let prefix;
+  if (isSubTypePTRParts(parts)) {
+    prefix = `_${parts.subtype}._sub.`;
+  } else {
+    prefix = parts.name? `${parts.name}.`: "";
+  }
+
+  return `${prefix}_${parts.type}._${parts.protocol || Protocol.TCP}.${parts.domain || "local"}`;
 }
 
 export function formatHostname(hostname: string, domain = "local"): string {

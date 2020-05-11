@@ -25,6 +25,7 @@ const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My
  * A service name must not be longer than 15 characters (RFC 6763 7.2).
  */
 export const enum ServiceType {
+  // noinspection JSUnusedGlobalSymbols
   AIRDROP = "airdrop",
   AIRPLAY = "airplay",
   AIRPORT = "airport",
@@ -43,7 +44,7 @@ export const enum ServiceType {
   PRINTER = "printer",
 }
 
-export interface ServiceOptions { // TODO adjust name?
+export interface ServiceOptions {
   /**
    * Instance Name of the service
    */
@@ -52,6 +53,10 @@ export interface ServiceOptions { // TODO adjust name?
    * Type of the service
    */
   type: ServiceType | string;
+  /**
+   * Optional array of subtypes of the service
+   */
+  subtypes?: (ServiceType | string)[];
   /**
    * Port of the service
    */
@@ -82,8 +87,6 @@ export interface ServiceOptions { // TODO adjust name?
    * The domain will also be automatically appended to the hostname.
    */
   domain?: string;
-  // TODO add support for sub types RFC 6763 7.1
-  // TODO maybe add support to customize domain name
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,7 +96,6 @@ export const enum ServiceState {
   UNANNOUNCED = "unannounced",
   PROBING = "probing",
   ANNOUNCED = "announced",
-  DESTROYED = "destroyed", // TODO can this be equal to unannounced?
 }
 
 export const enum ServiceEvent {
@@ -118,15 +120,18 @@ export declare interface CiaoService {
 export class CiaoService extends EventEmitter {
 
   name: string; // TODO maybe private with getters?
-  readonly type: ServiceType | string;
-  readonly protocol: Protocol;
-  // TODO may add support for sub types => a PTR record for every subtype
-  readonly serviceDomain: string; // remember: can't be named "domain" => conflicts with EventEmitter
-  fqdn: string; // fully qualified domain name // TODO maybe private with getters?
+  private readonly type: ServiceType | string;
+  private readonly subTypes?: string[];
+  private readonly protocol: Protocol;
+  private readonly serviceDomain: string; // remember: can't be named "domain" => conflicts with EventEmitter
+
+  private fqdn: string; // fully qualified domain name
+  private readonly typePTR: string;
+  private readonly subTypePTRs?: string[];
 
   readonly hostname: string;
   readonly port: number;
-  private readonly addresses?: string[]; // exposed A and AAAA records if set
+  private readonly addresses?: string[]; // user defined set of A and AAAA records
 
   private txt?: Buffer[];
 
@@ -142,20 +147,33 @@ export class CiaoService extends EventEmitter {
 
     this.name = options.name;
     this.type = options.type;
+    this.subTypes = options.subtypes;
     this.protocol = options.protocol || Protocol.TCP;
-    // TODO maybe add subtypes support
     this.serviceDomain = options.domain || "local";
 
-    this.fqdn = domainFormatter.stringifyFQDN({
-      name: this.name,
+    this.fqdn = this.formatFQDN();
+
+    this.typePTR = domainFormatter.stringify({ // something like '_hap._tcp.local'
       type: this.type,
       protocol: this.protocol,
       domain: this.serviceDomain,
     });
-    assert(this.fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
 
-    this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain); // TODO replace spaces with underscore
+    if (this.subTypes) {
+      this.subTypePTRs = this.subTypes.map(subtype => domainFormatter.stringify({
+        subtype: subtype,
+        type: this.type,
+        protocol: this.protocol,
+        domain: this.serviceDomain,
+      }));
+    }
+
+    // TODO check if the name/fqdn and hostname already is a incremented name and adjust pattern accordingly
+
+    this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
+      .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;
+
     if (options.addresses) {
       this.addresses = Array.isArray(options.addresses)? options.addresses: [options.addresses];
     }
@@ -163,6 +181,22 @@ export class CiaoService extends EventEmitter {
     if (options.txt) {
       this.txt = CiaoService.txtBuffersFromRecord(options.txt);
     }
+  }
+
+  private formatFQDN(): string {
+    if (this.serviceState === ServiceState.ANNOUNCED) { // TODO can we exclude the probing state also?
+      throw new Error("Name can't be changed after service was already announced!");
+    }
+
+    const fqdn = domainFormatter.stringify({
+      name: this.name,
+      type: this.type,
+      protocol: this.protocol,
+      domain: this.serviceDomain,
+    });
+
+    assert(fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
+    return fqdn;
   }
 
   /**
@@ -186,6 +220,18 @@ export class CiaoService extends EventEmitter {
     this.emit(ServiceEvent.UNPUBLISH);
   }
 
+  public getFQDN(): string {
+    return this.fqdn;
+  }
+
+  public getTypePTR(): string {
+    return this.typePTR;
+  }
+
+  public getSubtypePTRs(): string[] | undefined {
+    return this.subTypePTRs;
+  }
+
   private static txtBuffersFromRecord(txt: ServiceTxt): Buffer[] {
     const result: Buffer[] = [];
 
@@ -203,6 +249,8 @@ export class CiaoService extends EventEmitter {
    * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
    */
   incrementName() {
+    // TODO check if we are in a correct state
+
     let nameBase;
     let number;
 
@@ -223,12 +271,8 @@ export class CiaoService extends EventEmitter {
     // reassemble the name
     this.name = nameBase + " (" + number + ")";
     // update the fqdn
-    this.fqdn = domainFormatter.stringifyFQDN({
-      name: this.name,
-      type: this.type,
-      protocol: this.protocol,
-      domain: this.serviceDomain,
-    });
+    this.fqdn = this.formatFQDN();
+    // TODO adjust the hostname accordingly (needs custom increment)
   }
 
   // TODO handle renaming for hostname collisions
@@ -244,18 +288,19 @@ export class CiaoService extends EventEmitter {
     let hasARecord = false;
     let hasAAAARecord = false;
 
-    // we might optimize this a bit in terms of memory consumption
-    const records: AnswerRecord[] = [...this.recordsAandAAAA(rinfo), this.recordPTR(), this.recordSRV(), this.recordTXT()]
-      .filter(record => { // matching as defined in RFC 6762 6.
-        if (record.type === Type.A) {
-          hasARecord = true;
-        } else if (record.type === Type.AAAA) {
-          hasAAAARecord = true;
-        }
+    // TODO we might optimize this a bit in terms of memory consumption, so we only build the required records
+    const records: AnswerRecord[] = [
+      ...this.recordsAandAAAA(rinfo), this.recordTypePTR(), ...this.recordSubtypePTRs(), this.recordSRV(), this.recordTXT(),
+    ].filter(record => { // matching as defined in RFC 6762 6.
+      if (record.type === Type.A) {
+        hasARecord = true;
+      } else if (record.type === Type.AAAA) {
+        hasAAAARecord = true;
+      }
 
-        return (askingAny || question.type === record.type) // match type equality
-          && dnsEqual(question.name, record.name); // match name equality
-      });
+      return (askingAny || question.type === record.type) // match type equality
+        && dnsEqual(question.name, record.name); // match name equality
+    });
 
     // eslint-disable-next-line
     if (false && (!hasARecord || !hasAAAARecord)) {
@@ -302,13 +347,31 @@ export class CiaoService extends EventEmitter {
     return records;
   }
 
-  recordPTR(): PTRRecord {
+
+  recordTypePTR(): PTRRecord {
     return {
-      name: domainFormatter.stringifyFQDN({ type: ServiceType.HAP }), // TODO do not regenerate this every time
+      name: this.typePTR,
       type: Type.PTR,
       ttl: 4500, // 75 minutes
       data: this.fqdn,
     };
+  }
+
+  recordSubtypePTRs(): PTRRecord[] {
+    const records: PTRRecord[] = [];
+
+    if (this.subTypePTRs) {
+      for (const ptr of this.subTypePTRs) {
+        records.push({
+          name: ptr,
+          type: Type.PTR,
+          ttl: 4500, // 75 minutes
+          data: this.fqdn,
+        });
+      }
+    }
+
+    return records;
   }
 
   recordSRV(): SRVRecord {

@@ -6,8 +6,8 @@ import dnsEqual from "./util/dns-equal";
 import * as tiebreaking from "./util/tiebreaking";
 import {TiebreakingResult} from "./util/tiebreaking";
 import createDebug from "debug";
-import Timeout = NodeJS.Timeout;
 import assert from "assert";
+import Timeout = NodeJS.Timeout;
 
 const PROBE_INTERVAL = 250; // 250ms as defined in RFC 6762 8.1.
 const debug = createDebug("ciao:Prober");
@@ -28,6 +28,7 @@ export class Prober {
 
   private timer?: Timeout;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private promiseReject?: (reason?: any) => void;
 
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent
@@ -57,7 +58,7 @@ export class Prober {
      * and continue with announcing our service.
      */
 
-    debug("Starting to probe for '%s'...", this.service.fqdn);
+    debug("Starting to probe for '%s'...", this.service.getFQDN());
 
     this.startTime = new Date().getTime(); // save the time we started at. After a minute without success we must give up.
 
@@ -85,7 +86,7 @@ export class Prober {
     this.sentQueries = 0;
 
     if (success) {
-      debug("Probing for '%s' finished successfully", this.service.fqdn);
+      debug("Probing for '%s' finished successfully", this.service.getFQDN());
       this.promiseResolve!();
       // TODO do we maybe also reject the promise if the socket encounters an error?
     }
@@ -100,26 +101,27 @@ export class Prober {
 
     const timeSinceProbingStart = new Date().getTime() - this.startTime!;
     if (timeSinceProbingStart > 60000) { // max probing time is 1 minute
-      debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.fqdn);
+      debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.getFQDN());
       this.endProbing(false);
       this.promiseReject!("timeout");
       return;
     }
 
-    debug("Sending prober query number %d for '%s'...", this.sentQueries + 1, this.service.fqdn);
+    debug("Sending prober query number %d for '%s'...", this.sentQueries + 1, this.service.getFQDN());
 
     // TODO evaluate that if the user decides to cancel advertising probing is properly cancelled
 
     this.server.sendQuery({ // TODO we should also include a record to probe uniqueness of the hostname
       questions: [{
-        name: this.service.fqdn,
+        name: this.service.getFQDN(),
         type: Type.ANY,
         flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
       }],
       authorities: [ // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
         this.service.recordSRV(),
         this.service.recordTXT(),
-        this.service.recordPTR(),
+        this.service.recordTypePTR(),
+        ...this.service.recordSubtypePTRs(),
         ...this.service.recordsAandAAAA(),
       ],
     }, () => {
@@ -131,7 +133,7 @@ export class Prober {
     });
   }
 
-  handleResponse(packet: DecodedDnsPacket, rinfo: AddressInfo) {
+  handleResponse(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
     if (!this.sentFirstProbeQuery) {
       return;
     }
@@ -139,27 +141,27 @@ export class Prober {
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     packet.answers.forEach(record => {
-      if (dnsEqual(record.name, this.service.fqdn)) { // TODO we should also check for hostname?
+      if (dnsEqual(record.name, this.service.getFQDN())) { // TODO we should also check for hostname?
         containsAnswer = true;
       }
     });
     packet.additionals.forEach(record => {
-      if (dnsEqual(record.name, this.service.fqdn)) {
+      if (dnsEqual(record.name, this.service.getFQDN())) {
         containsAnswer = true;
       }
     });
 
     if (containsAnswer) { // abort and cancel probes
-      debug("Probing for '%s' failed. Doing a name change", this.service.fqdn);
+      debug("Probing for '%s' failed. Doing a name change", this.service.getFQDN());
 
       this.endProbing(false); // reset the prober
 
-      this.service.incrementName(); // TODO inform user of name change when probing finish. The name MUST be persisted!
+      this.service.incrementName(); // TODO inform user of name/hostname change when probing finish. The name MUST be persisted!
       this.sendProbeRequest(); // start probing again with the new name
     }
   }
 
-  doTiebreaking(packet: DecodedDnsPacket, rinfo: AddressInfo) {
+  doTiebreaking(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
     }
@@ -167,7 +169,7 @@ export class Prober {
     // first of all check if the contents of authorities answers our query
     let conflict = packet.authorities.length === 0;
     packet.authorities.forEach(record => {
-      if (dnsEqual(record.name, this.service.fqdn)) {
+      if (dnsEqual(record.name, this.service.getFQDN())) { // TODO check for hostname conflicts
         conflict = true;
       }
     });
@@ -175,13 +177,20 @@ export class Prober {
       return;
     }
 
-    debug("Detected simultaneous, conflicting probing request for '%s' on the network! Running Tiebreaking...", this.service.fqdn);
+    debug("Detected simultaneous, conflicting probing request for '%s' on the network! Running Tiebreaking...", this.service.getFQDN());
 
     // now run the actual tiebreaking algorithm to decide the winner
 
     // first of all build our own records
-    let answers = dnsPacket.decode( // we encode and decode the records so we get the rawData representation of our records which we need to comparisions
-      dnsPacket.encode({ answers: [ this.service.recordSRV(), this.service.recordTXT(), this.service.recordPTR(), ...this.service.recordsAandAAAA()] }),
+    let answers = dnsPacket.decode( // we encode and decode the records so we get the rawData representation of our records which we need for the comparision
+      dnsPacket.encode({
+        answers: [
+          this.service.recordSRV(), this.service.recordTXT(),
+          this.service.recordTypePTR(),
+          ...this.service.recordSubtypePTRs(),
+          ...this.service.recordsAandAAAA(),
+        ],
+      }),
     ).answers;
     let opponent = packet.authorities;
 
@@ -192,9 +201,9 @@ export class Prober {
     const result = tiebreaking.runTiebreaking(answers, opponent);
 
     if (result === TiebreakingResult.HOST) {
-      debug("'%s' won the tiebreak. We gonna ignore the other probing request!", this.service.fqdn);
+      debug("'%s' won the tiebreak. We gonna ignore the other probing request!", this.service.getFQDN());
     } else if (result === TiebreakingResult.OPPONENT) {
-      debug("'%s' lost the tiebreak. We are waiting a second and try to probe again...", this.service.fqdn);
+      debug("'%s' lost the tiebreak. We are waiting a second and try to probe again...", this.service.getFQDN());
 
       this.endProbing(false); // cancel the current probing
 
@@ -202,7 +211,7 @@ export class Prober {
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
       setTimeout(this.sendProbeRequest.bind(this), 1000);
     } else {
-      debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.fqdn);
+      debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
     }
   }
 

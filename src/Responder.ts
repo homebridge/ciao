@@ -2,12 +2,12 @@ import {DnsResponse, MDNSServer, PacketHandler, ServerOptions} from "./MDNSServe
 import {AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type} from "@homebridge/dns-packet";
 import {AddressInfo} from "net";
 import {CiaoService, ServiceEvent, ServiceOptions, ServiceState} from "./CiaoService";
-import * as domainFormatter from "./util/domain-formatter";
-import {InstanceNameDomain, PTRQueryDomain, SubTypedNameDomain} from "./util/domain-formatter";
 import {Prober} from "./Prober";
 import dnsEqual, {dnsLowerCase} from "./util/dns-equal";
 
 export class Responder implements PacketHandler {
+
+  public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local";
 
   private readonly server: MDNSServer;
   private promiseChain: Promise<void>;
@@ -16,6 +16,14 @@ export class Responder implements PacketHandler {
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
   private readonly announcedServices: Map<string, CiaoService> = new Map();
+  /*
+   * map representing all out shared PTR records.
+   * Typically we hold stuff like '_services._dns-sd._udp.local' (RFC 6763 9.), '_hap._tcp.local'.
+   * Also pointers for every subtype like '_printer._sub._http._tcp.local' are inserted here.
+   *
+   * For every pointer we may hold multiple entries (like multiple services can advertise on _hap._tcp.local).
+   */
+  private readonly servicePointer: Map<string, string[]> = new Map(); // TODO data of meta query record is something like "_hap._tcp.local"
 
   private currentProber?: Prober;
 
@@ -42,10 +50,10 @@ export class Responder implements PacketHandler {
   public shutdown(): Promise<void> {
     const promises: Promise<void>[] = [];
     for (const service of this.announcedServices.values()) {
-      promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets)
+      promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets) TODO what's the max size?
     }
 
-    // TODO maybe stop the server as well (would need machanism to restart it again if needed)
+    // TODO maybe stop the server as well (would need mechanism to restart it again if needed)
 
     // eslint-disable-next-line
     return Promise.all(promises).then(() => {});
@@ -62,7 +70,7 @@ export class Responder implements PacketHandler {
 
   private advertiseService(service: CiaoService): Promise<void> {
     if (service.serviceState !== ServiceState.UNANNOUNCED) {
-      throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.fqdn);
+      throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.getFQDN());
     }
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
@@ -74,24 +82,64 @@ export class Responder implements PacketHandler {
       .then(() => this.probe(service))
       .then(() => this.announce(service))
       .then(() => {
-        this.announcedServices.set(dnsLowerCase(service.fqdn), service);
+        const serviceFQDN = dnsLowerCase(service.getFQDN());
+        const typePTR = dnsLowerCase(service.getTypePTR());
+        const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+
+        this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+        this.addPTR(typePTR, serviceFQDN);
+
+        if  (subtypePTRs) {
+          for (const ptr of subtypePTRs) {
+            this.addPTR(dnsLowerCase(ptr), serviceFQDN);
+          }
+        }
+
+        this.announcedServices.set(serviceFQDN, service);
       });
   }
 
   private unpublishService(service: CiaoService): Promise<void> { // TODO unpublish all services on node app exit
     if (service.serviceState !== ServiceState.ANNOUNCED) {
-      throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.fqdn);
+      throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    this.announcedServices.delete(dnsLowerCase(service.fqdn));
+    this.announcedServices.delete(dnsLowerCase(service.getFQDN()));
+    // TODO delete pointers
     service.serviceState = ServiceState.UNANNOUNCED;
 
     return this.goodbye(service);
   }
 
+  private addPTR(ptr: string, name: string): void {
+    const names = this.servicePointer.get(ptr);
+    if (names) {
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+    } else {
+      this.servicePointer.set(ptr, [name]);
+    }
+  }
+
+  private removePTR(ptr: string, name: string): void {
+    const names = this.servicePointer.get(ptr);
+
+    if (names) {
+      const index = names.indexOf(name);
+      if (index !== -1) {
+        names.splice(index, 1);
+      }
+
+      if (names.length === 0) {
+        this.servicePointer.delete(ptr);
+      }
+    }
+  }
+
   private probe(service: CiaoService): Promise<void> {
     if (service.serviceState !== ServiceState.UNANNOUNCED) {
-      throw new Error("Can't probe for a service which is announced already. Received " + service.serviceState + " for service " + service.fqdn);
+      throw new Error("Can't probe for a service which is announced already. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
     service.serviceState = ServiceState.PROBING;
@@ -109,10 +157,16 @@ export class Responder implements PacketHandler {
 
   private announce(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
     if (service.serviceState !== ServiceState.ANNOUNCED) {
-      throw new Error("Cannot announce service which is not announced yet. Received " + service.serviceState + " for service " + service.fqdn);
+      throw new Error("Cannot announce service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    const answers: AnswerRecord[] = recordOverride || [service.recordPTR(), service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA()];
+    const answers: AnswerRecord[] = recordOverride || [
+      service.recordTypePTR(), ...service.recordSubtypePTRs(),
+      service.recordSRV(), service.recordTXT(),
+      ...service.recordsAandAAAA(),
+    ];
+
+    // TODO A and AAAA published as additional records (really?)
 
     // all records which where probed to be unique and are not shared must set the flush bit
     answers.forEach(answer => {
@@ -149,11 +203,15 @@ export class Responder implements PacketHandler {
   }
 
   private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
-    const answers: AnswerRecord[] = recordOverride || [service.recordPTR(), service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA()];
+    const answers: AnswerRecord[] = recordOverride || [
+      service.recordTypePTR(), ...service.recordSubtypePTRs(),
+      service.recordSRV(), service.recordTXT(),
+      ...service.recordsAandAAAA(),
+    ];
     // TODO do we need to track which A and AAAA were sent previously for sending a goodbye? (seems like it, see below)
 
-    // TODO response packet, giving the same resource record name, rrtype,
-    //    rrclass, and rdata, but an RR TTL of zero.
+    // TODO "response packet, giving the same resource record name, rrtype,
+    //    rrclass, and rdata, but an RR TTL of zero."
 
     answers.forEach(answer => answer.ttl = 0); // setting ttl to zero to indicate "goodbye"
 
@@ -200,7 +258,7 @@ export class Responder implements PacketHandler {
         unicastResponse = true;
       }
 
-      if (this.currentProber && dnsEqual(this.currentProber.service.fqdn, question.name)) {
+      if (this.currentProber && dnsEqual(this.currentProber.service.getFQDN(), question.name)) {
         // if we are currently probing and receiving a query which is also a probing query
         // which matches the desired name we run the tiebreaking algorithm to decide on the winner
         proberNeedsTiebreaking = true;
@@ -311,37 +369,25 @@ export class Responder implements PacketHandler {
 
     switch (question.type) {
       case Type.PTR: { // SubTypedNameDomain
-        const parsed: SubTypedNameDomain | InstanceNameDomain | PTRQueryDomain = domainFormatter.parseFQDN(question.name);
+        const destinations = this.servicePointer.get(dnsLowerCase(question.name)); // look up the pointer
 
-        if ("subtype" in parsed) {
-          // TODO add support for subtype queries
-          break;
-        } else if ("name" in parsed) { // InstanceNameDomain
-          if (domainFormatter.isServiceTypeEnumeration(parsed)) { // RFC 6763 9. special case "_services._dns-sd._udp.<Domain>"
-            for (const service of this.announcedServices.values()) {
-              if (service.serviceDomain !== parsed.domain) { // the domains must match
-                continue;
-              }
-
-              answers.push(service.recordPTR());
-            }
-          } else { // it's a string like "MyDevice._hap._tcp.local"
-            // we use the lowercase here as of RFC 1035 3.1. (dns names need to compared case insensitive)
-            const service = this.announcedServices.get(dnsLowerCase(question.name));
-
-            if (service) {
-              answers.push(service.recordPTR());
-            }
+        if (destinations) {
+          for (const data of destinations) {
+            answers.push({
+              name: question.name, // the question is something like '_hap._tcp.local' or the meta query '_service._dns-sd._udp.local'
+              type: Type.PTR,
+              ttl: 4500, // 75 minutes
+              data: data,
+            });
           }
-        } else { // PTRQueryDomain
-          for (const service of this.announcedServices.values()) {
-            if (service.serviceDomain !== parsed.domain || service.protocol !== parsed.protocol || service.type !== parsed.type) {
-              continue;
-            }
 
-            if (service) {
-              answers.push(service.recordPTR());
-            }
+          // TODO we should do a known answer suppression 7. and duplicate answer suppression 7.4 (especially for the meta query)
+        } else { // it's maybe a string like "MyDevice._hap._tcp.local"
+          // we use the lowercase here as of RFC 1035 3.1. (dns names need to compared case insensitive)
+          const service = this.announcedServices.get(dnsLowerCase(question.name));
+
+          if (service) {
+            answers.push(service.recordTypePTR());
           }
         }
         break;
@@ -350,7 +396,7 @@ export class Responder implements PacketHandler {
         for (const service of this.announcedServices.values()) {
           const serviceAnswers = service.answerQuestion(question, rinfo);
           serviceAnswers.forEach(answer => {
-            if (answer.type !== Type.PTR) {
+            if (answer.type !== Type.PTR) { // PTR is a shared record, flush flag must be false for shared records
               answer.flush = true;
             }
           });

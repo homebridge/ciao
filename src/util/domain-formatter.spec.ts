@@ -1,4 +1,4 @@
-import {formatHostname, parseFQDN, stringifyFQDN} from "./domain-formatter";
+import {formatHostname, parseFQDN, stringify} from "./domain-formatter";
 import {Protocol} from "../index";
 import {ServiceType} from "../CiaoService";
 
@@ -69,16 +69,16 @@ describe("domain-formatter", () => {
 
   });
 
-  describe(stringifyFQDN, () => {
+  describe(stringify, () => {
     it("should stringify basic domain with defaults", () => {
-      expect(stringifyFQDN({
+      expect(stringify({
         name: "My Device",
         type: ServiceType.HAP,
       })).toStrictEqual("My Device._hap._tcp.local");
     });
 
     it("should stringify basic domain ", () => {
-      expect(stringifyFQDN({
+      expect(stringify({
         name: "My Device",
         type: ServiceType.AIRPLAY,
         protocol: Protocol.UDP,
@@ -87,7 +87,7 @@ describe("domain-formatter", () => {
     });
 
     it("should stringify ptr domain name", () => {
-      expect(stringifyFQDN({
+      expect(stringify({
         type: ServiceType.HAP,
       })).toStrictEqual("_hap._tcp.local");
     });

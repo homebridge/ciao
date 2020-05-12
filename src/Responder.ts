@@ -300,7 +300,7 @@ export class Responder implements PacketHandler {
         // check if we want to include additionals according to RFC 6764 12.
         serviceAnswers.forEach(answer => {
           if (answer.type === Type.PTR) { // RFC 6763 12.1.
-            const service = this.announcedServices.get(answer.data);
+            const service = this.announcedServices.get(dnsLowerCase(answer.data));
 
             if (service) {
               const adds: AnswerRecord[] = [service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA(rinfo)];
@@ -310,7 +310,7 @@ export class Responder implements PacketHandler {
               additionals.push(...adds);
             }
           } else if (answer.type === Type.SRV) { // RFC 6763 12.2.
-            const service = this.announcedServices.get(answer.name);
+            const service = this.announcedServices.get(dnsLowerCase(answer.name));
 
             if (service) {
               const adds: AnswerRecord[] = service.recordsAandAAAA(rinfo);

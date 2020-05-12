@@ -206,7 +206,7 @@ export class CiaoService extends EventEmitter {
    * Sets or updates the txt of the service
    * @param txt - the new txt record
    */
-  public updateTxt(txt: ServiceTxt): void {
+  public updateTxt(txt: ServiceTxt): void { // TODO maybe also return a promise?
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);

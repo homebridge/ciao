@@ -5,10 +5,10 @@
 [![Node-CI](https://github.com/homebridge/ciao/workflows/Node-CI/badge.svg)](https://github.com/homebridge/ciao/actions?query=workflow%3ANode-CI)
 [![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
 
-`ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) and compliant `dns-sd` library,
-advertised on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762#section-8)).
+`ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) compliant `dns-sd` library,
+advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762#section-8)).
 
-It is used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the 
+It is going to be used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the 
 [bonjour-hap](https://github.com/homebridge/bonjour) library, 
 aiming to be more robust, more maintainable and RFC compliant.
 
@@ -36,14 +36,16 @@ const service = responder.createService({
     name: 'My Web Server',
     type: 'http',
     port: 3000,
-    txt: {
+    txt: { // optional
       key: "value",
     }
 })
 
 
-service.advertise(); // this method will return a promise in the future
-//wait for the advertisment...
+service.advertise().then(() => {
+  // stuff you do when the service is published
+  console.log("Service is published :)");
+});
 
 // ....
 
@@ -53,7 +55,7 @@ service.updateTxt({
 
 // ....
 
-// remove advertisement. The service is now UNANNOUNCED.
-// But can be advertised again by calling the method metioned above
-service.end();
+service.end().then(() => {
+  // service is now UNANNOUNCED and can be published again
+});
 ```

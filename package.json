@@ -34,6 +34,12 @@
   "bugs": {
     "url": "https://github.com/homebridge/ciao/issues"
   },
+  "files": [
+    "lib",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "dependencies": {
     "@homebridge/dns-packet": "~5.4.0",
     "ip": "^1.1.5",

@@ -1,6 +1,6 @@
-import {formatHostname, parseFQDN, stringify} from "./domain-formatter";
-import {Protocol} from "../index";
-import {ServiceType} from "../CiaoService";
+import { formatHostname, parseFQDN, stringify } from "./domain-formatter";
+import { Protocol } from "../index";
+import { ServiceType } from "../CiaoService";
 
 describe("domain-formatter", () => {
   describe(parseFQDN, () => {

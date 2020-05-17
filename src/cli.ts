@@ -1,5 +1,5 @@
-import {ServiceType} from "./CiaoService";
-import {createResponder} from "./index";
+import { ServiceType } from "./CiaoService";
+import { createResponder } from "./index";
 
 // TODO remove this file, it's only used for testing currently
 
@@ -41,7 +41,7 @@ service.advertise().then(() => {
   console.log("Advertised service1");
   return serviceCopy.advertise();
 });
-
+/*
 const responder2 = createResponder();
 const service2 = responder.createService({
   name: "My Accessory",
@@ -60,10 +60,12 @@ const service2 = responder.createService({
   },
 });
 
-//service2.advertise();
+//service2.advertise();*/
 
 const exitHandler = (signal: number): void => {
-  Promise.all([responder.shutdown(), responder2.shutdown()])
+  Promise.all([responder.shutdown(),
+    //responder2.shutdown(),
+  ])
     .then(() => {
       process.exit(128 + signal);
     });

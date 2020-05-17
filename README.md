@@ -6,7 +6,8 @@
 [![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
 
 `ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) compliant `dns-sd` library,
-advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762#section-8)).
+advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762#section-8))
+implemented in plain Typescript/JavaScript.
 
 It is going to be used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the 
 [bonjour-hap](https://github.com/homebridge/bonjour) library, 

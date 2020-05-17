@@ -1,10 +1,9 @@
-import {MDNSServer} from "./MDNSServer";
-import {CiaoService} from "./CiaoService";
-import dnsPacket, {DecodedDnsPacket, Type} from "@homebridge/dns-packet";
-import {AddressInfo} from "net";
+import { EndpointInfo, MDNSServer } from "./MDNSServer";
+import { CiaoService } from "./CiaoService";
+import dnsPacket, { DecodedDnsPacket, Type } from "@homebridge/dns-packet";
 import dnsEqual from "./util/dns-equal";
 import * as tiebreaking from "./util/tiebreaking";
-import {TiebreakingResult} from "./util/tiebreaking";
+import { TiebreakingResult } from "./util/tiebreaking";
 import createDebug from "debug";
 import assert from "assert";
 import Timeout = NodeJS.Timeout;
@@ -134,7 +133,7 @@ export class Prober {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  handleResponse(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
+  handleResponse(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
     if (!this.sentFirstProbeQuery) {
       return;
     }
@@ -163,7 +162,7 @@ export class Prober {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  doTiebreaking(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
+  doTiebreaking(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
     }
@@ -180,7 +179,7 @@ export class Prober {
     }
     // now run the actual tiebreaking algorithm to decide the winner
 
-    debug("Detected simultaneous, conflicting probing request for '%s' on the network! Running Tiebreaking...", this.service.getFQDN());
+    // tiebreaking is actually run pretty often, as we always receive our own packets
 
     // first of all build our own records
     let answers = dnsPacket.decode( // we encode and decode the records so we get the rawData representation of our records which we need for the comparision
@@ -212,7 +211,7 @@ export class Prober {
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
       setTimeout(this.sendProbeRequest.bind(this), 1000);
     } else {
-      debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
+      //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
     }
   }
 

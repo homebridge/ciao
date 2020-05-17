@@ -1,7 +1,7 @@
 import assert from "assert";
-import net, {AddressInfo} from "net";
+import net, { AddressInfo } from "net";
 import * as domainFormatter from "./util/domain-formatter";
-import {Protocol} from "./index";
+import { EndpointInfo, Protocol } from "./index";
 import {
   AAAARecord,
   AnswerRecord,
@@ -13,9 +13,9 @@ import {
   TXTRecord,
   Type,
 } from "@homebridge/dns-packet";
-import {MDNSServer} from "./MDNSServer";
+import { MDNSServer } from "./MDNSServer";
 import dnsEqual from "./util/dns-equal";
-import {EventEmitter} from "events";
+import { EventEmitter } from "events";
 
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
 
@@ -283,7 +283,7 @@ export class CiaoService extends EventEmitter {
 
   // TODO handle renaming for hostname collisions
 
-  answerQuestion(question: QuestionRecord, rinfo: AddressInfo): AnswerRecord[] {
+  answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): AnswerRecord[] {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
@@ -296,7 +296,7 @@ export class CiaoService extends EventEmitter {
 
     // TODO we might optimize this a bit in terms of memory consumption, so we only build the required records
     const records: AnswerRecord[] = [
-      ...this.recordsAandAAAA(rinfo), this.recordTypePTR(), ...this.recordSubtypePTRs(), this.recordSRV(), this.recordTXT(),
+      ...this.recordsAandAAAA(endpoint), this.recordTypePTR(), ...this.recordSubtypePTRs(), this.recordSRV(), this.recordTXT(),
     ].filter(record => { // matching as defined in RFC 6762 6.
       if (record.type === Type.A) {
         hasARecord = true;
@@ -336,10 +336,10 @@ export class CiaoService extends EventEmitter {
     return records;
   }
 
-  recordsAandAAAA(rinfo?: AddressInfo): (ARecord | AAAARecord)[] {
+  recordsAandAAAA(endpoint?: EndpointInfo): (ARecord | AAAARecord)[] {
     const records: (ARecord | AAAARecord)[] = [];
 
-    const addresses = (this.addresses || MDNSServer.getAccessibleAddresses(rinfo));
+    const addresses = (this.addresses || MDNSServer.getAccessibleAddresses(endpoint));
 
     addresses.forEach(address => {
       records.push({

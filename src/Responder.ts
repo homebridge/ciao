@@ -1,6 +1,6 @@
-import {DnsResponse, MDNSServer, PacketHandler, ServerOptions} from "./MDNSServer";
-import {AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type} from "@homebridge/dns-packet";
-import {AddressInfo} from "net";
+import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, ServerOptions } from "./MDNSServer";
+import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
+import { AddressInfo } from "net";
 import {
   CiaoService,
   PublishCallback,
@@ -9,8 +9,8 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import {Prober} from "./Prober";
-import dnsEqual, {dnsLowerCase} from "./util/dns-equal";
+import { Prober } from "./Prober";
+import dnsEqual, { dnsLowerCase } from "./util/dns-equal";
 
 export class Responder implements PacketHandler {
 
@@ -253,7 +253,7 @@ export class Responder implements PacketHandler {
     // TODO implement
   }
 
-  handleQuery(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
+  handleQuery(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
     // TODO To protect the network against excessive packet flooding due to
     //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
     //    (except in the one special case of answering probe queries) multicast
@@ -293,7 +293,7 @@ export class Responder implements PacketHandler {
         proberNeedsTiebreaking = true;
       }
 
-      const serviceAnswers = this.answerQuestion(question, rinfo);
+      const serviceAnswers = this.answerQuestion(question, endpoint);
       answers.push(...serviceAnswers);
 
       if (question.type !== Type.ANY && question.type !== Type.CNAME) { // ANY or CNAME all records are included anyways
@@ -303,7 +303,7 @@ export class Responder implements PacketHandler {
             const service = this.announcedServices.get(dnsLowerCase(answer.data));
 
             if (service) {
-              const adds: AnswerRecord[] = [service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA(rinfo)];
+              const adds: AnswerRecord[] = [service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA(endpoint)];
               adds.forEach(answer => answer.flush = true);
               // TODO we may include negative response for A and AAAA
 
@@ -313,7 +313,7 @@ export class Responder implements PacketHandler {
             const service = this.announcedServices.get(dnsLowerCase(answer.name));
 
             if (service) {
-              const adds: AnswerRecord[] = service.recordsAandAAAA(rinfo);
+              const adds: AnswerRecord[] = service.recordsAandAAAA(endpoint);
               adds.forEach(answer => answer.flush = true);
               // TODO we may include negative response for A and AAAA
 
@@ -325,7 +325,7 @@ export class Responder implements PacketHandler {
     });
 
     if (proberNeedsTiebreaking) {
-      this.currentProber!.doTiebreaking(packet, rinfo);
+      this.currentProber!.doTiebreaking(packet, endpoint);
     }
 
     // TODO implement known answer suppression
@@ -344,7 +344,7 @@ export class Responder implements PacketHandler {
       additionals: additionals,
     };
 
-    if (rinfo.port !== 5353) { // TODO use a constant here?
+    if (endpoint.port !== MDNSServer.MDNS_PORT) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
       //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
       //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
@@ -363,14 +363,18 @@ export class Responder implements PacketHandler {
     }
 
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
-    this.server.sendResponse(response, unicastResponse? rinfo: undefined);
+    if (unicastResponse) {
+      this.server.sendResponse(response, endpoint);
+    } else {
+      this.server.sendResponse(response);
+    }
   }
 
-  handleResponse(packet: DecodedDnsPacket, rinfo: AddressInfo): void {
+  handleResponse(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
     // any questions in a response must be ignored RFC 6762 6.
 
     if (this.currentProber) { // if there is a probing process running currently, just forward all messages to it
-      this.currentProber.handleResponse(packet, rinfo);
+      this.currentProber.handleResponse(packet, endpoint);
     }
 
     // TODO conflict resolution if we detect a response with shares name, rrtype and rrclass but rdata is DIFFERENT!
@@ -383,7 +387,7 @@ export class Responder implements PacketHandler {
     //         will be retained for the desired time.
   }
 
-  private answerQuestion(question: QuestionRecord, rinfo: AddressInfo): AnswerRecord[] {
+  private answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): AnswerRecord[] {
     const answers: AnswerRecord[] = [];
 
     // RFC 6762 6: The determination of whether a given record answers a given question
@@ -423,7 +427,7 @@ export class Responder implements PacketHandler {
       }
       default:
         for (const service of this.announcedServices.values()) {
-          const serviceAnswers = service.answerQuestion(question, rinfo);
+          const serviceAnswers = service.answerQuestion(question, endpoint);
           serviceAnswers.forEach(answer => {
             if (answer.type !== Type.PTR) { // PTR is a shared record, flush flag must be false for shared records
               answer.flush = true;

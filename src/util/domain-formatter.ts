@@ -1,5 +1,5 @@
-import {Protocol} from "../index";
-import {ServiceType} from "../CiaoService";
+import { Protocol } from "../index";
+import { ServiceType } from "../CiaoService";
 import assert from "assert";
 
 function isProtocol(part: string): boolean {

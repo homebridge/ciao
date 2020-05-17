@@ -1,4 +1,4 @@
-import dnsPacket, {DecodedAnswerRecord} from "@homebridge/dns-packet"; // TODO use custom type?
+import dnsPacket, { DecodedAnswerRecord } from "@homebridge/dns-packet"; // TODO use custom type?
 
 /**
  * Comparator for two ResourceRecords according to RFC 6762 8.2. "Simultaneous ProbeTiebreaking":

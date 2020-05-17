@@ -1,5 +1,5 @@
-import dnsPacket, {AAAARecord, ARecord, Class, TXTRecord, Type} from "@homebridge/dns-packet";
-import {rrComparator, runTiebreaking, TiebreakingResult} from "./tiebreaking";
+import dnsPacket, { AAAARecord, ARecord, Class, TXTRecord, Type } from "@homebridge/dns-packet";
+import { rrComparator, runTiebreaking, TiebreakingResult } from "./tiebreaking";
 
 const aRecord0: ARecord = {
   name: "MyPrinter.local",

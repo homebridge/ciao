@@ -112,8 +112,6 @@ export class MDNSServer {
       promises.push(this.bindUnicastSocket(socket, name));
     }
 
-    console.log("Waiting for server to bind");
-
     return Promise.all(promises).then(() => {
       this.bound = true;
       // map void[] to void

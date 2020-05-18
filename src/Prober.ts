@@ -209,7 +209,8 @@ export class Prober {
 
       // wait 1 second and probe again (this is to guard against stale probe packets)
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
-      setTimeout(this.sendProbeRequest.bind(this), 1000);
+      setTimeout(this.sendProbeRequest.bind(this), 1000) // TODO check if prober was not shut down
+        .unref();
     } else {
       //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
     }

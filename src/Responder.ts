@@ -85,6 +85,7 @@ export class Responder implements PacketHandler {
 
     // TODO check if the server needs to be bound (for easier API) (also rebound)
 
+    // TODO is there a way where we can publish multiple services at the same time
     return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
       .then(() => this.probe(service))
       .then(() => this.announce(service))
@@ -201,8 +202,10 @@ export class Responder implements PacketHandler {
 
     return new Promise((resolve, reject) => {
       // minimum required is to send two unsolicited responses, one second apart
-      this.server.sendResponse({ answers: answers }, () => {
-        setTimeout(() => { // publish it a second time after 1 second
+      this.server.sendResponse({ answers: answers }, () => { // TODO this could already throw an error like below
+        const timer = setTimeout(() => { // publish it a second time after 1 second
+          // TODO check if service is still announced
+
           this.server.sendResponse({ answers: answers }, error => {
             if (error) {
               service.serviceState = ServiceState.UNANNOUNCED;
@@ -211,7 +214,10 @@ export class Responder implements PacketHandler {
               resolve();
             }
           });
-        }, 1000); // TODO we could announce up to 8 times in total (time between messages must increase by two every message)
+        }, 1000);
+        timer.unref();
+
+        // TODO we could announce up to 8 times in total (time between messages must increase by two every message)
       });
     });
   }

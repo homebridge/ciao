@@ -201,6 +201,8 @@ export class MDNSServer {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
 
+      socket.unref(); // socket won't prevent shutdown
+
       socket.bind(MDNSServer.MDNS_PORT, () => {
         socket.removeListener("error", errorHandler);
 
@@ -227,6 +229,8 @@ export class MDNSServer {
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
+
+      socket.unref(); // socket won't prevent shutdown
 
       // bind on random port
       socket.bind(() => {

@@ -1,11 +1,11 @@
-import { EndpointInfo, MDNSServer } from "./MDNSServer";
+import dnsPacket, { DecodedAnswerRecord, DecodedDnsPacket, Type } from "@homebridge/dns-packet";
+import assert from "assert";
+import createDebug from "debug";
 import { CiaoService } from "./CiaoService";
-import dnsPacket, { DecodedDnsPacket, Type } from "@homebridge/dns-packet";
+import { EndpointInfo, MDNSServer } from "./MDNSServer";
 import dnsEqual from "./util/dns-equal";
 import * as tiebreaking from "./util/tiebreaking";
-import { TiebreakingResult } from "./util/tiebreaking";
-import createDebug from "debug";
-import assert from "assert";
+import { rrComparator, TiebreakingResult } from "./util/tiebreaking";
 import Timeout = NodeJS.Timeout;
 
 const PROBE_INTERVAL = 250; // 250ms as defined in RFC 6762 8.1.
@@ -21,7 +21,9 @@ const debug = createDebug("ciao:Prober");
 export class Prober {
 
   private readonly server: MDNSServer;
-  readonly service: CiaoService;
+  private readonly service: CiaoService;
+
+  private records: DecodedAnswerRecord[] = [];
 
   private startTime?: number;
 
@@ -65,8 +67,8 @@ export class Prober {
       this.promiseResolve = resolve;
       this.promiseReject = reject;
 
-      setTimeout(this.sendProbeRequest.bind(this), Math.random() * PROBE_INTERVAL)
-        .unref();
+      this.timer = setTimeout(this.sendProbeRequest.bind(this), Math.random() * PROBE_INTERVAL);
+      this.timer.unref();
     });
   }
 
@@ -92,6 +94,17 @@ export class Prober {
   }
 
   private sendProbeRequest(): void {
+    if (this.sentQueries === 0) { // this is the first query sent, init some stuff
+      // we encode and decode the records so we get the rawData representation of our records which we need for the tiebreaking algorithm
+      this.records = dnsPacket.decode(dnsPacket.encode({
+        answers: [
+          this.service.srvRecord(), this.service.txtRecord(),
+          this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
+          ...this.service.allAddressRecords(),
+        ],
+      })).answers.sort(rrComparator); // we sort them fir the tiebreaking algorithm
+    }
+
     if (this.sentQueries >= 3) {
       // we sent three requests and it seems like we weren't canceled, so we have a success right here
       this.endProbing(true);
@@ -110,19 +123,22 @@ export class Prober {
 
     // TODO evaluate that if the user decides to cancel advertising probing is properly cancelled
 
-    this.server.sendQuery({ // TODO we should also include a record to probe uniqueness of the hostname
-      questions: [{
-        name: this.service.getFQDN(),
-        type: Type.ANY,
-        flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
-      }],
-      authorities: [ // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-        this.service.recordSRV(),
-        this.service.recordTXT(),
-        this.service.recordTypePTR(),
-        ...this.service.recordSubtypePTRs(),
-        ...this.service.recordsAandAAAA(),
+    assert(this.records.length > 0, "Tried sending probing request for zero record length!");
+
+    this.server.sendQuery({
+      questions: [
+        {
+          name: this.service.getFQDN(),
+          type: Type.ANY,
+          flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
+        },
+        {
+          name: this.service.getHostname(),
+          type: Type.ANY,
+          flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
+        },
       ],
+      authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
     }, () => {
       this.sentFirstProbeQuery = true;
       this.sentQueries++;
@@ -132,8 +148,7 @@ export class Prober {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  handleResponse(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
+  handleResponse(packet: DecodedDnsPacket): void {
     if (!this.sentFirstProbeQuery) {
       return;
     }
@@ -141,12 +156,12 @@ export class Prober {
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     packet.answers.forEach(record => {
-      if (dnsEqual(record.name, this.service.getFQDN())) { // TODO we should also check for hostname?
+      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         containsAnswer = true;
       }
     });
     packet.additionals.forEach(record => {
-      if (dnsEqual(record.name, this.service.getFQDN())) {
+      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         containsAnswer = true;
       }
     });
@@ -161,8 +176,27 @@ export class Prober {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  doTiebreaking(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
+  handleQuery(packet: DecodedDnsPacket): void {
+    if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
+      return;
+    }
+
+    // if we are currently probing and receiving a query which is also a probing query
+    // which matches the desired name we run the tiebreaking algorithm to decide on the winner
+    let needsTiebreaking = false;
+    packet.questions.forEach(question => {
+      if (dnsEqual(question.name, this.service.getFQDN()) || dnsEqual(question.name, this.service.getHostname())) {
+        needsTiebreaking = true;
+      }
+    });
+
+
+    if (needsTiebreaking) {
+      this.doTiebreaking(packet);
+    }
+  }
+
+  private doTiebreaking(packet: DecodedDnsPacket): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
     }
@@ -170,7 +204,7 @@ export class Prober {
     // first of all check if the contents of authorities answers our query
     let conflict = packet.authorities.length === 0;
     packet.authorities.forEach(record => {
-      if (dnsEqual(record.name, this.service.getFQDN())) { // TODO check for hostname conflicts
+      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         conflict = true;
       }
     });
@@ -182,21 +216,8 @@ export class Prober {
     // tiebreaking is actually run pretty often, as we always receive our own packets
 
     // first of all build our own records
-    let answers = dnsPacket.decode( // we encode and decode the records so we get the rawData representation of our records which we need for the comparision
-      dnsPacket.encode({
-        answers: [
-          this.service.recordSRV(), this.service.recordTXT(),
-          this.service.recordTypePTR(),
-          ...this.service.recordSubtypePTRs(),
-          ...this.service.recordsAandAAAA(),
-        ],
-      }),
-    ).answers;
-    let opponent = packet.authorities;
-
-    // now sort all records
-    answers = answers.sort(tiebreaking.rrComparator);
-    opponent = opponent.sort(tiebreaking.rrComparator);
+    const answers = this.records; // already sorted
+    const opponent = packet.authorities.sort(tiebreaking.rrComparator);
 
     const result = tiebreaking.runTiebreaking(answers, opponent);
 
@@ -209,8 +230,8 @@ export class Prober {
 
       // wait 1 second and probe again (this is to guard against stale probe packets)
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
-      setTimeout(this.sendProbeRequest.bind(this), 1000) // TODO check if prober was not shut down
-        .unref();
+      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000); // TODO check if prober was not shut down
+      this.timer.unref();
     } else {
       //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
     }

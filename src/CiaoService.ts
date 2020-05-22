@@ -1,23 +1,21 @@
-import assert from "assert";
-import net, { AddressInfo } from "net";
-import * as domainFormatter from "./util/domain-formatter";
-import { EndpointInfo, Protocol } from "./index";
 import {
   AAAARecord,
   AnswerRecord,
   ARecord,
-  NSECRecord,
   PTRRecord,
-  QuestionRecord,
+  RecordBase,
   SRVRecord,
   TXTRecord,
   Type,
 } from "@homebridge/dns-packet";
-import { MDNSServer } from "./MDNSServer";
-import dnsEqual from "./util/dns-equal";
+import assert from "assert";
 import { EventEmitter } from "events";
+import { Protocol } from "./index";
+import { NetworkManager } from "./NetworkManager";
+import * as domainFormatter from "./util/domain-formatter";
 
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
+const numberedHostnamePattern = /^(.*)-(\d+)(\.\w{2,})$/; // matches a hostname like "My-Computer-2.local" TODO host pattern
 
 /**
  * This enum defines some commonly used service types.
@@ -98,6 +96,15 @@ export const enum ServiceState {
   ANNOUNCED = "announced",
 }
 
+export interface ServiceRecords {
+  ptr: PTRRecord; // this is the main type ptr record
+  subtypePTRs?: PTRRecord[];
+  srv: SRVRecord;
+  txt: TXTRecord;
+  a: Record<string, ARecord>;
+  aaaa: Record<string, AAAARecord[]>;
+}
+
 export const enum ServiceEvent {
   UPDATED = "updated",
   PUBLISH = "publish",
@@ -122,6 +129,8 @@ export declare interface CiaoService {
 
 export class CiaoService extends EventEmitter {
 
+  private readonly networkManager: NetworkManager;
+
   name: string; // TODO maybe private with getters?
   private readonly type: ServiceType | string;
   private readonly subTypes?: string[];
@@ -132,21 +141,26 @@ export class CiaoService extends EventEmitter {
   private readonly typePTR: string;
   private readonly subTypePTRs?: string[];
 
-  readonly hostname: string;
+  private hostname: string; // formatted hostname
   readonly port: number;
-  private readonly addresses?: string[]; // user defined set of A and AAAA records
+  // TODO private readonly addresses?: string[]; // user defined set of A and AAAA records // TODO remove this again
 
   private txt?: Buffer[];
 
   serviceState = ServiceState.UNANNOUNCED; // this field is entirely controlled by the Responder class
+  private serviceRecords: ServiceRecords;
 
-  constructor(options: ServiceOptions) {
+  constructor(networkManager: NetworkManager, options: ServiceOptions) {
     super();
+    assert(networkManager, "networkManager is required");
     assert(options, "parameters options is required");
     assert(options.name, "service options parameter 'name' is required");
     assert(options.type, "service options parameter 'type' is required");
     assert(options.port, "service options parameter 'port' is required");
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
+
+    this.networkManager = networkManager;
+    // TODO support change listener
 
     this.name = options.name;
     this.type = options.type;
@@ -178,12 +192,14 @@ export class CiaoService extends EventEmitter {
     this.port = options.port;
 
     if (options.addresses) {
-      this.addresses = Array.isArray(options.addresses)? options.addresses: [options.addresses];
+      // TODO this.addresses = Array.isArray(options.addresses)? options.addresses: [options.addresses];
     }
 
     if (options.txt) {
       this.txt = CiaoService.txtBuffersFromRecord(options.txt);
     }
+
+    this.serviceRecords = this.rebuildServiceRecords(); // build the initial set of records
   }
 
   private formatFQDN(): string {
@@ -210,8 +226,11 @@ export class CiaoService extends EventEmitter {
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);
-    // TODO only emit when the service is published
-    this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
+
+    if (this.serviceState === ServiceState.ANNOUNCED) {
+      this.rebuildServiceRecords();
+      this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
+    }
   }
 
   public advertise(): Promise<void> {
@@ -238,6 +257,10 @@ export class CiaoService extends EventEmitter {
     return this.subTypePTRs;
   }
 
+  public getHostname(): string {
+    return this.hostname;
+  }
+
   private static txtBuffersFromRecord(txt: ServiceTxt): Buffer[] {
     const result: Buffer[] = [];
 
@@ -258,117 +281,98 @@ export class CiaoService extends EventEmitter {
     // TODO check if we are in a correct state
 
     let nameBase;
-    let number;
+    let nameNumber;
 
-    const matcher = this.name.match(numberedServiceNamePattern);
+    let hostnameBase;
+    let hostnameTLD;
+    let hostnameNumber;
 
-    if (matcher) { // if it matched. Extract the current number
-      nameBase = matcher[1];
-      number = parseInt(matcher[2]);
+    const nameMatcher = this.name.match(numberedServiceNamePattern);
+    if (nameMatcher) { // if it matched. Extract the current nameNumber
+      nameBase = nameMatcher[1];
+      nameNumber = parseInt(nameMatcher[2]);
 
-      assert(number, "Failed to extract number from " + this.name + ". Resulted in " + number);
+      assert(nameNumber, `Failed to extract name number from ${this.name}. Resulted in ${nameNumber}`);
     } else {
       nameBase = this.name;
-      number = 1;
+      nameNumber = 1;
     }
 
-    number++; // increment the number
+    const hostnameMatcher = this.hostname.match(numberedHostnamePattern);
+    if (hostnameMatcher) { // if it matched. Extract the current nameNumber
+      hostnameBase = hostnameMatcher[1];
+      hostnameTLD = hostnameMatcher[3];
+      hostnameNumber = parseInt(hostnameMatcher[2]);
+
+      assert(hostnameNumber, `Failed to extract hostname number from ${this.hostname}. Resulted in ${hostnameNumber}`);
+    } else {
+      const lastDot = this.hostname.lastIndexOf(".");
+
+      hostnameBase = this.hostname.slice(0, lastDot);
+      hostnameTLD = this.hostname.slice(lastDot);
+      hostnameNumber = 1;
+    }
+
+    // increment the numbers
+    nameNumber++;
+    hostnameNumber++;
+
+    const newNumber = Math.max(nameNumber, hostnameNumber);
 
     // reassemble the name
-    this.name = nameBase + " (" + number + ")";
-    // update the fqdn
-    this.fqdn = this.formatFQDN();
-    // TODO adjust the hostname accordingly (needs custom increment)
+    this.name = `${nameBase} (${newNumber})`;
+    this.hostname = `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+
+    this.fqdn = this.formatFQDN(); // update the fqdn
+
+    this.rebuildServiceRecords(); // rebuild all services
   }
 
-  // TODO handle renaming for hostname collisions
+  private rebuildServiceRecords(): ServiceRecords {
+    const aRecordMap: Record<string, ARecord> = {};
+    const aaaaRecordMap: Record<string, AAAARecord[]> = {};
+    let subtypePTRs: PTRRecord[] | undefined = undefined;
 
-  answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): AnswerRecord[] {
-    // This assumes to be called from answerQuestion inside the Responder class and thus that certain
-    // preconditions or special cases are already covered.
-    // For one we assume classes are already matched.
-
-    const askingAny = question.type === Type.ANY || question.type === Type.CNAME; // we need that quite often below
-
-    // capture exitence for those records to answer with a negative response if those do not exist
-    let hasARecord = false;
-    let hasAAAARecord = false;
-
-    // TODO we might optimize this a bit in terms of memory consumption, so we only build the required records
-    const records: AnswerRecord[] = [
-      ...this.recordsAandAAAA(endpoint), this.recordTypePTR(), ...this.recordSubtypePTRs(), this.recordSRV(), this.recordTXT(),
-    ].filter(record => { // matching as defined in RFC 6762 6.
-      if (record.type === Type.A) {
-        hasARecord = true;
-      } else if (record.type === Type.AAAA) {
-        hasAAAARecord = true;
+    for (const networkInterfaces of this.networkManager.getInterfaces()) {
+      if (networkInterfaces.ipv4) {
+        aRecordMap[networkInterfaces.name] = {
+          name: this.hostname,
+          type: Type.A,
+          ttl: 120,
+          data: networkInterfaces.ipv4,
+        };
       }
 
-      return (askingAny || question.type === record.type) // match type equality
-        && dnsEqual(question.name, record.name); // match name equality
-    });
-
-    // eslint-disable-next-line
-    if (false && (!hasARecord || !hasAAAARecord)) {
-      // TODO NSEC is currently broken in dns-packet
-      // add negative response as defined in RFC 6762 6.1 for record
-      // we know we have the owner ship for, but which don't exist
-
-      const nsec: NSECRecord = {
-        name: this.fqdn,
-        type: Type.NSEC,
-        ttl: 120, // use the ttl of A/AAAA
-        nextDomain: this.fqdn,
-        rrtypes: [],
-      };
-
-      if (!hasARecord && (askingAny || question.type === Type.A)) {
-        nsec.rrtypes.push(Type.A);
-      }
-      if (!hasAAAARecord && (askingAny || question.type === Type.AAAA)) {
-        nsec.rrtypes.push(Type.AAAA);
+      if (networkInterfaces.ipv6) {
+        aaaaRecordMap[networkInterfaces.name] = [{
+          name: this.hostname,
+          type: Type.AAAA,
+          ttl: 120,
+          data: networkInterfaces.ipv6,
+        }];
       }
 
-      console.log("Adding nsec " + nsec); // TODO remove
-      records.push(nsec);
+      if (networkInterfaces.routeAbleIpv6) {
+        let records = aaaaRecordMap[networkInterfaces.name];
+        if (!records) {
+          aaaaRecordMap[networkInterfaces.name] = records = [];
+        }
+
+        for (const ip6 of networkInterfaces.routeAbleIpv6) {
+          records.push({
+            name: this.hostname,
+            type: Type.AAAA,
+            ttl: 120,
+            data: ip6.address,
+          });
+        }
+      }
     }
 
-    return records;
-  }
-
-  recordsAandAAAA(endpoint?: EndpointInfo): (ARecord | AAAARecord)[] {
-    const records: (ARecord | AAAARecord)[] = [];
-
-    const addresses = (this.addresses || MDNSServer.getAccessibleAddresses(endpoint));
-
-    addresses.forEach(address => {
-      records.push({
-        name: this.hostname,
-        type: net.isIPv4(address)? Type.A: Type.AAAA,
-        ttl: 120,
-        data: address,
-      });
-    });
-
-    return records;
-  }
-
-
-  recordTypePTR(): PTRRecord {
-    return {
-      name: this.typePTR,
-      type: Type.PTR,
-      ttl: 4500, // 75 minutes
-      data: this.fqdn,
-    };
-  }
-
-  recordSubtypePTRs(): PTRRecord[] {
-    const records: PTRRecord[] = [];
-
     if (this.subTypePTRs) {
+      subtypePTRs = [];
       for (const ptr of this.subTypePTRs) {
-        records.push({
+        subtypePTRs.push({
           name: ptr,
           type: Type.PTR,
           ttl: 4500, // 75 minutes
@@ -377,28 +381,90 @@ export class CiaoService extends EventEmitter {
       }
     }
 
+    return this.serviceRecords = {
+      ptr: {
+        name: this.typePTR,
+        type: Type.PTR,
+        ttl: 4500, // 75 minutes
+        data: this.fqdn,
+      },
+      subtypePTRs: subtypePTRs, // possibly undefined
+      srv: {
+        name: this.fqdn,
+        type: Type.SRV,
+        ttl: 120,
+        data: {
+          target: this.hostname,
+          port: this.port,
+        },
+      },
+      txt: {
+        name: this.fqdn,
+        type: Type.TXT,
+        ttl: 4500, // 75 minutes // TODO previously we got 120?
+        data: this.txt || [],
+      },
+      a: aRecordMap,
+      aaaa: aaaaRecordMap,
+    };
+  }
+
+  ptrRecord(): PTRRecord {
+    return CiaoService.copyRecord(this.serviceRecords.ptr);
+  }
+
+  subtypePtrRecords(): PTRRecord[] {
+    return this.serviceRecords.subtypePTRs? CiaoService.copyRecords(this.serviceRecords.subtypePTRs): [];
+  }
+
+  srvRecord(): SRVRecord {
+    return CiaoService.copyRecord(this.serviceRecords.srv);
+  }
+
+  txtRecord(): TXTRecord {
+    return CiaoService.copyRecord(this.serviceRecords.txt);
+  }
+
+  aRecord(networkInterface: string): ARecord | undefined {
+    const record = this.serviceRecords.a[networkInterface];
+    return record? CiaoService.copyRecord(record): undefined;
+  }
+
+  aaaaRecords(networkInterface: string): AAAARecord[] | undefined {
+    const records = this.serviceRecords.aaaa[networkInterface];
+    return records? CiaoService.copyRecords(records): undefined;
+  }
+
+  allAddressRecords(): (ARecord | AAAARecord)[] {
+    const records: (ARecord | AAAARecord)[] = [];
+
+    records.push(...CiaoService.copyRecords(Object.values(this.serviceRecords.a)));
+    Object.values(this.serviceRecords.aaaa).forEach(recordArray => {
+      records.push(...CiaoService.copyRecords(recordArray));
+    });
+
     return records;
   }
 
-  recordSRV(): SRVRecord {
+  private static copyRecord<T extends RecordBase>(record: T): T {
+    // eslint-disable-next-line
+    // @ts-ignore
     return {
-      name: this.fqdn,
-      type: Type.SRV,
-      ttl: 120,
-      data: {
-        target: this.hostname,
-        port: this.port,
-      },
+      name: record.name,
+      type: record.type,
+      ttl: record.ttl,
+      data: record.data,
+      class: record.class,
     };
   }
 
-  recordTXT(): TXTRecord {
-    return {
-      name: this.fqdn,
-      type: Type.TXT,
-      ttl: 4500, // 75 minutes TODO previously we got 120?
-      data: this.txt || [],
-    };
+  private static copyRecords<T extends RecordBase>(records: T[]): T[] {
+    const result: T[] = [];
+    for (const record of records) {
+      result.push(CiaoService.copyRecord(record));
+    }
+
+    return result;
   }
 
 }

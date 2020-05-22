@@ -97,6 +97,7 @@ declare module "@homebridge/dns-packet" {
     RCODE_15 = "RCODE_15",
   }
 
+  // noinspection JSUnusedGlobalSymbols
   export const enum OptionCode {
     // noinspection JSUnusedGlobalSymbols
     OPTION_0 = "OPTION_0",
@@ -105,7 +106,7 @@ declare module "@homebridge/dns-packet" {
     NSID = "NSID",
     OPTION_4 = "OPTION_4",
     DAU = "DAU",
-    "DHU" = "DHU",
+    DHU = "DHU",
     N3U = "N3U",
     CLIENT_SUBNET = "CLIENT_SUBNET",
     EXPIRE = "EXPIRE",
@@ -119,8 +120,8 @@ declare module "@homebridge/dns-packet" {
   }
 
   export type QuestionRecord = {
-    type: Type,
-    name: string,
+    type: Type;
+    name: string;
     class?: Class; // qclass, default IN
     flag_qu?: boolean; // unicast response bit
   }
@@ -140,6 +141,8 @@ declare module "@homebridge/dns-packet" {
     name: string;
     class?: Class; // rrclass, default IN
     ttl?: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: any;
   }
 
   export interface ARecord extends RecordBase {
@@ -180,10 +183,12 @@ declare module "@homebridge/dns-packet" {
     data: string | Buffer | (string | Buffer)[]; // when decoding value will always be Buffer array
   }
 
-  export interface NSECRecord extends RecordBase { // negatvie response record
-    type: Type.NSEC,
-    nextDomain: string,
-    rrtypes: Type[],
+  export interface NSECRecord extends RecordBase { // negative response record
+    type: Type.NSEC;
+    data: {
+      nextDomain: string;
+      rrtypes: Type[];
+    };
   }
 
   export interface DecodedDnsPacket {

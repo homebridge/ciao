@@ -1,8 +1,8 @@
-import os, { NetworkInterfaceInfo } from "os";
-import * as systemInformation from "systeminformation";
-import { EventEmitter } from "events";
 import assert from "assert";
 import crypto from "crypto";
+import { EventEmitter } from "events";
+import os, { NetworkInterfaceInfo } from "os";
+import * as systemInformation from "systeminformation";
 
 export interface NetworkInterface {
   name: string;
@@ -10,9 +10,16 @@ export interface NetworkInterface {
 
   // one of ipv4 or ipv6 will be present, most of the time even both
   ipv4?: string;
-  ipv4Subnet?: string;
+  ipv4Netmask?: string;
   ipv6?: string;
-  ipv6Subnet?: string;
+  ipv6Netmask?: string;
+
+  routeAbleIpv6?: NetworkAddress[];
+}
+
+export interface NetworkAddress {
+  address: string;
+  netmask: string;
 }
 
 
@@ -173,6 +180,7 @@ export class NetworkManager extends EventEmitter {
 
       let ipv4Info: NetworkInterfaceInfo | undefined = undefined;
       let ipv6Info: NetworkInterfaceInfo | undefined = undefined;
+      let routableIpv6Infos: NetworkAddress[] | undefined = undefined;
       let internal = false;
 
       for (const info of infoArray) {
@@ -186,6 +194,11 @@ export class NetworkManager extends EventEmitter {
         } else if (info.family === "IPv6" && !ipv6Info) {
           if (info.scopeid) { // we only care about non zero scope (aka link-local ipv6)
             ipv6Info = info;
+          } else if (info.scopeid === 0) { // global routable ipv6
+            (routableIpv6Infos || (routableIpv6Infos = [])).push({
+              address: info.address,
+              netmask: info.netmask,
+            });
           }
         }
 
@@ -204,10 +217,12 @@ export class NetworkManager extends EventEmitter {
         mac: (ipv4Info?.mac || ipv6Info?.mac)!,
 
         ipv4: ipv4Info?.address,
-        ipv4Subnet: ipv4Info?.netmask,
+        ipv4Netmask: ipv4Info?.netmask,
 
         ipv6: ipv6Info?.address,
-        ipv6Subnet: ipv6Info?.netmask,
+        ipv6Netmask: ipv6Info?.netmask,
+
+        routeAbleIpv6: routableIpv6Infos,
       });
     });
 

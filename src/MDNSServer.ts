@@ -1,4 +1,3 @@
-import dgram, { Socket } from "dgram";
 import dnsPacket, {
   AnswerRecord,
   DecodedDnsPacket,
@@ -7,10 +6,10 @@ import dnsPacket, {
   QuestionRecord,
   RCode,
 } from "@homebridge/dns-packet";
+import assert from "assert";
+import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
 import { IPFamily } from "./index";
-import assert from "assert";
-import os from "os";
 import { NetworkChange, NetworkManager } from "./NetworkManager";
 
 export interface DnsResponse {
@@ -37,7 +36,7 @@ export interface EndpointInfo {
   interface: string;
 }
 
-export type SendCallback = (error: Error | null) => void;
+export type SendCallback = (error?: Error | null) => void;
 
 // eslint-disable-next-line
 export interface ServerOptions {
@@ -99,6 +98,10 @@ export class MDNSServer {
       this.multicastSockets.set(name, multicast);
       this.unicastSockets.set(name, unicast);
     }
+  }
+
+  public getNetworkManager(): NetworkManager {
+    return this.networkManager;
   }
 
   public async bind(): Promise<void> {
@@ -169,15 +172,50 @@ export class MDNSServer {
 
     const address = endpoint?.address || MDNSServer.MULTICAST_IPV4; // TODO support for ipv6
     const port = endpoint?.port || MDNSServer.MDNS_PORT;
-    const outInterface = endpoint?.interface || this.networkManager.getDefaultNetworkInterface();
-
-    const socket = socketMap.get(outInterface);
-    assert(socket, "Could not find socket for given interface '" + outInterface + "'");
+    const networkInterface = endpoint?.interface;
 
     // TODO check how many answers can fit into one packet
 
-    socket!.send(message, port, address, callback);
-    // TODO if no callback is supplied error event is raised (should we raise the event anyways and not rely on users to handle errors correctly?)
+    if (networkInterface) {
+      const socket = socketMap.get(networkInterface);
+      assert(socket, `Could not find socket for given interface '${networkInterface}'`);
+
+      // TODO if no callback is supplied error event is raised (should we raise the event anyways and not rely on users to handle errors correctly?)
+      socket!.send(message, port, address, callback);
+    } else {
+      let socketCompletionCounter = 0;
+      const encounteredErrors: Error[] = [];
+
+      /*
+       * We are sending the packet from every socket we have bound, meaning on every interface.
+       * Typically a device is connected to multiple interfaces if it participates in multiple networks.
+       * There is also the case where we are connected to the same network more than one time, for example
+       * over Ethernet and Wifi. In that case we will send packets twice, but we can't really detect that scenario.
+       */
+      for (const socket of socketMap.values()) {
+        // TODO add ability to announce certain A and AAAA records only on certain sockets
+
+        // TODO if no callback is supplied error event is raised (should we raise the event anyways and not rely on users to handle errors correctly?)
+        socket.send(message, port, address, error => {
+          if (!callback) {
+            return;
+          }
+
+          socketCompletionCounter++;
+          if (error) {
+            encounteredErrors.push(error);
+          }
+
+          if (socketCompletionCounter === socketMap.size) {
+            if (encounteredErrors.length > 0) {
+              callback(new Error("Socket errors: " + encounteredErrors.map(error => error.stack).join(":")));
+            } else {
+              callback();
+            }
+          }
+        });
+      }
+    }
   }
 
   private createDgramSocket(interfaceName: string, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
@@ -200,8 +238,6 @@ export class MDNSServer {
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
-
-      socket.unref(); // socket won't prevent shutdown
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
         socket.removeListener("error", errorHandler);
@@ -229,8 +265,6 @@ export class MDNSServer {
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
-
-      socket.unref(); // socket won't prevent shutdown
 
       // bind on random port
       socket.bind(() => {
@@ -338,34 +372,6 @@ export class MDNSServer {
         });
       });
     }
-  }
-
-  public static getAccessibleAddresses(endpoint?: EndpointInfo): string[] {
-    const addresses: string[] = [];
-
-    // TODO only include addresses in the same subnet like the requestor(?)
-
-    // in theory we should only return addresses which are on the same interface
-    // as the request came in. But we have no way of getting that information with node
-    Object.values(os.networkInterfaces()).forEach(interfaces => {
-      interfaces.forEach(interfaceInfo => {
-        // RFC 6762 6.2. reads like we include everything also, ipv6 link-local addresses
-        if (interfaceInfo.internal || addresses.includes(interfaceInfo.address)) {
-          // TODO we may also include loopback addresses if the originator is localhost
-          return;
-        }
-
-        /* TODO investigate this futher on how to properly expose our available interfaces
-        if (rinfo && ip.subnet(interfaceInfo.address, interfaceInfo.netmask).contains(rinfo.address)) {
-          return;
-        }
-         */
-
-        addresses.push(interfaceInfo.address);
-      });
-    });
-
-    return addresses;
   }
 
 }

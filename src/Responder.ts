@@ -1,16 +1,22 @@
-import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, ServerOptions } from "./MDNSServer";
 import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
-import { AddressInfo } from "net";
+import assert from "assert";
 import {
   CiaoService,
   PublishCallback,
   ServiceEvent,
   ServiceOptions,
+  ServiceRecords,
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
+import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, ServerOptions } from "./MDNSServer";
 import { Prober } from "./Prober";
 import dnsEqual, { dnsLowerCase } from "./util/dns-equal";
+
+interface CalculatedAnswer {
+  answers: AnswerRecord[];
+  additionals: AnswerRecord[];
+}
 
 export class Responder implements PacketHandler {
 
@@ -40,7 +46,7 @@ export class Responder implements PacketHandler {
   }
 
   public createService(options: ServiceOptions): CiaoService {
-    const service = new CiaoService(options);
+    const service = new CiaoService(this.server.getNetworkManager(), options);
 
     service.on(ServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
     service.on(ServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
@@ -168,6 +174,7 @@ export class Responder implements PacketHandler {
 
     service.serviceState = ServiceState.PROBING;
 
+    assert(this.currentProber === undefined, "Tried creating new Prober when there already was one active!");
     this.currentProber = new Prober(this.server, service);
     return this.currentProber.probe()
       .then(() => {
@@ -186,9 +193,9 @@ export class Responder implements PacketHandler {
     }
 
     const answers: AnswerRecord[] = recordOverride || [
-      service.recordTypePTR(), ...service.recordSubtypePTRs(),
-      service.recordSRV(), service.recordTXT(),
-      ...service.recordsAandAAAA(),
+      service.ptrRecord(), ...service.subtypePtrRecords(),
+      service.srvRecord(), service.txtRecord(),
+      ...service.allAddressRecords(),
     ];
 
     // TODO A and AAAA published as additional records (really?)
@@ -230,7 +237,7 @@ export class Responder implements PacketHandler {
 
     switch (type) {
       case Type.TXT: // the only updated thing we support right now are txt changes
-        return this.announce(service, [service.recordTXT()]);
+        return this.announce(service, [service.txtRecord()]);
       // TODO support A and AAAA updates
     }
 
@@ -239,9 +246,9 @@ export class Responder implements PacketHandler {
 
   private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
     const answers: AnswerRecord[] = recordOverride || [
-      service.recordTypePTR(), ...service.recordSubtypePTRs(),
-      service.recordSRV(), service.recordTXT(),
-      ...service.recordsAandAAAA(),
+      service.ptrRecord(), ...service.subtypePtrRecords(),
+      service.srvRecord(), service.txtRecord(),
+      ...service.allAddressRecords(),
     ];
     // TODO do we need to track which A and AAAA were sent previously for sending a goodbye? (seems like it, see below)
 
@@ -270,12 +277,9 @@ export class Responder implements PacketHandler {
     const answers: AnswerRecord[] = [];
     const additionals: AnswerRecord[] = [];
 
-    // TODO probe queries have proposed records in the authority section
-
-    // eslint-disable-next-line
-    let delayResponse = false; // TODO describe and set
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const delayResponse = false; // TODO describe and set
     let unicastResponse = false;
-    let proberNeedsTiebreaking = false;
 
     // TODO for query messages containing more than one question, all
     //    (non-defensive) answers SHOULD be randomly delayed in the range
@@ -293,45 +297,14 @@ export class Responder implements PacketHandler {
         unicastResponse = true;
       }
 
-      if (this.currentProber && dnsEqual(this.currentProber.service.getFQDN(), question.name)) {
-        // if we are currently probing and receiving a query which is also a probing query
-        // which matches the desired name we run the tiebreaking algorithm to decide on the winner
-        proberNeedsTiebreaking = true;
-      }
+      const answer = this.answerQuestion(question, endpoint);
 
-      const serviceAnswers = this.answerQuestion(question, endpoint);
-      answers.push(...serviceAnswers);
-
-      if (question.type !== Type.ANY && question.type !== Type.CNAME) { // ANY or CNAME all records are included anyways
-        // check if we want to include additionals according to RFC 6764 12.
-        serviceAnswers.forEach(answer => {
-          if (answer.type === Type.PTR) { // RFC 6763 12.1.
-            const service = this.announcedServices.get(dnsLowerCase(answer.data));
-
-            if (service) {
-              const adds: AnswerRecord[] = [service.recordSRV(), service.recordTXT(), ...service.recordsAandAAAA(endpoint)];
-              adds.forEach(answer => answer.flush = true);
-              // TODO we may include negative response for A and AAAA
-
-              additionals.push(...adds);
-            }
-          } else if (answer.type === Type.SRV) { // RFC 6763 12.2.
-            const service = this.announcedServices.get(dnsLowerCase(answer.name));
-
-            if (service) {
-              const adds: AnswerRecord[] = service.recordsAandAAAA(endpoint);
-              adds.forEach(answer => answer.flush = true);
-              // TODO we may include negative response for A and AAAA
-
-              additionals.push(...adds);
-            }
-          }
-        });
-      }
+      answers.push(...answer.answers);
+      additionals.push(...answer.additionals);
     });
 
-    if (proberNeedsTiebreaking) {
-      this.currentProber!.doTiebreaking(packet, endpoint);
+    if (this.currentProber) {
+      this.currentProber.handleQuery(packet);
     }
 
     // TODO implement known answer suppression
@@ -343,6 +316,17 @@ export class Responder implements PacketHandler {
       // We do this for A and AAAA records. But for the rest we can't be sure i guess?
       return;
     }
+
+    answers.forEach(answer => {
+      if (answer.type !== Type.PTR) { // PTR records are the only shared records we have
+        answer.flush = true; // for all unique records we set the flush flag
+      }
+    });
+    additionals.forEach(answer => {
+      if (answer.type !== Type.PTR) { // PTR records are the only shared records we have
+        answer.flush = true; // for all unique records we set the flush flag
+      }
+    });
 
     const response: DnsResponse = {
       // responses must not include questions RFC 6762 6.
@@ -376,11 +360,12 @@ export class Responder implements PacketHandler {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
     // any questions in a response must be ignored RFC 6762 6.
 
     if (this.currentProber) { // if there is a probing process running currently, just forward all messages to it
-      this.currentProber.handleResponse(packet, endpoint);
+      this.currentProber.handleResponse(packet);
     }
 
     // TODO conflict resolution if we detect a response with shares name, rrtype and rrclass but rdata is DIFFERENT!
@@ -393,8 +378,11 @@ export class Responder implements PacketHandler {
     //         will be retained for the desired time.
   }
 
-  private answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): AnswerRecord[] {
+  private answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): CalculatedAnswer {
     const answers: AnswerRecord[] = [];
+    const additionals: AnswerRecord[] = [];
+
+    const collectedAnswers: CalculatedAnswer[] = [];
 
     // RFC 6762 6: The determination of whether a given record answers a given question
     //    is made using the standard DNS rules: the record name must match the
@@ -403,11 +391,15 @@ export class Responder implements PacketHandler {
     //    rrclass must match the question qclass unless the qclass is "ANY" (255).
 
     if (question.class !== Class.IN && question.class !== Class.ANY) {
-      return answers; // We just publish answers with IN class. So only IN or ANY questions classes wil match
+      // We just publish answers with IN class. So only IN or ANY questions classes will match
+      return {
+        answers: answers,
+        additionals: [],
+      };
     }
 
     switch (question.type) {
-      case Type.PTR: { // SubTypedNameDomain
+      case Type.PTR: {
         const destinations = this.servicePointer.get(dnsLowerCase(question.name)); // look up the pointer
 
         if (destinations) {
@@ -421,31 +413,158 @@ export class Responder implements PacketHandler {
           }
 
           // TODO we should do a known answer suppression 7. and duplicate answer suppression 7.4 (especially for the meta query)
+
         } else { // it's maybe a string like "MyDevice._hap._tcp.local"
-          // we use the lowercase here as of RFC 1035 3.1. (dns names need to compared case insensitive)
           const service = this.announcedServices.get(dnsLowerCase(question.name));
 
           if (service) {
-            answers.push(service.recordTypePTR());
+            collectedAnswers.push(Responder.answerServiceQuestion(service, question, endpoint));
           }
         }
         break;
       }
       default:
         for (const service of this.announcedServices.values()) {
-          const serviceAnswers = service.answerQuestion(question, endpoint);
-          serviceAnswers.forEach(answer => {
-            if (answer.type !== Type.PTR) { // PTR is a shared record, flush flag must be false for shared records
-              answer.flush = true;
-            }
-          });
-
-          answers.push(...serviceAnswers);
+          const serviceAnswer = Responder.answerServiceQuestion(service, question, endpoint);
+          collectedAnswers.push(serviceAnswer);
         }
         break;
     }
 
-    return answers;
+    for (const answer of collectedAnswers) {
+      answers.push(...answer.answers);
+      additionals.push(...answer.additionals);
+    }
+
+    return {
+      answers: answers,
+      additionals: additionals,
+    };
+  }
+
+  private static answerServiceQuestion(service: CiaoService, question: QuestionRecord, endpoint: EndpointInfo): CalculatedAnswer {
+    // This assumes to be called from answerQuestion inside the Responder class and thus that certain
+    // preconditions or special cases are already covered.
+    // For one we assume classes are already matched.
+
+    const answers: AnswerRecord[] = [];
+    const additionals: AnswerRecord[] = [];
+
+    const questionName = dnsLowerCase(question.name);
+    const askingAny = question.type === Type.ANY || question.type === Type.CNAME;
+
+    // RFC 6762 6.2. In the event that a device has only IPv4 addresses but no IPv6
+    //    addresses, or vice versa, then the appropriate NSEC record SHOULD be
+    //    placed into the additional section, so that queriers can know with
+    //    certainty that the device has no addresses of that kind.
+    const nsecTypes: Type[] = []; // collect types for a negative response
+
+    if (questionName === dnsLowerCase(service.getTypePTR())) {
+      if (askingAny || question.type === Type.PTR) {
+        answers.push(service.ptrRecord());
+
+        // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
+        additionals.push(service.srvRecord(), service.txtRecord());
+        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+      }
+    } else if (questionName === dnsLowerCase(service.getFQDN())) {
+      if (askingAny) {
+        answers.push(service.srvRecord(), service.txtRecord());
+
+        // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
+        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+      } else if (question.type === Type.SRV) {
+        answers.push(service.srvRecord());
+
+        // RFC 6763 12.2: include additionals: a, aaaa
+        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+      } else if (question.type === Type.TXT) {
+        answers.push(service.txtRecord());
+
+        // RFC 6763 12.3: no not any other additionals
+      }
+    } else if (questionName === dnsLowerCase(service.getHostname())) {
+      if (askingAny) {
+        Responder.addAddressRecords(service, endpoint, answers, answers, nsecTypes);
+      } else if (question.type === Type.A) {
+        // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
+        //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
+        //    any records of the other address type with the same name into the
+        //    additional section, if there is space in the message.
+        Responder.addAddressRecords(service, endpoint, answers, additionals, nsecTypes);
+      } else if (question.type === Type.AAAA) {
+        // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
+        //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
+        //    any records of the other address type with the same name into the
+        //    additional section, if there is space in the message.
+        Responder.addAddressRecords(service, endpoint, additionals, answers, nsecTypes);
+      }
+    } else if (service.getSubtypePTRs()) {
+      if (askingAny || question.type === Type.PTR) {
+        const dnsLowerSubTypes = service.getSubtypePTRs()!.map(dnsLowerCase);
+        const index = dnsLowerSubTypes.indexOf(questionName);
+
+        if (index !== -1) { // we have a sub type for the question
+          const records = service.subtypePtrRecords();
+          const record = records![index];
+          assert(questionName === dnsLowerCase(record.name), "Question Name didn't match selected sub type ptr record!");
+          answers.push(record);
+
+          additionals.push(service.srvRecord(), service.txtRecord());
+          Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+        }
+      }
+    }
+
+    if (nsecTypes.length > 0) {
+      additionals.push({
+        name: service.getFQDN(),
+        type: Type.NSEC,
+        ttl: 120, // ttl of A/AAAA records as this are the only one producing NSEC
+        data: {
+          nextDomain: service.getFQDN(),
+          rrtypes: nsecTypes,
+        },
+      });
+    }
+
+    return {
+      answers: answers,
+      additionals: additionals,
+    };
+  }
+
+  /**
+   * This method is a helper method to reduce the complexity inside {@link answerServiceQuestion}.
+   * This method is a bit ugly and complex how it does it's job.
+   * Consider it to act like a macro.
+   * The method calculates which A and AAAA records to be added for a given {@code endpoint} using
+   * the provided {@code serviceRecords}.
+   * It will push the A record onto the aDest array and all AAAA records onto the aaaaDest array.
+   * The last argument is the array of negative response types. If a record for a given type (A or AAAA)
+   * is not present the type will be added to this array.
+   *
+   * @param {ServiceRecords} service - serviceRecords definition to be used
+   * @param {EndpointInfo} endpoint - endpoint information providing the interface
+   * @param {AnswerRecord[]} aDest - array where the A record gets added
+   * @param {AnswerRecord[]} aaaaDest - array where all AAAA records get added
+   * @param {Type[]} nsecDest - if A or AAAA do not exist the type will be pushed onto this array
+   */
+  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: AnswerRecord[], aaaaDest: AnswerRecord[], nsecDest: Type[]): void {
+    const aRecord = service.aRecord(endpoint.interface);
+    const aaaaRecords = service.aaaaRecords(endpoint.interface);
+
+    if (aRecord) {
+      aDest.push(aRecord);
+    } else {
+      nsecDest.push(Type.A);
+    }
+
+    if (aaaaRecords && aaaaRecords.length > 0) {
+      aaaaDest.push(...aaaaRecords);
+    } else {
+      nsecDest.push(Type.AAAA);
+    }
   }
 
 }

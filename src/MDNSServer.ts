@@ -105,7 +105,7 @@ export class MDNSServer {
   }
 
   public async bind(): Promise<void> {
-    const promises: Promise<void>[] = [this.networkManager.waitForDefaultNetworkInterface()];
+    const promises: Promise<void>[] = [];
 
     for (const [name, socket] of this.multicastSockets) {
       promises.push(this.bindMulticastSocket(socket, name, IPFamily.IPv4));

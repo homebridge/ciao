@@ -2,7 +2,6 @@ import assert from "assert";
 import crypto from "crypto";
 import { EventEmitter } from "events";
 import os, { NetworkInterfaceInfo } from "os";
-import * as systemInformation from "systeminformation";
 
 export interface NetworkInterface {
   name: string;
@@ -25,7 +24,6 @@ export interface NetworkAddress {
 
 export const enum NetworkManagerEvent {
   INTERFACE_UPDATE = "interface-update",
-  DEFAULT_INTERFACE_UPDATE = "default-update",
 }
 
 export interface NetworkChange {
@@ -37,24 +35,17 @@ export interface NetworkChange {
 export declare interface NetworkManager {
 
   on(event: "interface-update", listener: (change: NetworkChange) => void): this;
-  on(event: "default-update", listener: (interfaceName: string) => void): this;
 
   emit(event: "interface-update", change: NetworkChange): boolean;
-  emit(event: "default-update", interfaceName: string): boolean;
 
 }
 
 export class NetworkManager extends EventEmitter {
 
   private static readonly POLLING_TIME = 5 * 1000; // 5 seconds
-  private static readonly DEFAULT_INTERFACE_REFRESH = (60 * 60 * 1000) / NetworkManager.POLLING_TIME;
-
 
   private readonly currentInterfaces: Map<string, NetworkInterface>;
   private readonly interfaceConfigurationHash: Map<string, string> = new Map();
-
-  private defaultNetworkInterface = "";
-  private currentDefaultNetworkInterfaceQuery?: Promise<void>;
 
   private refreshCounter = 0;
 
@@ -65,8 +56,6 @@ export class NetworkManager extends EventEmitter {
     for (const [name, networkInterface] of NetworkManager.getCurrentNetworkInterfaces()) {
       this.interfaceConfigurationHash.set(name, NetworkManager.hashInterface(networkInterface));
     }
-
-    this.queryDefaultNetworkInterface().then(() => this.scheduleNextJob());
   }
 
   public getInterfaceMap(): Map<string, NetworkInterface> {
@@ -79,14 +68,6 @@ export class NetworkManager extends EventEmitter {
 
   public getInterface(name: string): NetworkInterface | undefined {
     return this.currentInterfaces.get(name);
-  }
-
-  public getDefaultNetworkInterface(): string {
-    return this.defaultNetworkInterface;
-  }
-
-  public waitForDefaultNetworkInterface(): Promise<void> {
-    return this.currentDefaultNetworkInterfaceQuery || Promise.resolve();
   }
 
   private scheduleNextJob(): void {
@@ -148,26 +129,7 @@ export class NetworkManager extends EventEmitter {
       });
     }
 
-    if (added || removed || this.refreshCounter > NetworkManager.DEFAULT_INTERFACE_REFRESH) {
-      // we refresh the default interface if any got added or removed OR every hour (just in case for config changes)
-      // querying the default interface takes about 10-30ms
-      this.queryDefaultNetworkInterface().then(() => this.scheduleNextJob());
-    } else {
-      this.scheduleNextJob();
-    }
-  }
-
-  private queryDefaultNetworkInterface(): Promise<void> {
-    return this.currentDefaultNetworkInterfaceQuery = systemInformation.networkInterfaceDefault().then(name => {
-      const emit = this.defaultNetworkInterface !== name;
-
-      this.defaultNetworkInterface = name;
-      this.currentDefaultNetworkInterfaceQuery = undefined;
-
-      if (emit) {
-        this.emit(NetworkManagerEvent.DEFAULT_INTERFACE_UPDATE, this.defaultNetworkInterface);
-      }
-    });
+    this.scheduleNextJob();
   }
 
   private static getCurrentNetworkInterfaces(): Map<string, NetworkInterface> {

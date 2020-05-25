@@ -39,7 +39,7 @@ export interface EndpointInfo {
 export type SendCallback = (error?: Error | null) => void;
 
 // eslint-disable-next-line
-export interface ServerOptions {
+export interface MDNSServerOptions {
   interface?: string | string[];
 }
 
@@ -76,7 +76,7 @@ export class MDNSServer {
   private bound = false;
   private closed = false;
 
-  constructor(handler: PacketHandler, options?: ServerOptions) {
+  constructor(handler: PacketHandler, options?: MDNSServerOptions) {
     assert(handler, "handler cannot be undefined");
     this.handler = handler;
 

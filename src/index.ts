@@ -10,7 +10,7 @@
  *  This applies to all other transport protocols like SCTP, DCCP, RTMFP, etc
  */
 import {Responder} from "./Responder";
-import {ServerOptions} from "./MDNSServer";
+import {MDNSServerOptions} from "./MDNSServer";
 
 export * from "./CiaoService";
 export * from "./MDNSServer";
@@ -30,7 +30,7 @@ export const enum IPFamily {
 // TODO add more debug
 // TODO add tests
 
-export function createResponder(options?: ServerOptions): Responder {
+export function createResponder(options?: MDNSServerOptions): Responder {
   return new Responder(options);
 }
 

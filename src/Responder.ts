@@ -9,9 +9,12 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, SendCallback, ServerOptions } from "./MDNSServer";
+import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, SendCallback, MDNSServerOptions } from "./MDNSServer";
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
+import createDebug from "debug";
+
+const debug = createDebug("ciao:Responder");
 
 interface CalculatedAnswer {
   answers: AnswerRecord[];
@@ -40,7 +43,7 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
-  constructor(options?: ServerOptions) {
+  constructor(options?: MDNSServerOptions) {
     this.server = new MDNSServer(this, options);
     this.promiseChain = this.start();
   }
@@ -61,6 +64,8 @@ export class Responder implements PacketHandler {
    * network is informed of the shutdown of this machine.
    */
   public shutdown(): Promise<void> {
+    debug("Shutting down Responder...");
+
     const promises: Promise<void>[] = [];
     for (const service of this.announcedServices.values()) {
       promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets) TODO what's the max size?
@@ -117,6 +122,7 @@ export class Responder implements PacketHandler {
     // TODO we still got some race conditions we we are in the process of sending announcements and this will fail
 
     if (service.serviceState === ServiceState.ANNOUNCED) {
+      debug("[%s] Removing service from the network", service.getFQDN());
       const serviceFQDN = service.getFQDN();
       const typePTR = service.getTypePTR();
       const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
@@ -139,6 +145,7 @@ export class Responder implements PacketHandler {
       }
       return promise;
     } else if (service.serviceState === ServiceState.PROBING) {
+      debug("[%s] Canceling probing", service.getFQDN());
       if (this.currentProber && this.currentProber.getService() === service) {
         this.currentProber.cancel();
         this.currentProber = undefined;
@@ -201,6 +208,8 @@ export class Responder implements PacketHandler {
       throw new Error("Cannot announce service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
+    debug("[%s] Announcing service", service.getFQDN());
+
     // could happen that the txt record was updated while probing.
     // just to be sure to announce all the latest data, we will rebuild the services.
     service.rebuildServiceRecords();
@@ -247,6 +256,8 @@ export class Responder implements PacketHandler {
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
+
+    debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
     this.server.sendResponseBroadcast({ answers: records }, callback);
   }

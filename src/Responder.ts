@@ -1,17 +1,17 @@
 import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
 import assert from "assert";
+import deepEqual from "fast-deep-equal";
 import {
   CiaoService,
+  InternalServiceEvent,
   PublishCallback,
-  ServiceEvent,
   ServiceOptions,
-  ServiceRecords,
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, ServerOptions } from "./MDNSServer";
+import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, SendCallback, ServerOptions } from "./MDNSServer";
 import { Prober } from "./Prober";
-import dnsEqual, { dnsLowerCase } from "./util/dns-equal";
+import { dnsLowerCase } from "./util/dns-equal";
 
 interface CalculatedAnswer {
   answers: AnswerRecord[];
@@ -36,7 +36,7 @@ export class Responder implements PacketHandler {
    *
    * For every pointer we may hold multiple entries (like multiple services can advertise on _hap._tcp.local).
    */
-  private readonly servicePointer: Map<string, string[]> = new Map(); // TODO data of meta query record is something like "_hap._tcp.local"
+  private readonly servicePointer: Map<string, string[]> = new Map();
 
   private currentProber?: Prober;
 
@@ -48,9 +48,9 @@ export class Responder implements PacketHandler {
   public createService(options: ServiceOptions): CiaoService {
     const service = new CiaoService(this.server.getNetworkManager(), options);
 
-    service.on(ServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
-    service.on(ServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
-    service.on(ServiceEvent.UPDATED, this.update.bind(this, service));
+    service.on(InternalServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
+    service.on(InternalServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
+    service.on(InternalServiceEvent.RECORD_UPDATE, this.handleServiceRecordUpdate.bind(this, service));
 
     return service;
   }
@@ -66,10 +66,11 @@ export class Responder implements PacketHandler {
       promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets) TODO what's the max size?
     }
 
-    // TODO maybe stop the server as well (would need mechanism to restart it again if needed)
-
     // eslint-disable-next-line
-    return Promise.all(promises).then(() => {});
+    return Promise.all(promises).then(() => {
+      this.server.shutdown();
+      this.bound = false;
+    });
   }
 
   private start(): Promise<void> {
@@ -87,11 +88,6 @@ export class Responder implements PacketHandler {
     }
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
-    // TODO check if there is already a probing process ongoing. If so => enqueue
-
-    // TODO check if the server needs to be bound (for easier API) (also rebound)
-
-    // TODO is there a way where we can publish multiple services at the same time
     return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
       .then(() => this.probe(service))
       .then(() => this.announce(service))
@@ -114,31 +110,44 @@ export class Responder implements PacketHandler {
   }
 
   private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
-    if (service.serviceState !== ServiceState.ANNOUNCED) {
+    if (service.serviceState === ServiceState.UNANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    const serviceFQDN = service.getFQDN();
-    const typePTR = service.getTypePTR();
-    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+    // TODO we still got some race conditions we we are in the process of sending announcements and this will fail
 
-    this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-    this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
-    if (subtypePTRs) {
-      for (const ptr of subtypePTRs) {
-        this.removePTR(dnsLowerCase(ptr), serviceFQDN);
+    if (service.serviceState === ServiceState.ANNOUNCED) {
+      const serviceFQDN = service.getFQDN();
+      const typePTR = service.getTypePTR();
+      const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+
+      this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+      this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
+      if (subtypePTRs) {
+        for (const ptr of subtypePTRs) {
+          this.removePTR(dnsLowerCase(ptr), serviceFQDN);
+        }
       }
+
+      this.announcedServices.delete(dnsLowerCase(serviceFQDN));
+
+      service.serviceState = ServiceState.UNANNOUNCED;
+
+      let promise = this.goodbye(service);
+      if (callback) {
+        promise = promise.then(() => callback(), reason => callback(reason));
+      }
+      return promise;
+    } else if (service.serviceState === ServiceState.PROBING) {
+      if (this.currentProber && this.currentProber.getService() === service) {
+        this.currentProber.cancel();
+        this.currentProber = undefined;
+      }
+
+      service.serviceState = ServiceState.UNANNOUNCED;
     }
 
-    this.announcedServices.delete(dnsLowerCase(serviceFQDN));
-
-    service.serviceState = ServiceState.UNANNOUNCED;
-
-    let promise = this.goodbye(service);
-    if (callback) {
-      promise = promise.then(() => callback(), reason => callback(reason));
-    }
-    return promise;
+    return Promise.resolve();
   }
 
   private addPTR(ptr: string, name: string): void {
@@ -187,33 +196,40 @@ export class Responder implements PacketHandler {
       });
   }
 
-  private announce(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
+  private announce(service: CiaoService): Promise<void> {
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Cannot announce service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    const answers: AnswerRecord[] = recordOverride || [
+    // could happen that the txt record was updated while probing.
+    // just to be sure to announce all the latest data, we will rebuild the services.
+    service.rebuildServiceRecords();
+
+    const records: AnswerRecord[] = [
       service.ptrRecord(), ...service.subtypePtrRecords(),
       service.srvRecord(), service.txtRecord(),
-      ...service.allAddressRecords(),
+      // A and AAAA records are added below when sending. Which records get added depends on the interface the announcement happens
     ];
 
-    // TODO A and AAAA published as additional records (really?)
-
-    // all records which where probed to be unique and are not shared must set the flush bit
-    answers.forEach(answer => {
-      if (answer.type !== Type.PTR) { // pointer is the only shared record we expose
-        answer.flush = true;
-      }
-    });
+    if (this.announcedServices.size === 0) {
+      records.push(service.metaQueryPtrRecord());
+    }
 
     return new Promise((resolve, reject) => {
       // minimum required is to send two unsolicited responses, one second apart
-      this.server.sendResponse({ answers: answers }, () => { // TODO this could already throw an error like below
-        const timer = setTimeout(() => { // publish it a second time after 1 second
-          // TODO check if service is still announced
+      // we could announce up to 8 times in total (time between messages must increase by two every message)
 
-          this.server.sendResponse({ answers: answers }, error => {
+      this.sendResponseAddingAddressRecords(service, records, false, error => {
+        if (error) {
+          service.serviceState = ServiceState.UNANNOUNCED;
+          reject(error);
+          return;
+        }
+
+        setTimeout(() => {
+          // TODO fix race condition when canceling the announcement. See unpublishService method
+
+          this.sendResponseAddingAddressRecords(service, records, false, error => {
             if (error) {
               service.serviceState = ServiceState.UNANNOUNCED;
               reject(error);
@@ -221,65 +237,104 @@ export class Responder implements PacketHandler {
               resolve();
             }
           });
-        }, 1000);
-        timer.unref();
-
-        // TODO we could announce up to 8 times in total (time between messages must increase by two every message)
+        }, 1000).unref();
       });
     });
   }
 
-  private update(service: CiaoService, type: Type): Promise<void> {
+  private handleServiceRecordUpdate(service: CiaoService, records: AnswerRecord[], callback?: (error?: Error | null) => void): void {
     // when updating we just repeat the announce step
-    // for shared records we MUST send a goodbye message first (is currently not the case)
-
-    // TODO we SHOULD NOT update more than ten times per minute (this is not the case??)
-
-    switch (type) {
-      case Type.TXT: // the only updated thing we support right now are txt changes
-        return this.announce(service, [service.txtRecord()]);
-      // TODO support A and AAAA updates
+    if (service.serviceState !== ServiceState.ANNOUNCED) {
+      throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    return Promise.resolve();
+    this.server.sendResponseBroadcast({ answers: records }, callback);
   }
 
   private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
-    const answers: AnswerRecord[] = recordOverride || [
+    const records: AnswerRecord[] = recordOverride || [
       service.ptrRecord(), ...service.subtypePtrRecords(),
       service.srvRecord(), service.txtRecord(),
-      ...service.allAddressRecords(),
     ];
-    // TODO do we need to track which A and AAAA were sent previously for sending a goodbye? (seems like it, see below)
 
-    // TODO "response packet, giving the same resource record name, rrtype,
-    //    rrclass, and rdata, but an RR TTL of zero."
+    records.forEach(answer => answer.ttl = 0); // setting ttl to zero to indicate "goodbye"
 
-    answers.forEach(answer => answer.ttl = 0); // setting ttl to zero to indicate "goodbye"
-
-    return new Promise<void>((resolve, reject) => {
-      this.server.sendResponse({ answers: answers }, error => error? reject(error): resolve());
+    return new Promise((resolve, reject) => {
+      this.sendResponseAddingAddressRecords(service, records, true, error => error? reject(error): resolve());
     });
   }
 
-  private resolveConflict(service: CiaoService): void {
-    // TODO implement
-  }
-
   handleQuery(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
-    // TODO To protect the network against excessive packet flooding due to
-    //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
-    //    (except in the one special case of answering probe queries) multicast
-    //    a record on a given interface until at least one second has elapsed
-    //    since the last time that record was multicast on that particular
-    //    interface.
+    if (packet.flag_tc) {
+      // RFC 6763 18.5 flag indicates that additional known-answer records follow shortly
+      // TODO wait here for those additional known-answer records READ RFC 6762 7.2
+      throw new Error("Truncated messages are currently unsupported");
+    }
 
-    const answers: AnswerRecord[] = [];
-    const additionals: AnswerRecord[] = [];
+    const multicastAnswers: AnswerRecord[] = [];
+    const multicastAdditionals: AnswerRecord[] = [];
+    const unicastAnswers: AnswerRecord[] = [];
+    const unicastAdditionals: AnswerRecord[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const delayResponse = false; // TODO describe and set
-    let unicastResponse = false;
+    // gather answers for all the questions
+    packet.questions.forEach(question => {
+      const answer = this.answerQuestion(question, endpoint);
+
+      // TODO maybe check that we are not adding the same answer twice, if multiple questions get overlapping answers
+      if (question.flag_qu) { // question requests unicast response
+        unicastAnswers.push(...answer.answers);
+        unicastAdditionals.push(...answer.additionals);
+      } else {
+        multicastAnswers.push(...answer.answers);
+        multicastAdditionals.push(...answer.additionals);
+      }
+    });
+
+    if (this.currentProber) {
+      this.currentProber.handleQuery(packet);
+    }
+
+    // do known answer suppression according to RFC 6762 7.1.
+    packet.answers.forEach(record => {
+      Responder.removeKnownAnswers(record, multicastAnswers);
+      Responder.removeKnownAnswers(record, multicastAdditionals);
+      Responder.removeKnownAnswers(record, unicastAnswers);
+      Responder.removeKnownAnswers(record, unicastAdditionals);
+    });
+
+    const multicastResponse: DnsResponse = {
+      // responses must not include questions RFC 6762 6.
+      answers: multicastAnswers,
+      additionals: multicastAdditionals,
+    };
+    const unicastResponse: DnsResponse = {
+      answers: unicastAnswers,
+      additionals: unicastAdditionals,
+    };
+
+    if (endpoint.port !== MDNSServer.MDNS_PORT) {
+      // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
+      //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
+      //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
+      unicastAnswers.push(...multicastAnswers);
+      unicastAdditionals.push(...multicastAdditionals);
+      multicastAnswers.splice(0, multicastAnswers.length);
+      multicastAdditionals.splice(0, multicastAdditionals.length);
+
+      unicastResponse.id = packet.id;
+      unicastResponse.questions = packet.questions;
+
+      unicastResponse.answers.forEach(answers => {
+        answers.flush = false;
+        answers.ttl = 10;
+      });
+      unicastResponse.additionals?.forEach(answers => {
+        answers.flush = false;
+        answers.ttl = 10;
+      });
+    }
+
+    // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
     // TODO for query messages containing more than one question, all
     //    (non-defensive) answers SHOULD be randomly delayed in the range
@@ -291,72 +346,18 @@ export class Responder implements PacketHandler {
     //    response to a probe for that name, are not subject to this delay rule
     //    and are still sent immediately.) => I don't think this is needed?
 
-    // gather answers for all the questions
-    packet.questions.forEach(question => {
-      if (question.flag_qu) {
-        unicastResponse = true;
-      }
-
-      const answer = this.answerQuestion(question, endpoint);
-
-      answers.push(...answer.answers);
-      additionals.push(...answer.additionals);
-    });
-
-    if (this.currentProber) {
-      this.currentProber.handleQuery(packet);
-    }
-
-    // TODO implement known answer suppression
-
-    if (answers.length === 0) {
-      // if we would know that we own the record for the given question
-      // but the record currently does not exist, we would need
-      // to respond with negative answers as of RFC 6762 6.
-      // We do this for A and AAAA records. But for the rest we can't be sure i guess?
-      return;
-    }
-
-    answers.forEach(answer => {
-      if (answer.type !== Type.PTR) { // PTR records are the only shared records we have
-        answer.flush = true; // for all unique records we set the flush flag
-      }
-    });
-    additionals.forEach(answer => {
-      if (answer.type !== Type.PTR) { // PTR records are the only shared records we have
-        answer.flush = true; // for all unique records we set the flush flag
-      }
-    });
-
-    const response: DnsResponse = {
-      // responses must not include questions RFC 6762 6.
-      answers: answers,
-      additionals: additionals,
-    };
-
-    if (endpoint.port !== MDNSServer.MDNS_PORT) {
-      // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
-      //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
-      //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
-      unicastResponse = true;
-      response.id = packet.id;
-      response.questions = packet.questions;
-
-      response.answers.forEach(answers => {
-        answers.flush = false;
-        answers.ttl = 10;
-      });
-      response.additionals?.forEach(answers => {
-        answers.flush = false;
-        answers.ttl = 10;
-      });
-    }
-
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
-    if (unicastResponse) {
-      this.server.sendResponse(response, endpoint);
-    } else {
-      this.server.sendResponse(response);
+    if (unicastAnswers.length > 0 || multicastAdditionals.length > 0) {
+      this.server.sendResponse(unicastResponse, endpoint);
+    }
+    if (multicastAnswers.length > 0 || multicastAdditionals.length > 0) {
+      // TODO To protect the network against excessive packet flooding due to
+      //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
+      //    (except in the one special case of answering probe queries) multicast
+      //    a record on a given interface until at least one second has elapsed
+      //    since the last time that record was multicast on that particular
+      //    interface.
+      this.server.sendResponseBroadcast(multicastResponse);
     }
   }
 
@@ -369,7 +370,7 @@ export class Responder implements PacketHandler {
     }
 
     // TODO conflict resolution if we detect a response with shares name, rrtype and rrclass but rdata is DIFFERENT!
-    //  if indentical: If the TTL of B's resource record given in the message is less
+    //  if identical: If the TTL of B's resource record given in the message is less
     //         than half the true TTL from A's point of view, then A MUST mark
     //         its record to be announced via multicast.  Queriers receiving
     //         the record from B would use the TTL given by B and, hence, may
@@ -410,15 +411,6 @@ export class Responder implements PacketHandler {
               ttl: 4500, // 75 minutes
               data: data,
             });
-          }
-
-          // TODO we should do a known answer suppression 7. and duplicate answer suppression 7.4 (especially for the meta query)
-
-        } else { // it's maybe a string like "MyDevice._hap._tcp.local"
-          const service = this.announcedServices.get(dnsLowerCase(question.name));
-
-          if (service) {
-            collectedAnswers.push(Responder.answerServiceQuestion(service, question, endpoint));
           }
         }
         break;
@@ -518,11 +510,11 @@ export class Responder implements PacketHandler {
 
     if (nsecTypes.length > 0) {
       additionals.push({
-        name: service.getFQDN(),
+        name: service.getHostname(),
         type: Type.NSEC,
-        ttl: 120, // ttl of A/AAAA records as this are the only one producing NSEC
+        ttl: 4500, // ttl of A/AAAA records as this are the only one producing NSEC
         data: {
-          nextDomain: service.getFQDN(),
+          nextDomain: service.getHostname(),
           rrtypes: nsecTypes,
         },
       });
@@ -536,15 +528,14 @@ export class Responder implements PacketHandler {
 
   /**
    * This method is a helper method to reduce the complexity inside {@link answerServiceQuestion}.
-   * This method is a bit ugly and complex how it does it's job.
-   * Consider it to act like a macro.
+   * This method is a bit ugly and complex how it does it's job. Consider it to act like a macro.
    * The method calculates which A and AAAA records to be added for a given {@code endpoint} using
-   * the provided {@code serviceRecords}.
+   * the records from the provided {@code service}.
    * It will push the A record onto the aDest array and all AAAA records onto the aaaaDest array.
    * The last argument is the array of negative response types. If a record for a given type (A or AAAA)
    * is not present the type will be added to this array.
    *
-   * @param {ServiceRecords} service - serviceRecords definition to be used
+   * @param {CiaoService} service - service which records to be use
    * @param {EndpointInfo} endpoint - endpoint information providing the interface
    * @param {AnswerRecord[]} aDest - array where the A record gets added
    * @param {AnswerRecord[]} aaaaDest - array where all AAAA records get added
@@ -564,6 +555,67 @@ export class Responder implements PacketHandler {
       aaaaDest.push(...aaaaRecords);
     } else {
       nsecDest.push(Type.AAAA);
+    }
+  }
+
+  private static removeKnownAnswers(knownAnswer: AnswerRecord, records: AnswerRecord[]): void {
+    const ids: number[] = [];
+
+    records.forEach(((record, index) => {
+      if (knownAnswer.type === record.type && knownAnswer.name === record.name
+        && knownAnswer.class === record.class && deepEqual(knownAnswer.data, record.data)) {
+        // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
+        if (knownAnswer.ttl >= record.ttl / 2) {
+          ids.push(index);
+        }
+      }
+    }));
+
+    for (const i of ids) {
+      records.splice(i, 1);
+    }
+  }
+
+  private sendResponseAddingAddressRecords(service: CiaoService, records: AnswerRecord[], goodbye: boolean, callback?: SendCallback): void {
+    let iterations = this.server.getInterfaceCount();
+    const encounteredErrors: Error[] = [];
+
+    for (const networkInterface of this.server.getInterfaces()) {
+      const answer: AnswerRecord[] = records.concat([]);
+
+      const aRecord = service.aRecord(networkInterface);
+      const aaaaRecords = service.aaaaRecords(networkInterface);
+
+      if (aRecord) {
+        if (goodbye) {
+          aRecord.ttl = 0;
+        }
+        answer.push(aRecord);
+      }
+      if (aaaaRecords) {
+        if (goodbye) {
+          aaaaRecords.forEach(record => record.ttl = 0);
+        }
+        answer.push(...aaaaRecords);
+      }
+
+      if (!callback) {
+        this.server.sendResponse({ answers: answer }, networkInterface);
+      } else {
+        this.server.sendResponse({ answers: answer }, networkInterface, error => {
+          if (error) {
+            encounteredErrors.push(error);
+          }
+
+          if (--iterations <= 0) {
+            if (encounteredErrors.length > 0) {
+              callback(new Error("Socket errors: " + encounteredErrors.map(error => error.stack).join(";")));
+            } else {
+              callback();
+            }
+          }
+        });
+      }
     }
   }
 

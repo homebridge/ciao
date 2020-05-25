@@ -34,6 +34,16 @@ describe("domain-formatter", () => {
       });
     });
 
+    it("should parse instance domain with dotted name", function () {
+      const parsed = parseFQDN("My.Great.Device._hap._tcp.local");
+      expect(parsed).toStrictEqual({
+        domain: "local",
+        protocol: Protocol.TCP,
+        type: ServiceType.HAP,
+        name: "My.Great.Device",
+      });
+    });
+
     it("should parse service type enumeration query", () => {
       const parsed = parseFQDN("_services._dns-sd._udp.local");
       expect(parsed).toStrictEqual({
@@ -61,10 +71,6 @@ describe("domain-formatter", () => {
 
     it("should reject to short domain", () => {
       expect(() => parseFQDN(".local")).toThrow();
-    });
-
-    it("should reject weird domain", () => {
-      expect(() => parseFQDN("weird.Name._hap._tcp.local")).toThrow();
     });
 
   });

@@ -1,7 +1,11 @@
 import assert from "assert";
-import crypto from "crypto";
+import createDebug from "debug";
 import { EventEmitter } from "events";
 import os, { NetworkInterfaceInfo } from "os";
+import Timeout = NodeJS.Timeout;
+import deepEqual from "fast-deep-equal";
+
+const debug = createDebug("ciao:NetworkManager");
 
 export interface NetworkInterface {
   name: string;
@@ -29,7 +33,20 @@ export const enum NetworkManagerEvent {
 export interface NetworkChange {
   added?: NetworkInterface[];
   removed?: NetworkInterface[];
-  updated?: NetworkInterface[]; // ip change
+  updated?: InterfaceChange[];
+}
+
+export interface InterfaceChange {
+  outdatedAddresses: string[];
+  updatedAddresses: string[];
+
+  oldInterface: NetworkInterface;
+  newInterface: NetworkInterface;
+}
+
+export interface NetworkManagerOptions {
+  interface?: string | string[];
+  excludeIpv6Only?: boolean;
 }
 
 export declare interface NetworkManager {
@@ -42,19 +59,43 @@ export declare interface NetworkManager {
 
 export class NetworkManager extends EventEmitter {
 
-  private static readonly POLLING_TIME = 5 * 1000; // 5 seconds
+  private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
+
+  private readonly restrictedInterfaces?: string[];
+  private readonly excludeIpv6Only: boolean;
 
   private readonly currentInterfaces: Map<string, NetworkInterface>;
-  private readonly interfaceConfigurationHash: Map<string, string> = new Map();
 
-  private refreshCounter = 0;
+  private currentTimer?: Timeout;
 
-  constructor() {
+  constructor(options?: NetworkManagerOptions) {
     super();
-    this.currentInterfaces = NetworkManager.getCurrentNetworkInterfaces();
 
-    for (const [name, networkInterface] of NetworkManager.getCurrentNetworkInterfaces()) {
-      this.interfaceConfigurationHash.set(name, NetworkManager.hashInterface(networkInterface));
+    if (options && options.interface) {
+      this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
+    }
+    this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
+
+    this.currentInterfaces = this.getCurrentNetworkInterfaces();
+
+    const interfaceNames: string[] = [];
+    for (const name of this.currentInterfaces.keys()) {
+      interfaceNames.push(name);
+    }
+
+    if (options) {
+      debug("Created NetworkManager (initial interfaces [%s]; options: %s)", interfaceNames.join(", "), JSON.stringify(options));
+    } else {
+      debug("Created NetworkManager (initial interfaces [%s])", interfaceNames.join(", "));
+    }
+
+    this.scheduleNextJob();
+  }
+
+  public shutdown(): void {
+    if (this.currentTimer) {
+      clearTimeout(this.currentTimer);
+      this.currentTimer = undefined;
     }
   }
 
@@ -76,33 +117,74 @@ export class NetworkManager extends EventEmitter {
   }
 
   private checkForNewInterfaces(): void {
-    this.refreshCounter++;
+    debug("Checking for new interfaces...");
 
-    const latestInterfaces = NetworkManager.getCurrentNetworkInterfaces();
+    const latestInterfaces = this.getCurrentNetworkInterfaces();
 
     let added: NetworkInterface[] | undefined = undefined;
     let removed: NetworkInterface[] | undefined = undefined;
-    let updated: NetworkInterface[] | undefined = undefined;
+    let updated: InterfaceChange[] | undefined = undefined;
 
     for (const networkInterface of latestInterfaces.values()) {
       const name = networkInterface.name;
-      const configurationHash = NetworkManager.hashInterface(networkInterface);
+      const currentInterface = this.currentInterfaces.get(name);
 
-      if (this.currentInterfaces.has(name)) {
+      if (currentInterface) {
         // check if interface was updated
-        if (configurationHash !== this.interfaceConfigurationHash.get(name)) {
+        if (!deepEqual(currentInterface, networkInterface)) {
+          const outdatedAddresses: string[] = [];
+          const newAddresses: string[] = [];
+
+          if (currentInterface.ipv4 !== networkInterface.ipv4) { // check for changed ipv4
+            if (currentInterface.ipv4) {
+              outdatedAddresses.push(currentInterface.ipv4);
+            }
+            if (networkInterface.ipv4) {
+              newAddresses.push(networkInterface.ipv4);
+            }
+          }
+
+          if (currentInterface.ipv6 !== networkInterface.ipv6) { // check for changed ipv6
+            if (currentInterface.ipv6) {
+              outdatedAddresses.push(currentInterface.ipv6);
+            }
+            if (networkInterface.ipv6) {
+              newAddresses.push(networkInterface.ipv6);
+            }
+          }
+
+          if (deepEqual(currentInterface.routeAbleIpv6, networkInterface.routeAbleIpv6)) {
+            const oldRoutable = currentInterface.routeAbleIpv6?.map(address => address.address) || [];
+            const newRoutable = networkInterface.routeAbleIpv6?.map(address => address.address) || [];
+
+            for (const address of oldRoutable) {
+              if (!newRoutable.includes(address)) {
+                outdatedAddresses.push(address);
+              }
+            }
+
+            for (const address of newAddresses) {
+              if (!oldRoutable.includes(address)) {
+                newAddresses.push(address);
+              }
+            }
+          }
+
           (updated || (updated = [])) // get or create new array
-            .push(networkInterface);
+            .push({
+              newInterface: networkInterface,
+              oldInterface: currentInterface,
+              outdatedAddresses: outdatedAddresses,
+              updatedAddresses: newAddresses,
+            });
 
           this.currentInterfaces.set(name, networkInterface);
-          this.interfaceConfigurationHash.set(name, configurationHash);
         }
       } else { // new interface was added/started
         (added || (added = [])) // get or create new array
           .push(networkInterface);
 
         this.currentInterfaces.set(name, networkInterface);
-        this.interfaceConfigurationHash.set(name, configurationHash);
       }
     }
 
@@ -116,12 +198,14 @@ export class NetworkManager extends EventEmitter {
             .push(networkInterface);
 
           this.currentInterfaces.delete(name);
-          this.interfaceConfigurationHash.delete(name);
         }
       }
     }
 
     if (added || removed || updated) { // emit an event if changes happened
+      debug("Detected network changes: %d added, %d removed, %d updated",
+        added?.length || 0, removed?.length || 0, updated?.length || 0);
+
       this.emit(NetworkManagerEvent.INTERFACE_UPDATE, {
         added: added,
         removed: removed,
@@ -132,11 +216,15 @@ export class NetworkManager extends EventEmitter {
     this.scheduleNextJob();
   }
 
-  private static getCurrentNetworkInterfaces(): Map<string, NetworkInterface> {
+  private getCurrentNetworkInterfaces(): Map<string, NetworkInterface> {
     const interfaces: Map<string, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (!this.validNetworkInterfaceName(name)) {
+      if (this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
+        return;
+      }
+
+      if (!NetworkManager.validNetworkInterfaceName(name)) {
         return;
       }
 
@@ -163,10 +251,6 @@ export class NetworkManager extends EventEmitter {
             });
           }
         }
-
-        if (ipv4Info && ipv6Info) { // we got everything
-          break;
-        }
       }
 
       if (internal) {
@@ -174,6 +258,11 @@ export class NetworkManager extends EventEmitter {
       }
 
       assert(ipv4Info || ipv6Info, "Could not find valid addresses for interface '" + name + "'");
+
+      if (this.excludeIpv6Only && !ipv4Info) {
+        return;
+      }
+
       interfaces.set(name, {
         name: name,
         mac: (ipv4Info?.mac || ipv6Info?.mac)!,
@@ -195,12 +284,6 @@ export class NetworkManager extends EventEmitter {
     // TODO are these all the available names?
     return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
       || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
-  }
-
-  private static hashInterface(networkInterface: NetworkInterface): string {
-    const hash = crypto.createHash("sha256");
-    hash.update(JSON.stringify(networkInterface));
-    return hash.digest("hex");
   }
 
 }

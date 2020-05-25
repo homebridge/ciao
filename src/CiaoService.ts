@@ -9,13 +9,17 @@ import {
   Type,
 } from "@homebridge/dns-packet";
 import assert from "assert";
+import createDebug from "debug";
 import { EventEmitter } from "events";
-import { Protocol } from "./index";
-import { NetworkManager } from "./NetworkManager";
+import net from "net";
+import { Protocol, Responder } from "./index";
+import { NetworkChange, NetworkManager, NetworkManagerEvent } from "./NetworkManager";
 import * as domainFormatter from "./util/domain-formatter";
 
+const debug = createDebug("ciao:CiaoService");
+
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
-const numberedHostnamePattern = /^(.*)-(\d+)(\.\w{2,})$/; // matches a hostname like "My-Computer-2.local" TODO host pattern
+const numberedHostnamePattern = /^(.*)-(\d+)(\.\w{2,})$/; // matches a hostname like "My-Computer-2.local"
 
 /**
  * This enum defines some commonly used service types.
@@ -59,11 +63,6 @@ export interface ServiceOptions {
    * Port of the service
    */
   port: number;
-  /**
-   * Define if the service is only reachable by specific address or a set of addresses.
-   * By default the service will be advertised to be reachable on any interface.
-   */
-  addresses?: string | string[];
 
   /**
    * The protocol the service uses. Default is TCP.
@@ -71,7 +70,7 @@ export interface ServiceOptions {
   protocol?: Protocol;
   /**
    * Defines a hostname under which the service can be reached.
-   * ".local" (or any custom set domain) will be automatically appended to the hostname.
+   * The specified hostname should not include the TLD.
    * If undefined the service name will be used as default.
    */
   hostname?: string;
@@ -99,6 +98,7 @@ export const enum ServiceState {
 export interface ServiceRecords {
   ptr: PTRRecord; // this is the main type ptr record
   subtypePTRs?: PTRRecord[];
+  metaQueryPtr: PTRRecord; // pointer for the "_services._dns-sd._udp.local" meta query
   srv: SRVRecord;
   txt: TXTRecord;
   a: Record<string, ARecord>;
@@ -106,10 +106,20 @@ export interface ServiceRecords {
 }
 
 export const enum ServiceEvent {
-  UPDATED = "updated",
+  /**
+   * Event is called when the Prober identifies that the name for the service is already used
+   * and thus resolve the name conflict by adjusting the name (e.g. adding '(2)' to the name).
+   * This change must be persisted and thus a listener must hook up to this event
+   * in order for the name to be persited.
+   */
+  NAME_CHANGED = "name-change",
+  HOSTNAME_CHANGED = "hostname-change",
+}
+
+export const enum InternalServiceEvent {
   PUBLISH = "publish",
   UNPUBLISH = "unpublish",
-  // TODO separate Internal and public api events
+  RECORD_UPDATE = "records-update",
 }
 
 export type PublishCallback = (error?: Error) => void;
@@ -117,13 +127,19 @@ export type UnpublishCallback = (error?: Error) => void;
 
 export declare interface CiaoService {
 
-  on(event: ServiceEvent.UPDATED, listener: (type: Type) => void): this;
-  on(event: ServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
-  on(event: ServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
+  on(event: "name-change", listener: (name: string) => void): this;
+  on(event: "hostname-change", listener: (hostname: string) => void): this;
 
-  emit(event: ServiceEvent.UPDATED, type: Type): boolean;
-  emit(event: ServiceEvent.PUBLISH, callback: PublishCallback): boolean;
-  emit(event: ServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
+  on(event: InternalServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
+  on(event: InternalServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
+  on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: AnswerRecord[], callback?: (error?: Error | null) => void) => void): this;
+
+  emit(event: ServiceEvent.NAME_CHANGED, name: string): boolean;
+  emit(event: ServiceEvent.HOSTNAME_CHANGED, hostname: string): boolean;
+
+  emit(event: InternalServiceEvent.PUBLISH, callback: PublishCallback): boolean;
+  emit(event: InternalServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
+  emit(event: InternalServiceEvent.RECORD_UPDATE, records: AnswerRecord[], callback?: (error?: Error | null) => void): boolean;
 
 }
 
@@ -131,7 +147,7 @@ export class CiaoService extends EventEmitter {
 
   private readonly networkManager: NetworkManager;
 
-  name: string; // TODO maybe private with getters?
+  private name: string;
   private readonly type: ServiceType | string;
   private readonly subTypes?: string[];
   private readonly protocol: Protocol;
@@ -143,7 +159,6 @@ export class CiaoService extends EventEmitter {
 
   private hostname: string; // formatted hostname
   readonly port: number;
-  // TODO private readonly addresses?: string[]; // user defined set of A and AAAA records // TODO remove this again
 
   private txt?: Buffer[];
 
@@ -160,7 +175,7 @@ export class CiaoService extends EventEmitter {
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
 
     this.networkManager = networkManager;
-    // TODO support change listener
+    this.networkManager.on(NetworkManagerEvent.INTERFACE_UPDATE, this.handleNetworkChange.bind(this));
 
     this.name = options.name;
     this.type = options.type;
@@ -185,63 +200,35 @@ export class CiaoService extends EventEmitter {
       }));
     }
 
-    // TODO check if the name/fqdn and hostname already is a incremented name and adjust pattern accordingly
-
     this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;
-
-    if (options.addresses) {
-      // TODO this.addresses = Array.isArray(options.addresses)? options.addresses: [options.addresses];
-    }
 
     if (options.txt) {
       this.txt = CiaoService.txtBuffersFromRecord(options.txt);
     }
 
+    // checks if hostname or name are already numbered and adjusts the numbers if necessary
+    this.incrementName(true); // must be done before the rebuildServiceRecords call
+
     this.serviceRecords = this.rebuildServiceRecords(); // build the initial set of records
   }
 
-  private formatFQDN(): string {
-    if (this.serviceState === ServiceState.ANNOUNCED) { // TODO can we exclude the probing state also?
-      throw new Error("Name can't be changed after service was already announced!");
-    }
-
-    const fqdn = domainFormatter.stringify({
-      name: this.name,
-      type: this.type,
-      protocol: this.protocol,
-      domain: this.serviceDomain,
-    });
-
-    assert(fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
-    return fqdn;
-  }
-
-  /**
-   * Sets or updates the txt of the service
-   * @param txt - the new txt record
-   */
-  public updateTxt(txt: ServiceTxt): void { // TODO maybe also return a promise?
-    assert(txt, "txt cannot be undefined");
-
-    this.txt = CiaoService.txtBuffersFromRecord(txt);
-
-    if (this.serviceState === ServiceState.ANNOUNCED) {
-      this.rebuildServiceRecords();
-      this.emit(ServiceEvent.UPDATED, Type.TXT); // notify listeners if there are any
-    }
-  }
-
   public advertise(): Promise<void> {
+    debug("[%s] Going to advertise service...", this.name);
+
+    if (this.listeners(ServiceEvent.NAME_CHANGED)) {
+      debug("[%s] WARN: No listeners found for a potential name change on the 'name-change' event!", this.name);
+    }
     return new Promise((resolve, reject) => {
-      this.emit(ServiceEvent.PUBLISH, error => error? reject(error): resolve());
+      this.emit(InternalServiceEvent.PUBLISH, error => error? reject(error): resolve());
     });
   }
 
   public end(): Promise<void> {
+    debug("[%s] Service is saying goodbye", this.name);
     return new Promise((resolve, reject) => {
-      this.emit(ServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
+      this.emit(InternalServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
     });
   }
 
@@ -261,6 +248,26 @@ export class CiaoService extends EventEmitter {
     return this.hostname;
   }
 
+  /**
+   * Sets or updates the txt of the service
+   * @param txt - the new txt record
+   */
+  public updateTxt(txt: ServiceTxt): Promise<void> {
+    assert(txt, "txt cannot be undefined");
+
+    this.txt = CiaoService.txtBuffersFromRecord(txt);
+    debug("[%s] Updating txt record...", this.name);
+
+    return new Promise((resolve, reject) => {
+      if (this.serviceState === ServiceState.ANNOUNCED) {
+        this.rebuildServiceRecords();
+        this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
   private static txtBuffersFromRecord(txt: ServiceTxt): Buffer[] {
     const result: Buffer[] = [];
 
@@ -272,13 +279,71 @@ export class CiaoService extends EventEmitter {
     return result;
   }
 
+  private handleNetworkChange(change: NetworkChange): void {
+    if (this.serviceState !== ServiceState.ANNOUNCED) {
+      return; // service records are rebuilt short before the announce step
+    }
+
+    const added = change.added?.map(iface => iface.name) || [];
+    const updated = change.updated?.map(iface => iface.newInterface.name) || [];
+    const removed = change.removed?.map(iface => iface.name) || [];
+
+    debug("[%s] Encountered network change: added: '%s'; updated: '%s'; removed: '%s'", this.name, added.join(", "), updated.join(", "), removed.join(", "));
+
+    const records: AnswerRecord[] = [];
+
+    if (change.updated) {
+      for (const interfaceChange of change.updated) {
+        for (const outdated of interfaceChange.outdatedAddresses) {
+          records.push({
+            name: this.hostname,
+            type: net.isIPv4(outdated)? Type.A: Type.AAAA,
+            ttl: 0,
+            data: outdated,
+            flush: true,
+          });
+        }
+
+        for (const updated of interfaceChange.updatedAddresses) {
+          records.push({
+            name: this.hostname,
+            type: net.isIPv4(updated)? Type.A: Type.AAAA,
+            ttl: 120,
+            data: updated,
+            flush: true,
+          });
+        }
+      }
+    }
+
+    this.rebuildServiceRecords();
+    // records for a removed interface are now no longer present after the call above
+    // records for a new interface got now built by the call above
+
+    this.emit(InternalServiceEvent.RECORD_UPDATE, records);
+
+    if (added.length > 0) {
+      // TODO add support for this. We will need to announce the service on the newly appeared interface
+      //  as a name conflict could appear there we would also do a Probing. As we probably do not want
+      //  that we have different names on different interfaces we should just Probe an reannounce on ALL interfaces
+      console.log("CIAO: [" + this.name + "] Detected a new network interface appearing on the machine. The service probably " +
+        "needs to be announced on again on that interface. This is currently unsupported. " +
+        "Please restart the program so that the new interface is properly advertised!");
+    }
+  }
+
   /**
    * This method is called by the Prober when encountering a conflict on the network.
    * It advices the service to change its name, like incrementing a number appended to the name.
    * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
    */
-  incrementName(): void {
-    // TODO check if we are in a correct state
+  incrementName(nameCheckOnly?: boolean): void {
+    if (this.serviceState !== ServiceState.UNANNOUNCED) {
+      throw new Error("Service name can only be incremented when in state UNANNOUNCED!");
+    }
+
+    const oldName = this.name;
+    const oldHostname = this.hostname;
 
     let nameBase;
     let nameNumber;
@@ -313,22 +378,61 @@ export class CiaoService extends EventEmitter {
       hostnameNumber = 1;
     }
 
-    // increment the numbers
-    nameNumber++;
-    hostnameNumber++;
+    if (!nameCheckOnly) {
+      // increment the numbers
+      nameNumber++;
+      hostnameNumber++;
+    }
 
     const newNumber = Math.max(nameNumber, hostnameNumber);
 
     // reassemble the name
-    this.name = `${nameBase} (${newNumber})`;
-    this.hostname = `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+    this.name = newNumber === 1? nameBase: `${nameBase} (${newNumber})`;
+    this.hostname = newNumber === 1? `${hostnameBase}${hostnameTLD}`: `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+    // we must inform the user that the names changed, so the new names can be persisted
+    // This is done after the Probing finish, as multiple name changes could happen in one probing session
+    // It is the responsibility of the Prober to call the informAboutNameUpdates function
 
-    this.fqdn = this.formatFQDN(); // update the fqdn
+    if (this.name !== oldName || this.hostname !== oldHostname) {
+      debug("[%s] Service changed name '%s' -> '%s', '%s' -> '%s'", this.name, oldName, this.name, oldHostname, this.hostname);
+    }
 
-    this.rebuildServiceRecords(); // rebuild all services
+    if (!nameCheckOnly) {
+      this.fqdn = this.formatFQDN(); // update the fqdn
+
+      this.rebuildServiceRecords(); // rebuild all services
+    }
   }
 
-  private rebuildServiceRecords(): ServiceRecords {
+  informAboutNameUpdates(): void {
+    // we trust the prober that this function is only called when the name was actually changed
+
+    const nameCalled = this.emit(ServiceEvent.NAME_CHANGED, this.name);
+    const hostnameCalled = this.emit(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname));
+
+    // at least one event should be listened to. We can figure out the number from one or another
+    if (!nameCalled && !hostnameCalled) {
+      console.warn(`CIAO: [${this.name}] Service changed name but nobody was listening on the 'name-change' event!`);
+    }
+  }
+
+  private formatFQDN(): string {
+    if (this.serviceState !== ServiceState.UNANNOUNCED) {
+      throw new Error("Name can't be changed after service was already announced!");
+    }
+
+    const fqdn = domainFormatter.stringify({
+      name: this.name,
+      type: this.type,
+      protocol: this.protocol,
+      domain: this.serviceDomain,
+    });
+
+    assert(fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
+    return fqdn;
+  }
+
+  rebuildServiceRecords(): ServiceRecords {
     const aRecordMap: Record<string, ARecord> = {};
     const aaaaRecordMap: Record<string, AAAARecord[]> = {};
     let subtypePTRs: PTRRecord[] | undefined = undefined;
@@ -340,6 +444,7 @@ export class CiaoService extends EventEmitter {
           type: Type.A,
           ttl: 120,
           data: networkInterfaces.ipv4,
+          flush: true,
         };
       }
 
@@ -349,6 +454,7 @@ export class CiaoService extends EventEmitter {
           type: Type.AAAA,
           ttl: 120,
           data: networkInterfaces.ipv6,
+          flush: true,
         }];
       }
 
@@ -364,6 +470,7 @@ export class CiaoService extends EventEmitter {
             type: Type.AAAA,
             ttl: 120,
             data: ip6.address,
+            flush: true,
           });
         }
       }
@@ -381,6 +488,8 @@ export class CiaoService extends EventEmitter {
       }
     }
 
+    debug("[%s] Rebuilding service records...", this.name);
+
     return this.serviceRecords = {
       ptr: {
         name: this.typePTR,
@@ -389,6 +498,12 @@ export class CiaoService extends EventEmitter {
         data: this.fqdn,
       },
       subtypePTRs: subtypePTRs, // possibly undefined
+      metaQueryPtr: {
+        name: Responder.SERVICE_TYPE_ENUMERATION_NAME,
+        type: Type.PTR,
+        ttl: 4500, // 75 minutes
+        data: this.typePTR,
+      },
       srv: {
         name: this.fqdn,
         type: Type.SRV,
@@ -397,12 +512,14 @@ export class CiaoService extends EventEmitter {
           target: this.hostname,
           port: this.port,
         },
+        flush: true,
       },
       txt: {
         name: this.fqdn,
         type: Type.TXT,
-        ttl: 4500, // 75 minutes // TODO previously we got 120?
+        ttl: 4500, // 75 minutes
         data: this.txt || [],
+        flush: true,
       },
       a: aRecordMap,
       aaaa: aaaaRecordMap,
@@ -417,6 +534,10 @@ export class CiaoService extends EventEmitter {
     return this.serviceRecords.subtypePTRs? CiaoService.copyRecords(this.serviceRecords.subtypePTRs): [];
   }
 
+  metaQueryPtrRecord(): PTRRecord {
+    return CiaoService.copyRecord(this.serviceRecords.metaQueryPtr);
+  }
+
   srvRecord(): SRVRecord {
     return CiaoService.copyRecord(this.serviceRecords.srv);
   }
@@ -426,11 +547,13 @@ export class CiaoService extends EventEmitter {
   }
 
   aRecord(networkInterface: string): ARecord | undefined {
+    // TODO include localhost record if the response comes from our own machine
     const record = this.serviceRecords.a[networkInterface];
     return record? CiaoService.copyRecord(record): undefined;
   }
 
   aaaaRecords(networkInterface: string): AAAARecord[] | undefined {
+    // TODO include localhost record if the response comes from our own machine
     const records = this.serviceRecords.aaaa[networkInterface];
     return records? CiaoService.copyRecords(records): undefined;
   }

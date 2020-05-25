@@ -76,16 +76,6 @@ export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | S
       protocol: protocol,
       type: type,
     };
-  } else if (i === 0) {
-    // TODO the name can contain dots as of RFC 6763 4.1.1.
-    const name = removePrefixedUnderscore(parts[i]);
-
-    return {
-      domain: domain,
-      protocol: protocol,
-      type: type,
-      name: name,
-    };
   } else if (isSub(parts[i])) {
     i--; // skip "_sub";
     assert(i === 0, "Received illegal formatted sub type fqdn: " + fqdn);
@@ -98,9 +88,17 @@ export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | S
       type: type,
       subtype: subtype,
     };
-  }
+  } else {
+    // the name can contain dots as of RFC 6763 4.1.1.
+    const name = removePrefixedUnderscore(parts.slice(0, i + 1).join("."));
 
-  throw new Error("Unable to parse fqdn: " + fqdn);
+    return {
+      domain: domain,
+      protocol: protocol,
+      type: type,
+      name: name,
+    };
+  }
 }
 
 export function stringify(parts: FQDNParts | SubTypePTRParts): string {
@@ -120,4 +118,9 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
 export function formatHostname(hostname: string, domain = "local"): string {
   const tld = "." + domain;
   return !hostname.endsWith(tld)? hostname + tld: hostname;
+}
+
+export function removeTLD(hostname: string): string {
+  const lastDot = hostname.lastIndexOf(".");
+  return hostname.slice(0, lastDot);
 }

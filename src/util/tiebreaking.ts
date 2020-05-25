@@ -1,4 +1,4 @@
-import dnsPacket, { DecodedAnswerRecord } from "@homebridge/dns-packet"; // TODO use custom type?
+import dnsPacket, { DecodedAnswerRecord } from "@homebridge/dns-packet";
 
 /**
  * Comparator for two ResourceRecords according to RFC 6762 8.2. "Simultaneous ProbeTiebreaking":
@@ -29,7 +29,7 @@ export function rrComparator(recordA: DecodedAnswerRecord, recordB: DecodedAnswe
   }
 
   // now follows a raw comparison of the binary data
-  const aData = recordA.rawData;
+  const aData = recordA.rawData; // TODO name compression isn't properly undone
   const bData = recordB.rawData;
   const maxLength = Math.max(aData.length, bData.length); // get the biggest length
 

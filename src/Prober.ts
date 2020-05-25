@@ -1,8 +1,8 @@
 import dnsPacket, { DecodedAnswerRecord, DecodedDnsPacket, Type } from "@homebridge/dns-packet";
 import assert from "assert";
 import createDebug from "debug";
-import { CiaoService } from "./CiaoService";
-import { EndpointInfo, MDNSServer } from "./MDNSServer";
+import { CiaoService, ServiceState } from "./CiaoService";
+import { MDNSServer } from "./MDNSServer";
 import dnsEqual from "./util/dns-equal";
 import * as tiebreaking from "./util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "./util/tiebreaking";
@@ -26,6 +26,7 @@ export class Prober {
   private records: DecodedAnswerRecord[] = [];
 
   private startTime?: number;
+  private serviceEncounteredNameChange = false;
 
   private timer?: Timeout;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
@@ -40,6 +41,10 @@ export class Prober {
     assert(service, "service must be defined");
     this.server = server;
     this.service = service;
+  }
+
+  public getService(): CiaoService {
+    return this.service;
   }
 
   /**
@@ -72,11 +77,7 @@ export class Prober {
     });
   }
 
-  /**
-   * End the current ongoing probing requests. If
-   * @param success
-   */
-  private endProbing(success: boolean): void {
+  public cancel(): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -85,11 +86,23 @@ export class Prober {
     // reset all values to default (so the Prober can be reused if it wasn't successful)
     this.sentFirstProbeQuery = false;
     this.sentQueries = 0;
+  }
+
+  /**
+   * End the current ongoing probing requests. If
+   * @param success
+   */
+  private endProbing(success: boolean): void {
+    // reset all values to default (so the Prober can be reused if it wasn't successful)
+    this.cancel();
 
     if (success) {
       debug("Probing for '%s' finished successfully", this.service.getFQDN());
       this.promiseResolve!();
-      // TODO do we maybe also reject the promise if the socket encounters an error?
+
+      if (this.serviceEncounteredNameChange) {
+        this.service.informAboutNameUpdates();
+      }
     }
   }
 
@@ -121,11 +134,9 @@ export class Prober {
 
     debug("Sending prober query number %d for '%s'...", this.sentQueries + 1, this.service.getFQDN());
 
-    // TODO evaluate that if the user decides to cancel advertising probing is properly cancelled
-
     assert(this.records.length > 0, "Tried sending probing request for zero record length!");
 
-    this.server.sendQuery({
+    this.server.sendQueryBroadcast({
       questions: [
         {
           name: this.service.getFQDN(),
@@ -139,7 +150,19 @@ export class Prober {
         },
       ],
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-    }, () => {
+    }, error => {
+      if (error) {
+        debug("Failed to send probe query for '%s'. Encountered error: " + error.stack, this.service.getFQDN());
+        this.endProbing(false);
+        this.promiseReject!(error);
+        return;
+      }
+
+      if (this.service.serviceState !== ServiceState.PROBING) {
+        debug("Service '%s' is not longer in Probing state. Stopping.", this.service.getFQDN());
+        return;
+      }
+
       this.sentFirstProbeQuery = true;
       this.sentQueries++;
 
@@ -170,8 +193,12 @@ export class Prober {
       debug("Probing for '%s' failed. Doing a name change", this.service.getFQDN());
 
       this.endProbing(false); // reset the prober
+      this.service.serviceState = ServiceState.UNANNOUNCED;
+      this.service.incrementName();
+      this.service.serviceState = ServiceState.PROBING;
 
-      this.service.incrementName(); // TODO inform user of name/hostname change when probing finish. The name MUST be persisted!
+      this.serviceEncounteredNameChange = true;
+
       this.sendProbeRequest(); // start probing again with the new name
     }
   }
@@ -230,7 +257,7 @@ export class Prober {
 
       // wait 1 second and probe again (this is to guard against stale probe packets)
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000); // TODO check if prober was not shut down
+      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
       this.timer.unref();
     } else {
       //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());

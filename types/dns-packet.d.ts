@@ -132,17 +132,16 @@ declare module "@homebridge/dns-packet" {
     rawData: Buffer;
   }
   // list of supported records is incomplete
-  export type AnswerRecord = (ARecord | AAAARecord | HINFORecord | PTRRecord | SRVRecord | TXTRecord | NSECRecord) & {
-    flush?: boolean; // cache flush flag
-  };
+  export type AnswerRecord = (ARecord | AAAARecord | HINFORecord | PTRRecord | SRVRecord | TXTRecord | NSECRecord);
 
   export interface RecordBase {
     type: Type; // rrtype
     name: string;
     class?: Class; // rrclass, default IN
-    ttl?: number;
+    ttl: number;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data: any;
+    flush?: boolean; // cache flush flag
   }
 
   export interface ARecord extends RecordBase {

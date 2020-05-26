@@ -161,8 +161,7 @@ export class MDNSServer {
       additionals: query.additionals,
     };
 
-    const encoded = dnsPacket.encode(packet);
-    this.sendOnAllInterfaces(encoded, false, callback);
+    this.sendOnAllInterfaces(packet, callback);
   }
 
   public sendResponse(response: DnsResponse, endpoint: EndpointInfo, callback?: SendCallback): void;
@@ -180,9 +179,7 @@ export class MDNSServer {
 
     packet.flags! |= dnsPacket.AUTHORITATIVE_ANSWER; // RFC 6763 18.4 AA MUST be set
 
-    const encoded = dnsPacket.encode(packet);
-
-    this.send(encoded, endpointOrInterface, true, callback);
+    this.send(packet, endpointOrInterface, callback);
   }
 
   public sendResponseBroadcast(response: DnsResponse, callback?: SendCallback): void {
@@ -198,14 +195,14 @@ export class MDNSServer {
 
     packet.flags! |= dnsPacket.AUTHORITATIVE_ANSWER; // RFC 6763 18.4 AA MUST be set
 
-    const encoded = dnsPacket.encode(packet);
-    this.sendOnAllInterfaces(encoded, true, callback);
+    this.sendOnAllInterfaces(packet, callback);
   }
 
-  private sendOnAllInterfaces(message: Buffer, multicast = true, callback?: SendCallback): void {
+  private sendOnAllInterfaces(packet: EncodingDnsPacket, callback?: SendCallback): void {
+    const message = dnsPacket.encode(packet);
     this.assertBeforeSend(message);
 
-    const socketMap = multicast? this.multicastSockets: this.unicastSockets;
+    const socketMap = packet.type === "response"? this.multicastSockets: this.unicastSockets;
 
     let socketCount = socketMap.size;
     const encounteredErrors: Error[] = [];
@@ -240,7 +237,8 @@ export class MDNSServer {
     }
   }
 
-  private send(message: Buffer, endpointOrInterface: EndpointInfo | string, multicast: boolean, callback?: SendCallback): void {
+  private send(packet: EncodingDnsPacket, endpointOrInterface: EndpointInfo | string, callback?: SendCallback): void {
+    const message = dnsPacket.encode(packet);
     this.assertBeforeSend(message);
 
     let address;
@@ -257,7 +255,7 @@ export class MDNSServer {
       networkInterface = endpointOrInterface.interface;
     }
 
-    const socketMap = multicast? this.multicastSockets: this.unicastSockets;
+    const socketMap = packet.type === "response"? this.multicastSockets: this.unicastSockets;
     const socket = socketMap.get(networkInterface);
     assert(socket, `Could not find socket for given interface '${networkInterface}'`);
 

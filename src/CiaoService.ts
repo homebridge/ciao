@@ -19,7 +19,7 @@ import * as domainFormatter from "./util/domain-formatter";
 const debug = createDebug("ciao:CiaoService");
 
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
-const numberedHostnamePattern = /^(.*)-(\d+)(\.\w{2,})$/; // matches a hostname like "My-Computer-2.local"
+const numberedHostnamePattern = /^(.*)-(\d+)\((\.\w{2,})\)$/; // matches a hostname like "My-Computer-(2).local"
 
 /**
  * This enum defines some commonly used service types.
@@ -389,6 +389,9 @@ export class CiaoService extends EventEmitter {
     // reassemble the name
     this.name = newNumber === 1? nameBase: `${nameBase} (${newNumber})`;
     this.hostname = newNumber === 1? `${hostnameBase}${hostnameTLD}`: `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+
+    this.fqdn = this.formatFQDN(); // update the fqdn
+
     // we must inform the user that the names changed, so the new names can be persisted
     // This is done after the Probing finish, as multiple name changes could happen in one probing session
     // It is the responsibility of the Prober to call the informAboutNameUpdates function
@@ -398,8 +401,6 @@ export class CiaoService extends EventEmitter {
     }
 
     if (!nameCheckOnly) {
-      this.fqdn = this.formatFQDN(); // update the fqdn
-
       this.rebuildServiceRecords(); // rebuild all services
     }
   }

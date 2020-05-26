@@ -248,10 +248,6 @@ export class CiaoService extends EventEmitter {
     return this.hostname;
   }
 
-  public isAnnounced(): boolean {
-    return this.serviceState === ServiceState.ANNOUNCED;
-  }
-
   /**
    * Sets or updates the txt of the service
    * @param txt - the new txt record

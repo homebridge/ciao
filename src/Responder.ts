@@ -259,8 +259,17 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
-    // TODO do a prober announce step, meaning sending records multiple times
-    this.server.sendResponseBroadcast({ answers: records }, callback);
+    this.server.sendResponseBroadcast( { answers: records }, error => {
+      if (error) {
+        callback && callback(error);
+        return;
+      }
+
+      setTimeout(() => {
+        // TODO check if cicumstances may have changed by now?
+        this.server.sendResponseBroadcast({ answers: records }, callback);
+      }, 1000).unref();
+    });
   }
 
   private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {

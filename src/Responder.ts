@@ -259,6 +259,7 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
+    // TODO do a prober announce step, meaning sending records multiple times
     this.server.sendResponseBroadcast({ answers: records }, callback);
   }
 
@@ -416,12 +417,22 @@ export class Responder implements PacketHandler {
 
         if (destinations) {
           for (const data of destinations) {
-            answers.push({
-              name: question.name, // the question is something like '_hap._tcp.local' or the meta query '_service._dns-sd._udp.local'
-              type: Type.PTR,
-              ttl: 4500, // 75 minutes
-              data: data,
-            });
+            // check if the PTR is pointing towards a service, like in questions for PTR '_hap._tcp.local'
+            const service = this.announcedServices.get(dnsLowerCase(data));
+
+            if (service) {
+              // call the method so additionals get added properly
+              collectedAnswers.push(Responder.answerServiceQuestion(service, question, endpoint));
+            } else {
+              // it's probably question for PTR '_services._dns-sd._udp.local'
+              // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
+              answers.push({
+                name: question.name,
+                type: Type.PTR,
+                ttl: 4500, // 75 minutes
+                data: data,
+              });
+            }
           }
         }
         break;

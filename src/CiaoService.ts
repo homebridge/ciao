@@ -320,7 +320,9 @@ export class CiaoService extends EventEmitter {
     // records for a removed interface are now no longer present after the call above
     // records for a new interface got now built by the call above
 
-    this.emit(InternalServiceEvent.RECORD_UPDATE, records);
+    if (records.length > 0) {
+      this.emit(InternalServiceEvent.RECORD_UPDATE, records);
+    }
 
     if (added.length > 0) {
       // TODO add support for this. We will need to announce the service on the newly appeared interface

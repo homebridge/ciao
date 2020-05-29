@@ -15,6 +15,7 @@ import net from "net";
 import { Protocol, Responder } from "./index";
 import { NetworkChange, NetworkManager, NetworkManagerEvent } from "./NetworkManager";
 import * as domainFormatter from "./util/domain-formatter";
+import { formatReverseAddressPTRName } from "./util/domain-formatter";
 
 const debug = createDebug("ciao:CiaoService");
 
@@ -101,8 +102,9 @@ export interface ServiceRecords {
   metaQueryPtr: PTRRecord; // pointer for the "_services._dns-sd._udp.local" meta query
   srv: SRVRecord;
   txt: TXTRecord;
-  a: Record<string, ARecord>;
-  aaaa: Record<string, AAAARecord[]>;
+  a: Record<string, ARecord>; // indexed by interface name
+  aaaa: Record<string, AAAARecord[]>; // indexed by interface name
+  reverseAddressPTRs: Record<string, PTRRecord>; // indexed by address
 }
 
 export const enum ServiceEvent {
@@ -438,6 +440,7 @@ export class CiaoService extends EventEmitter {
   rebuildServiceRecords(): ServiceRecords {
     const aRecordMap: Record<string, ARecord> = {};
     const aaaaRecordMap: Record<string, AAAARecord[]> = {};
+    const reverseAddressMap: Record<string, PTRRecord> = {};
     let subtypePTRs: PTRRecord[] | undefined = undefined;
 
     for (const networkInterfaces of this.networkManager.getInterfaces()) {
@@ -449,6 +452,12 @@ export class CiaoService extends EventEmitter {
           data: networkInterfaces.ipv4,
           flush: true,
         };
+        reverseAddressMap[networkInterfaces.ipv4] = {
+          name: formatReverseAddressPTRName(networkInterfaces.ipv4),
+          type: Type.PTR,
+          ttl: 4500, // PTR records
+          data: this.hostname,
+        };
       }
 
       if (networkInterfaces.ipv6) {
@@ -459,6 +468,12 @@ export class CiaoService extends EventEmitter {
           data: networkInterfaces.ipv6,
           flush: true,
         }];
+        reverseAddressMap[networkInterfaces.ipv6] = {
+          name: formatReverseAddressPTRName(networkInterfaces.ipv6),
+          type: Type.PTR,
+          ttl: 4500, // PTR records
+          data: this.hostname,
+        };
       }
 
       if (networkInterfaces.routeAbleIpv6) {
@@ -475,6 +490,12 @@ export class CiaoService extends EventEmitter {
             data: ip6.address,
             flush: true,
           });
+          reverseAddressMap[ip6.address] = {
+            name: formatReverseAddressPTRName(ip6.address),
+            type: Type.PTR,
+            ttl: 4500, // PTR records
+            data: this.hostname,
+          };
         }
       }
     }
@@ -526,6 +547,7 @@ export class CiaoService extends EventEmitter {
       },
       a: aRecordMap,
       aaaa: aaaaRecordMap,
+      reverseAddressPTRs: reverseAddressMap,
     };
   }
 
@@ -570,6 +592,11 @@ export class CiaoService extends EventEmitter {
     });
 
     return records;
+  }
+
+  reverseAddressMapping(address: string): PTRRecord | undefined {
+    const record = this.serviceRecords.reverseAddressPTRs[address];
+    return record? CiaoService.copyRecord(record): undefined;
   }
 
   private static copyRecord<T extends RecordBase>(record: T): T {

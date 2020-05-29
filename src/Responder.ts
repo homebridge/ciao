@@ -1,5 +1,6 @@
 import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
 import assert from "assert";
+import createDebug from "debug";
 import deepEqual from "fast-deep-equal";
 import {
   CiaoService,
@@ -9,10 +10,10 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DnsResponse, EndpointInfo, MDNSServer, PacketHandler, SendCallback, MDNSServerOptions } from "./MDNSServer";
+import { DnsResponse, EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
-import createDebug from "debug";
+import { ipAddressFromReversAddressName } from "./util/domain-formatter";
 
 const debug = createDebug("ciao:Responder");
 
@@ -228,6 +229,7 @@ export class Responder implements PacketHandler {
       // minimum required is to send two unsolicited responses, one second apart
       // we could announce up to 8 times in total (time between messages must increase by two every message)
 
+      // TODO we may want to also announce our revers mapping records?
       this.sendResponseAddingAddressRecords(service, records, false, error => {
         if (error) {
           service.serviceState = ServiceState.UNANNOUNCED;
@@ -266,7 +268,7 @@ export class Responder implements PacketHandler {
       }
 
       setTimeout(() => {
-        // TODO check if cicumstances may have changed by now?
+        // TODO check if circumstances may have changed by now?
         this.server.sendResponseBroadcast({ answers: records }, callback);
       }, 1000).unref();
     });
@@ -422,7 +424,8 @@ export class Responder implements PacketHandler {
 
     switch (question.type) {
       case Type.PTR: {
-        const destinations = this.servicePointer.get(dnsLowerCase(question.name)); // look up the pointer
+        const loweredQuestionName = dnsLowerCase(question.name);
+        const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
 
         if (destinations) {
           for (const data of destinations) {
@@ -441,6 +444,15 @@ export class Responder implements PacketHandler {
                 ttl: 4500, // 75 minutes
                 data: data,
               });
+            }
+          }
+        } else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
+          const address = ipAddressFromReversAddressName(loweredQuestionName);
+
+          for (const service of this.announcedServices.values()) {
+            const record = service.reverseAddressMapping(address);
+            if (record) {
+              answers.push(record);
             }
           }
         }

@@ -1,6 +1,7 @@
-import { Protocol } from "../index";
-import { ServiceType } from "../CiaoService";
 import assert from "assert";
+import net from "net";
+import { ServiceType } from "../CiaoService";
+import { Protocol } from "../index";
 
 function isProtocol(part: string): boolean {
   return part === "_" + Protocol.TCP || part === "_" + Protocol.UDP;
@@ -123,4 +124,83 @@ export function formatHostname(hostname: string, domain = "local"): string {
 export function removeTLD(hostname: string): string {
   const lastDot = hostname.lastIndexOf(".");
   return hostname.slice(0, lastDot);
+}
+
+export function formatReverseAddressPTRName(address: string): string {
+  if (net.isIPv4(address)) {
+    const split = address.split(".").reverse();
+
+    return split.join(".") + ".in-addr.arpa";
+  } else if (net.isIPv6(address)) {
+    // we are not supporting ipv4-mapped ipv6 addresses here
+
+    const split = address.toUpperCase().split(":");
+    assert(split.length <= 8, "Encountered invalid ipv6 with more than 8 sections!");
+
+    if (split[0] === "") {
+      while (split.length < 8) {
+        split.unshift("0000");
+      }
+    } else if (split[split.length - 1] === "") {
+      while (split.length < 8) {
+        split.push("0000");
+      }
+    } else if (split.length < 8) {
+      let emptySection: number;
+      for (emptySection = 0; emptySection < split.length; emptySection++) {
+        if (split[emptySection] === "") { // find the first empty section
+          break;
+        }
+      }
+
+      const replacements: string [] = new Array(9 - split.length).fill("0000");
+      split.splice(emptySection, 1, ...replacements);
+    }
+
+    for (let i = 0; i < split.length; i++) {
+      const element = split[i];
+      if (element.length < 4) {
+        const zeros = new Array(4 - element.length).fill("0").join("");
+        split.splice(i, 1, zeros + element);
+      }
+    }
+
+    const nibbleSplit = split.join("").split("").reverse();
+    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length!");
+
+    return nibbleSplit.join(".") + ".ip6.arpa";
+  } else {
+    throw new Error("Supplied illegal ip address format: " + address);
+  }
+}
+
+export function ipAddressFromReversAddressName(name: string): string {
+  name = name.toLowerCase();
+
+  if (name.endsWith(".in-addr.arpa")) {
+    const split = name.replace(".in-addr.arpa", "").split(".").reverse();
+
+    return split.join(".");
+  } else if (name.endsWith(".ip6.arpa")) {
+    const split = name.replace(".ip6.arpa", "").split(".").reverse();
+    assert(split.length === 32, "Encountered illegal length for .ip6.arpa split!");
+
+    const parts: string[] = [];
+    for (let i = 0; i < split.length; i += 4) {
+      let j = i;
+      for (; j < i + 3; j++) { // search for the first index which is non zero, but leaving at least one zero
+        if (split[j] !== "0") {
+          break;
+        }
+      }
+
+      parts.push(split.slice(j, i + 4).join(""));
+    }
+
+    return parts.join(":")
+      .replace(/(^|:)0(:0)*:0(:|$)/, "$1::$3") // strip out sections with zeros
+      .replace(/:{3,4}/, "::"); // simplfy :::: or ::: to ::
+  } else {
+    throw new Error("Supplied unknown reverse address name format: " + name);
+  }
 }

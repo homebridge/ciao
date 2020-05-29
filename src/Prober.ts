@@ -242,6 +242,9 @@ export class Prober {
 
     // tiebreaking is actually run pretty often, as we always receive our own packets
 
+    // workaround to clear out name compression inside the rawData field (we don't support name compression when encoding)
+    packet = dnsPacket.decode(dnsPacket.encode(packet));
+
     // first of all build our own records
     const answers = this.records; // already sorted
     const opponent = packet.authorities.sort(tiebreaking.rrComparator);

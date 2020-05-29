@@ -1,9 +1,10 @@
 import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";
+import deepEqual from "fast-deep-equal";
+import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
 import Timeout = NodeJS.Timeout;
-import deepEqual from "fast-deep-equal";
 
 const debug = createDebug("ciao:NetworkManager");
 
@@ -72,7 +73,18 @@ export class NetworkManager extends EventEmitter {
     super();
 
     if (options && options.interface) {
-      this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
+      if (typeof options.interface === "string" && net.isIP(options.interface)) {
+        const interfaceName = NetworkManager.resolveInterface(options.interface);
+
+        if (interfaceName) {
+          this.restrictedInterfaces = [interfaceName];
+        } else {
+          console.log("CIAO: Interface was specified as ip (%s), though couldn't find a matching interface for the given address. " +
+            "Going to fallback to bind on all available interfaces.", options.interface);
+        }
+      } else {
+        this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
+      }
     }
     this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
 
@@ -220,11 +232,11 @@ export class NetworkManager extends EventEmitter {
     const interfaces: Map<string, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
+      if (!NetworkManager.validNetworkInterfaceName(name)) {
         return;
       }
 
-      if (!NetworkManager.validNetworkInterfaceName(name)) {
+      if (this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
         return;
       }
 
@@ -284,6 +296,21 @@ export class NetworkManager extends EventEmitter {
     // TODO are these all the available names?
     return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
       || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
+  }
+
+  private static resolveInterface(address: string): string | undefined {
+    let interfaceName: string | undefined;
+
+    outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
+      for (const info of infoArray) {
+        if (info.address === address) {
+          interfaceName = name;
+          break outer; // exit out of both loops
+        }
+      }
+    }
+
+    return interfaceName;
   }
 
 }

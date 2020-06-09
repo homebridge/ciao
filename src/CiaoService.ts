@@ -487,11 +487,11 @@ export class CiaoService extends EventEmitter {
             name: this.hostname,
             type: Type.AAAA,
             ttl: 120,
-            data: ip6.address,
+            data: ip6,
             flush: true,
           });
-          reverseAddressMap[ip6.address] = {
-            name: formatReverseAddressPTRName(ip6.address),
+          reverseAddressMap[ip6] = {
+            name: formatReverseAddressPTRName(ip6),
             type: Type.PTR,
             ttl: 4500, // PTR records
             data: this.hostname,
@@ -533,7 +533,7 @@ export class CiaoService extends EventEmitter {
         type: Type.SRV,
         ttl: 120,
         data: {
-          target: this.hostname,
+          target: this.hostname, // TODO we could just use the local hostname, and let the service respond to queries from the original responder
           port: this.port,
         },
         flush: true,

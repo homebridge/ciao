@@ -1,12 +1,15 @@
-import {
-  formatReverseAddressPTRName,
-  formatHostname,
-  parseFQDN,
-  stringify,
-  ipAddressFromReversAddressName,
-} from "./domain-formatter";
-import { Protocol } from "../index";
 import { ServiceType } from "../CiaoService";
+import { Protocol } from "../index";
+import {
+  enlargeIPv6,
+  formatHostname,
+  formatReverseAddressPTRName,
+  getNetAddress,
+  ipAddressFromReversAddressName,
+  parseFQDN,
+  shortenIPv6,
+  stringify,
+} from "./domain-formatter";
 
 describe("domain-formatter", () => {
   describe(parseFQDN, () => {
@@ -111,6 +114,24 @@ describe("domain-formatter", () => {
     });
   });
 
+  describe(enlargeIPv6, () => {
+    it("should enlarge ipv6", () => {
+      expect(enlargeIPv6("ffff:ffff:ffff:ffff::")).toBe("ffff:ffff:ffff:ffff:0000:0000:0000:0000");
+      expect(enlargeIPv6("fe80::72ee:50ff:fe63:d1a0")).toBe("fe80:0000:0000:0000:72ee:50ff:fe63:d1a0");
+      expect(enlargeIPv6("::1")).toBe("0000:0000:0000:0000:0000:0000:0000:0001");
+      expect(enlargeIPv6("2001:db8::ff00:42:8329")).toBe("2001:0db8:0000:0000:0000:ff00:0042:8329");
+    });
+  });
+
+  describe(shortenIPv6, () => {
+    it("should shorten ipv6", () => {
+      expect(shortenIPv6("ffff:ffff:ffff:ffff:0000:0000:0000:0000")).toBe("ffff:ffff:ffff:ffff::");
+      expect(shortenIPv6("fe80:0000:0000:0000:72ee:50ff:fe63:d1a0")).toBe("fe80::72ee:50ff:fe63:d1a0");
+      expect(shortenIPv6("0000:0000:0000:0000:0000:0000:0000:0001")).toBe("::1");
+      expect(shortenIPv6("2001:0db8:0000:0000:0000:ff00:0042:8329")).toBe("2001:db8::ff00:42:8329");
+    });
+  });
+
   describe(formatReverseAddressPTRName, () => {
     it("should format ipv4", () => {
       expect(formatReverseAddressPTRName("192.168.1.23")).toBe("23.1.168.192.in-addr.arpa");
@@ -135,6 +156,18 @@ describe("domain-formatter", () => {
       expect(ipAddressFromReversAddressName("0.A.1.D.3.6.E.F.F.F.0.5.E.E.2.7.0.0.0.0.0.0.0.0.0.0.0.0.0.8.E.F.ip6.arpa")).toBe("fe80::72ee:50ff:fe63:d1a0");
       expect(ipAddressFromReversAddressName("1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa")).toBe("::1");
       expect(ipAddressFromReversAddressName("9.2.3.8.2.4.0.0.0.0.F.F.0.0.0.0.0.0.0.0.0.0.0.0.8.B.D.0.1.0.0.2.ip6.arpa")).toBe("2001:db8::ff00:42:8329");
+    });
+  });
+
+  describe(getNetAddress, () => {
+    it("should calc netAddress for ipv4", () => {
+      expect(getNetAddress("192.168.1.129", "255.255.255.0")).toBe("192.168.1.0");
+      expect(getNetAddress("192.168.1.129", "0.0.0.255")).toBe("0.0.0.129");
+    });
+
+    it("should calc netAddress for ipv6", () => {
+      expect(getNetAddress("fe80::803:bfee:be23:93a8", "ffff:ffff:ffff:ffff::")).toBe("fe80::");
+      expect(getNetAddress("2003:f2:8725:ee00:1817:778e:aa58:4237", "ffff:ffff:ffff:ffff::")).toBe("2003:f2:8725:ee00::");
     });
   });
 

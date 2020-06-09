@@ -126,47 +126,78 @@ export function removeTLD(hostname: string): string {
   return hostname.slice(0, lastDot);
 }
 
+export function enlargeIPv6(address: string): string {
+  assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
+
+  // we are not supporting ipv4-mapped ipv6 addresses here
+
+  const split = address.split(":");
+  assert(split.length <= 8, "Encountered invalid ipv6 with more than 8 sections!");
+
+  if (split[0] === "") {
+    while (split.length < 8) {
+      split.unshift("0000");
+    }
+  } else if (split[split.length - 1] === "") {
+    while (split.length < 8) {
+      split.push("0000");
+    }
+  } else if (split.length < 8) {
+    let emptySection: number;
+    for (emptySection = 0; emptySection < split.length; emptySection++) {
+      if (split[emptySection] === "") { // find the first empty section
+        break;
+      }
+    }
+
+    const replacements: string [] = new Array(9 - split.length).fill("0000");
+    split.splice(emptySection, 1, ...replacements);
+  }
+
+  for (let i = 0; i < split.length; i++) {
+    const element = split[i];
+    if (element.length < 4) {
+      const zeros = new Array(4 - element.length).fill("0").join("");
+      split.splice(i, 1, zeros + element);
+    }
+  }
+
+  return split.join(":");
+}
+
+export function shortenIPv6(address: string | string[]): string {
+  if (typeof address === "string") {
+    address = address.split(":");
+  }
+
+  for (let i = 0; i < address.length; i++) {
+    const part = address[i];
+
+    let j = 0;
+    for (; j < 3; j++) { // search for the first index which is non zero, but leaving at least one zero
+      if (part.charAt(j) !== "0") {
+        break;
+      }
+    }
+
+    address[i] = part.substr(j);
+  }
+
+  return address.join(":")
+    .replace(/(^|:)0(:0)*:0(:|$)/, "$1::$3") // strip out sections with zeros
+    .replace(/:{3,4}/, "::"); // simplfy :::: or ::: to ::
+}
+
 export function formatReverseAddressPTRName(address: string): string {
   if (net.isIPv4(address)) {
     const split = address.split(".").reverse();
 
     return split.join(".") + ".in-addr.arpa";
   } else if (net.isIPv6(address)) {
-    // we are not supporting ipv4-mapped ipv6 addresses here
+    address = enlargeIPv6(address).toUpperCase();
 
-    const split = address.toUpperCase().split(":");
-    assert(split.length <= 8, "Encountered invalid ipv6 with more than 8 sections!");
-
-    if (split[0] === "") {
-      while (split.length < 8) {
-        split.unshift("0000");
-      }
-    } else if (split[split.length - 1] === "") {
-      while (split.length < 8) {
-        split.push("0000");
-      }
-    } else if (split.length < 8) {
-      let emptySection: number;
-      for (emptySection = 0; emptySection < split.length; emptySection++) {
-        if (split[emptySection] === "") { // find the first empty section
-          break;
-        }
-      }
-
-      const replacements: string [] = new Array(9 - split.length).fill("0000");
-      split.splice(emptySection, 1, ...replacements);
-    }
-
-    for (let i = 0; i < split.length; i++) {
-      const element = split[i];
-      if (element.length < 4) {
-        const zeros = new Array(4 - element.length).fill("0").join("");
-        split.splice(i, 1, zeros + element);
-      }
-    }
-
-    const nibbleSplit = split.join("").split("").reverse();
-    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length!");
+    const nibbleSplit = address.replace(/:/g, "").split("").reverse();
+    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length!" + nibbleSplit.length);
 
     return nibbleSplit.join(".") + ".ip6.arpa";
   } else {
@@ -187,20 +218,46 @@ export function ipAddressFromReversAddressName(name: string): string {
 
     const parts: string[] = [];
     for (let i = 0; i < split.length; i += 4) {
-      let j = i;
-      for (; j < i + 3; j++) { // search for the first index which is non zero, but leaving at least one zero
-        if (split[j] !== "0") {
-          break;
-        }
-      }
-
-      parts.push(split.slice(j, i + 4).join(""));
+      parts.push(split.slice(i, i + 4).join(""));
     }
 
-    return parts.join(":")
-      .replace(/(^|:)0(:0)*:0(:|$)/, "$1::$3") // strip out sections with zeros
-      .replace(/:{3,4}/, "::"); // simplfy :::: or ::: to ::
+    return shortenIPv6(parts.join(":"));
   } else {
     throw new Error("Supplied unknown reverse address name format: " + name);
+  }
+}
+
+export function getNetAddress(address: string, netmask: string): string {
+  assert(net.isIP(address) === net.isIP(netmask), "IP address version must match. Netmask cannot have a version different from the address!");
+
+  if (net.isIPv4(address)) {
+    const addressParts = address.split(".");
+    const netmaskParts = netmask.split(".");
+    const netAddressParts = new Array(4);
+
+    for (let i = 0; i < addressParts.length; i++) {
+      const addressNum = parseInt(addressParts[i]);
+      const netmaskNum = parseInt(netmaskParts[i]);
+
+      netAddressParts[i] = (addressNum & netmaskNum).toString();
+    }
+
+    return netAddressParts.join(".");
+  } else if (net.isIPv6(address)) {
+    const addressParts = enlargeIPv6(address).split(":");
+    const netmaskParts = enlargeIPv6(netmask).split(":");
+
+    const netAddressParts = new Array(8);
+
+    for (let i = 0; i < addressParts.length; i++) {
+      const addressNum = parseInt(addressParts[i], 16);
+      const netmaskNum = parseInt(netmaskParts[i], 16);
+
+      netAddressParts[i] = (addressNum & netmaskNum).toString(16);
+    }
+
+    return shortenIPv6(enlargeIPv6(netAddressParts.join(":")));
+  } else {
+    throw new Error("Illegal argument. Address is not an ip address!");
   }
 }

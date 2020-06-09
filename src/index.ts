@@ -34,4 +34,6 @@ export function createResponder(options?: MDNSServerOptions): Responder {
   return new Responder(options);
 }
 
-// TODO create browser
+export default  {
+  createResponder: createResponder,
+};

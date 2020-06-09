@@ -135,6 +135,7 @@ export class MDNSServer {
   public shutdown(): void {
     this.networkManager.shutdown();
 
+    // TODO sockets can already be closed when the interface was shut down previously :thinking:
     for (const socket of this.multicastSockets.values()) {
       socket.close();
     }
@@ -381,6 +382,7 @@ export class MDNSServer {
         const unicastSocket = this.unicastSockets.get(networkInterface.name);
         this.multicastSockets.delete(networkInterface.name);
 
+        // TODO "close" can throw if the network interface already closed before exiting
         if (multicastSocket) {
           multicastSocket.close();
         }
@@ -389,6 +391,9 @@ export class MDNSServer {
         }
       });
     }
+
+    // TODO check the updated addresses (an interface change may only remove the ipv4 address but still maintain the ipv6, thus the interface is not removed completely)
+    //  or the address simply changed to another address
 
     if (change.added) {
       change.added.forEach(networkInterface => {

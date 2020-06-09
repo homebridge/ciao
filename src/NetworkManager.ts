@@ -4,28 +4,34 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
+import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
 
+export type InterfaceName = string;
+export type MacAddress = string;
+export type IPv4Address = string;
+export type IPv6Address = string;
+export type IPAddress = IPv4Address | IPv6Address;
+
 export interface NetworkInterface {
-  name: string;
-  mac: string;
+  name: InterfaceName;
+  mac: MacAddress;
 
   // one of ipv4 or ipv6 will be present, most of the time even both
-  ipv4?: string;
-  ipv4Netmask?: string;
-  ipv6?: string;
-  ipv6Netmask?: string;
+  ipv4?: IPv4Address;
+  ipv4NetAddress?: IPv4Address; // address identifying the address for the ipv4 net
+  ipv6?: IPv6Address;
+  ipv6NetAddress?: IPv6Address; // address identifying the address for the ipv6 net
 
-  routeAbleIpv6?: NetworkAddress[];
+  routeAbleIpv6?: IPv6Address[];
 }
 
-export interface NetworkAddress {
-  address: string;
-  netmask: string;
+export interface NetworkInformation {
+  netAddress: IPAddress;
+  interfaces: string[];
 }
-
 
 export const enum NetworkManagerEvent {
   INTERFACE_UPDATE = "interface-update",
@@ -38,8 +44,8 @@ export interface NetworkChange {
 }
 
 export interface InterfaceChange {
-  outdatedAddresses: string[];
-  updatedAddresses: string[];
+  outdatedAddresses: IPAddress[];
+  updatedAddresses: IPAddress[];
 
   oldInterface: NetworkInterface;
   newInterface: NetworkInterface;
@@ -62,10 +68,11 @@ export class NetworkManager extends EventEmitter {
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
-  private readonly restrictedInterfaces?: string[];
+  private readonly restrictedInterfaces?: InterfaceName[];
   private readonly excludeIpv6Only: boolean;
 
-  private readonly currentInterfaces: Map<string, NetworkInterface>;
+  private readonly networks: Map<IPAddress, NetworkInformation> = new Map(); // indexed by netaddress
+  private readonly currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
   private currentTimer?: Timeout;
 
@@ -88,20 +95,18 @@ export class NetworkManager extends EventEmitter {
     }
     this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
 
-    this.currentInterfaces = this.getCurrentNetworkInterfaces();
+    this.checkForNewInterfaces();
 
-    const interfaceNames: string[] = [];
-    for (const name of this.currentInterfaces.keys()) {
-      interfaceNames.push(name);
+    const networks: string[] = [];
+    for (const network of this.networks.values()) {
+      networks.push(`{ '${network.netAddress}' => [${network.interfaces.join(", ")}]}`);
     }
 
     if (options) {
-      debug("Created NetworkManager (initial interfaces [%s]; options: %s)", interfaceNames.join(", "), JSON.stringify(options));
+      debug("Created NetworkManager (initial interfaces [%s]; options: %s)", networks.join(", "), JSON.stringify(options));
     } else {
-      debug("Created NetworkManager (initial interfaces [%s])", interfaceNames.join(", "));
+      debug("Created NetworkManager (initial interfaces [%s])", networks.join(", "));
     }
-
-    this.scheduleNextJob();
   }
 
   public shutdown(): void {
@@ -111,7 +116,15 @@ export class NetworkManager extends EventEmitter {
     }
   }
 
-  public getInterfaceMap(): Map<string, NetworkInterface> {
+  public getNetworkMap(): Map<IPAddress, NetworkInformation> {
+    return this.networks;
+  }
+
+  public getNetwork(netAddress: IPAddress): NetworkInformation | undefined {
+    return this.networks.get(netAddress);
+  }
+
+  public getInterfaceMap(): Map<InterfaceName, NetworkInterface> {
     return this.currentInterfaces;
   }
 
@@ -119,7 +132,7 @@ export class NetworkManager extends EventEmitter {
     return this.currentInterfaces.values();
   }
 
-  public getInterface(name: string): NetworkInterface | undefined {
+  public getInterface(name: InterfaceName): NetworkInterface | undefined {
     return this.currentInterfaces.get(name);
   }
 
@@ -149,25 +162,45 @@ export class NetworkManager extends EventEmitter {
 
           if (currentInterface.ipv4 !== networkInterface.ipv4) { // check for changed ipv4
             if (currentInterface.ipv4) {
+              if (!networkInterface.ipv4) { // the ipv4 address disappeared
+                assert(currentInterface.ipv4NetAddress, "Encountered illegal state. Net address not found for ipv4 address");
+                this.removeNetworkIfPresent(currentInterface.ipv4NetAddress!, name);
+              }
+
               outdatedAddresses.push(currentInterface.ipv4);
             }
             if (networkInterface.ipv4) {
+              if (!currentInterface.ipv4) { // an ipv4 address appeared where previously there wasn't any
+                assert(currentInterface.ipv4NetAddress, "Encountered illegal state. Net address not found for ipv4 address");
+                this.addNetworkIfNotPresent(networkInterface.ipv4NetAddress!, name);
+              }
+
               newAddresses.push(networkInterface.ipv4);
             }
           }
 
           if (currentInterface.ipv6 !== networkInterface.ipv6) { // check for changed ipv6
             if (currentInterface.ipv6) {
+              if (!networkInterface.ipv6) { // the ipv6 address disappeared
+                assert(currentInterface.ipv6NetAddress, "Encountered illegal state. Net address not found for ipv6 address");
+                this.removeNetworkIfPresent(currentInterface.ipv6NetAddress!, name);
+              }
+
               outdatedAddresses.push(currentInterface.ipv6);
             }
             if (networkInterface.ipv6) {
+              if (!currentInterface.ipv6) { // an ipv6 address appeared where previously there wasn't any
+                assert(currentInterface.ipv6NetAddress, "Encountered illegal state. Net address not found for ipv46address");
+                this.addNetworkIfNotPresent(networkInterface.ipv6NetAddress!, name);
+              }
+
               newAddresses.push(networkInterface.ipv6);
             }
           }
 
-          if (deepEqual(currentInterface.routeAbleIpv6, networkInterface.routeAbleIpv6)) {
-            const oldRoutable = currentInterface.routeAbleIpv6?.map(address => address.address) || [];
-            const newRoutable = networkInterface.routeAbleIpv6?.map(address => address.address) || [];
+          if (!deepEqual(currentInterface.routeAbleIpv6, networkInterface.routeAbleIpv6)) {
+            const oldRoutable = currentInterface.routeAbleIpv6 || [];
+            const newRoutable = networkInterface.routeAbleIpv6 || [];
 
             for (const address of oldRoutable) {
               if (!newRoutable.includes(address)) {
@@ -197,6 +230,13 @@ export class NetworkManager extends EventEmitter {
           .push(networkInterface);
 
         this.currentInterfaces.set(name, networkInterface);
+
+        if (networkInterface.ipv4NetAddress) {
+          this.addNetworkIfNotPresent(networkInterface.ipv4NetAddress, networkInterface.name);
+        }
+        if (networkInterface.ipv6NetAddress) {
+          this.addNetworkIfNotPresent(networkInterface.ipv6NetAddress, networkInterface.name);
+        }
       }
     }
 
@@ -210,6 +250,12 @@ export class NetworkManager extends EventEmitter {
             .push(networkInterface);
 
           this.currentInterfaces.delete(name);
+          if (networkInterface.ipv4NetAddress) {
+            this.removeNetworkIfPresent(networkInterface.ipv4NetAddress, name);
+          }
+          if (networkInterface.ipv6NetAddress) {
+            this.removeNetworkIfPresent(networkInterface.ipv6NetAddress, name);
+          }
         }
       }
     }
@@ -228,8 +274,8 @@ export class NetworkManager extends EventEmitter {
     this.scheduleNextJob();
   }
 
-  private getCurrentNetworkInterfaces(): Map<string, NetworkInterface> {
-    const interfaces: Map<string, NetworkInterface> = new Map();
+  private getCurrentNetworkInterfaces(): Map<InterfaceName, NetworkInterface> {
+    const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
       if (!NetworkManager.validNetworkInterfaceName(name)) {
@@ -242,7 +288,7 @@ export class NetworkManager extends EventEmitter {
 
       let ipv4Info: NetworkInterfaceInfo | undefined = undefined;
       let ipv6Info: NetworkInterfaceInfo | undefined = undefined;
-      let routableIpv6Infos: NetworkAddress[] | undefined = undefined;
+      let routableIpv6Infos: IPv6Address[] | undefined = undefined;
       let internal = false;
 
       for (const info of infoArray) {
@@ -257,10 +303,8 @@ export class NetworkManager extends EventEmitter {
           if (info.scopeid) { // we only care about non zero scope (aka link-local ipv6)
             ipv6Info = info;
           } else if (info.scopeid === 0) { // global routable ipv6
-            (routableIpv6Infos || (routableIpv6Infos = [])).push({
-              address: info.address,
-              netmask: info.netmask,
-            });
+            (routableIpv6Infos || (routableIpv6Infos = []))
+              .push(info.address);
           }
         }
       }
@@ -275,31 +319,66 @@ export class NetworkManager extends EventEmitter {
         return;
       }
 
-      interfaces.set(name, {
+      const networkInterface: NetworkInterface = {
         name: name,
         mac: (ipv4Info?.mac || ipv6Info?.mac)!,
 
-        ipv4: ipv4Info?.address,
-        ipv4Netmask: ipv4Info?.netmask,
-
-        ipv6: ipv6Info?.address,
-        ipv6Netmask: ipv6Info?.netmask,
-
         routeAbleIpv6: routableIpv6Infos,
-      });
+      };
+
+      if (ipv4Info) {
+        networkInterface.ipv4 = ipv4Info.address;
+        networkInterface.ipv4NetAddress = getNetAddress(ipv4Info.address, ipv4Info.netmask);
+      }
+
+      if (ipv6Info) {
+        networkInterface.ipv6 = ipv6Info.address;
+        networkInterface.ipv6NetAddress = getNetAddress(ipv6Info.address, ipv6Info.netmask);
+      }
+
+      interfaces.set(name, networkInterface);
     });
 
     return interfaces;
   }
 
-  private static validNetworkInterfaceName(name: string): boolean {
+  private addNetworkIfNotPresent(netAddress: IPAddress, interfaceName: string): void {
+    const network = this.networks.get(netAddress);
+    if (network) {
+      if (!network.interfaces.includes(interfaceName)) {
+        network.interfaces.push(interfaceName);
+      }
+    } else {
+      this.networks.set(netAddress, {
+        netAddress: netAddress,
+        interfaces: [interfaceName],
+      });
+    }
+  }
+
+  private removeNetworkIfPresent(netAddress: IPAddress, interfaceName: string): void {
+    const network = this.networks.get(netAddress);
+
+    if (network) {
+      const index = network.interfaces.indexOf(interfaceName);
+      if (index >= 0) {
+        network.interfaces.splice(index, 1);
+
+        if (network.interfaces.length === 0) {
+          this.networks.delete(netAddress);
+        }
+      }
+    }
+  }
+
+  private static validNetworkInterfaceName(name: InterfaceName): boolean {
     // TODO are these all the available names?
     return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
       || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
   }
 
-  private static resolveInterface(address: string): string | undefined {
-    let interfaceName: string | undefined;
+  private static resolveInterface(address: IPAddress): InterfaceName | undefined {
+    let interfaceName: InterfaceName | undefined;
 
     outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
       for (const info of infoArray) {

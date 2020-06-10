@@ -219,7 +219,7 @@ export class CiaoService extends EventEmitter {
   public advertise(): Promise<void> {
     debug("[%s] Going to advertise service...", this.name);
 
-    if (this.listeners(ServiceEvent.NAME_CHANGED)) {
+    if (this.listeners(ServiceEvent.NAME_CHANGED).length === 0) {
       debug("[%s] WARN: No listeners found for a potential name change on the 'name-change' event!", this.name);
     }
     return new Promise((resolve, reject) => {

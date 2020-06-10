@@ -17,15 +17,17 @@
     "postpublish": "npm run clean"
   },
   "keywords": [
+    "ciao",
+    "rfc-6762",
+    "rfc-6763",
+    "multicast-dns",
+    "dns-sd",
     "bonjour",
     "zeroconf",
     "zero-configuration",
     "mdns",
-    "dns",
-    "service-discovery",
-    "multicast",
-    "broadcast",
-    "dns-sd"
+    "mdns-sd",
+    "service-discovery"
   ],
   "repository": {
     "type": "git",

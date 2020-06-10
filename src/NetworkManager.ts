@@ -156,12 +156,7 @@ export class NetworkManager extends EventEmitter {
           (updated || (updated = [])) // get or create array
             .push(change);
 
-          const equality = currentNetwork.equals(network);
-          if (!equality) {
-            console.log("current: " + JSON.stringify(currentNetwork));
-            console.log("created: " + JSON.stringify(network));
-            assert.fail("Network is still different after update!");
-          }
+          assert(currentNetwork.equals(network), "Network is still different after update!");
         }
       } else { // the network was added
         this.participatingNetworks.set(name, network);
@@ -339,8 +334,9 @@ export class NetworkInformation {
   private readonly ipv4NetAddress: IPv4Address; // one ipv6 for every network interface
   private ipv6?: IPv6Address[];
   //ip6NetAddress?: IPv6Address; // address identifying the address for the ipv6 net
-
   private routableIpv6?: IPv6Address[];
+
+  private defaultIPv4Address: IPv4Address = "";
 
   // TODO mapping from interface to addresses (or vice versa)?
 
@@ -362,6 +358,8 @@ export class NetworkInformation {
       this.routableIpv6 = [];
       this.routableIpv6.push(...networkInterface.routableIpv6);
     }
+
+    this.getDefaultIPv4(); // ensure it is set
   }
 
   public getId(): NetworkId {
@@ -376,6 +374,11 @@ export class NetworkInformation {
     return this.ipv6 || [];
   }
 
+  public hasAddress(address: IPAddress): boolean {
+    return this.ipv4.includes(address) || (!!this.ipv6 && this.ipv6.includes(address)) || (!!this.routableIpv6 && this.routableIpv6.includes(address));
+  }
+
+  // noinspection JSUnusedGlobalSymbols
   public getRoutableIPv6Addresses(): IPv6Address[] {
     return this.routableIpv6 || [];
   }
@@ -390,13 +393,17 @@ export class NetworkInformation {
   }
 
   public getDefaultIPv4(): IPv4Address {
+    if (this.defaultIPv4Address) {
+      return this.defaultIPv4Address;
+    }
     // basically just returns the first ipv4. This is used to bind the socket on for all interfaces on the network
 
-    const address = this.ipv4[0];
-    assert(address, "default ipv4 is undefined!");
-    return address;
+    this.defaultIPv4Address = this.ipv4[0];
+    assert(!!this.defaultIPv4Address, "default ipv4 is undefined!");
+    return this.defaultIPv4Address;
   }
 
+  // noinspection JSUnusedGlobalSymbols
   public hasInterface(name: InterfaceName): boolean;
   public hasInterface(name: NetworkInterface): boolean;
   public hasInterface(name: InterfaceName | NetworkInterface): boolean {
@@ -450,6 +457,11 @@ export class NetworkInformation {
     this.ipv4 = updated.ipv4;
     this.ipv6 = updated.ipv6;
     this.routableIpv6 = updated.routableIpv6;
+
+    if (!this.hasAddress(oldDefaultIpv4)) {
+      this.defaultIPv4Address = ""; // reset the default ip, it disappeared
+      // calling getDefaultIPv4 again (like below) will set it to a new default again
+    }
 
     return {
       networkId: this.ipv4NetAddress,

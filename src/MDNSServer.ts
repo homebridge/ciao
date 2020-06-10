@@ -287,14 +287,11 @@ export class MDNSServer {
     const network = this.networkManager.getNetworkById(id);
     assert(network, "Could not find network '" + id + "' in network manager which socket is going to be bind to!");
 
-    console.log("Binding multicast on " + id);
-
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
-        console.log("bound to " + JSON.stringify(socket.address()));
         socket.removeListener("error", errorHandler);
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;

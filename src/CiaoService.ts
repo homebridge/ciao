@@ -33,13 +33,13 @@ export const enum ServiceType {
   AIRPLAY = "airplay",
   AIRPORT = "airport",
   COMPANION_LINK = "companion-link",
-  DACP = "dacp", // digital audio control protocl (iTunes)
-  HAP = "hap", // used by HomeKit accessoires
+  DACP = "dacp", // digital audio control protocol (iTunes)
+  HAP = "hap", // used by HomeKit accessories
   HOMEKIT = "homekit", // used by home hubs
   HTTP = "http",
   HTTP_ALT = "http_alt", // http alternate
   IPP = "ipp", // internet printing protocol
-  IPPS = "ipps", // intenert priting protocol over https
+  IPPS = "ipps", // internet printing protocol over https
   RAOP = "raop", // remote audio output protocol
   scanner = "scanner", // bonjour scanning
   TOUCH_ABLE = "touch-able", // iPhone and iPod touch remote controllable
@@ -112,7 +112,7 @@ export const enum ServiceEvent {
    * Event is called when the Prober identifies that the name for the service is already used
    * and thus resolve the name conflict by adjusting the name (e.g. adding '(2)' to the name).
    * This change must be persisted and thus a listener must hook up to this event
-   * in order for the name to be persited.
+   * in order for the name to be persisted.
    */
   NAME_CHANGED = "name-change",
   HOSTNAME_CHANGED = "hostname-change",
@@ -548,13 +548,11 @@ export class CiaoService extends EventEmitter {
   }
 
   aRecord(id: NetworkId): ARecord[] | undefined {
-    // TODO include localhost record if the response comes from our own machine
     const records = this.serviceRecords.a[id];
     return records? CiaoService.copyRecords(records): undefined;
   }
 
   aaaaRecords(id: NetworkId): AAAARecord[] | undefined {
-    // TODO include localhost record if the response comes from our own machine
     const records = this.serviceRecords.aaaa[id];
     return records? CiaoService.copyRecords(records): undefined;
   }

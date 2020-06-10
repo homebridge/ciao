@@ -4,18 +4,21 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
+import { arrayDifference } from "./util/array-utils";
 import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
 
+export type NetworkId = string; // currently we identify the network by its ipv4 net address
 export type InterfaceName = string;
 export type MacAddress = string;
+
 export type IPv4Address = string;
 export type IPv6Address = string;
 export type IPAddress = IPv4Address | IPv6Address;
 
-export interface NetworkInterface {
+interface NetworkInterface {
   name: InterfaceName;
   mac: MacAddress;
 
@@ -25,30 +28,29 @@ export interface NetworkInterface {
   ipv6?: IPv6Address;
   ipv6NetAddress?: IPv6Address; // address identifying the address for the ipv6 net
 
-  routeAbleIpv6?: IPv6Address[];
-}
-
-export interface NetworkInformation {
-  netAddress: IPAddress;
-  interfaces: string[];
+  routableIpv6?: IPv6Address[];
 }
 
 export const enum NetworkManagerEvent {
-  INTERFACE_UPDATE = "interface-update",
+  NETWORK_UPDATE = "network-update",
+}
+
+export interface NetworkUpdate {
+  added?: NetworkInformation[];
+  removed?: NetworkInformation[];
+  updated?: NetworkChange[];
 }
 
 export interface NetworkChange {
-  added?: NetworkInterface[];
-  removed?: NetworkInterface[];
-  updated?: InterfaceChange[];
-}
+  networkId: NetworkId;
 
-export interface InterfaceChange {
-  outdatedAddresses: IPAddress[];
-  updatedAddresses: IPAddress[];
+  removedInterfaces: InterfaceName[];
+  addedInterfaces: InterfaceName[];
 
-  oldInterface: NetworkInterface;
-  newInterface: NetworkInterface;
+  changedDefaultIPv4Address?: IPv4Address;
+
+  removedAddresses: IPAddress[];
+  newAddresses: IPAddress[];
 }
 
 export interface NetworkManagerOptions {
@@ -58,9 +60,9 @@ export interface NetworkManagerOptions {
 
 export declare interface NetworkManager {
 
-  on(event: "interface-update", listener: (change: NetworkChange) => void): this;
+  on(event: "network-update", listener: (change: NetworkUpdate) => void): this;
 
-  emit(event: "interface-update", change: NetworkChange): boolean;
+  emit(event: "network-update", change: NetworkUpdate): boolean;
 
 }
 
@@ -71,8 +73,7 @@ export class NetworkManager extends EventEmitter {
   private readonly restrictedInterfaces?: InterfaceName[];
   private readonly excludeIpv6Only: boolean;
 
-  private readonly networks: Map<IPAddress, NetworkInformation> = new Map(); // indexed by netaddress
-  private readonly currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
+  private readonly participatingNetworks: Map<NetworkId, NetworkInformation>;
 
   private currentTimer?: Timeout;
 
@@ -94,19 +95,22 @@ export class NetworkManager extends EventEmitter {
       }
     }
     this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
+    assert(this.excludeIpv6Only, "NetworkManager currently does not support including ipv6 only networks");
 
-    this.checkForNewInterfaces();
+    this.participatingNetworks = this.getCurrentNetworkInformation();
 
     const networks: string[] = [];
-    for (const network of this.networks.values()) {
-      networks.push(`{ '${network.netAddress}' => [${network.interfaces.join(", ")}]}`);
+    for (const network of this.participatingNetworks.values()) {
+      networks.push(`[${network.getInterfaceNames().join(", ")}]`);
     }
 
     if (options) {
-      debug("Created NetworkManager (initial interfaces [%s]; options: %s)", networks.join(", "), JSON.stringify(options));
+      debug("Created NetworkManager (initial networks [%s]; options: %s)", networks.join(", "), JSON.stringify(options));
     } else {
-      debug("Created NetworkManager (initial interfaces [%s])", networks.join(", "));
+      debug("Created NetworkManager (initial networks [%s])", networks.join(", "));
     }
+
+    this.scheduleNextJob();
   }
 
   public shutdown(): void {
@@ -116,146 +120,65 @@ export class NetworkManager extends EventEmitter {
     }
   }
 
-  public getNetworkMap(): Map<IPAddress, NetworkInformation> {
-    return this.networks;
+  public getNetworkMap(): Map<NetworkId, NetworkInformation> {
+    return this.participatingNetworks;
   }
 
-  public getNetwork(netAddress: IPAddress): NetworkInformation | undefined {
-    return this.networks.get(netAddress);
+  public getNetworks(): IterableIterator<NetworkInformation> {
+    return this.participatingNetworks.values();
   }
 
-  public getInterfaceMap(): Map<InterfaceName, NetworkInterface> {
-    return this.currentInterfaces;
-  }
-
-  public getInterfaces(): IterableIterator<NetworkInterface> {
-    return this.currentInterfaces.values();
-  }
-
-  public getInterface(name: InterfaceName): NetworkInterface | undefined {
-    return this.currentInterfaces.get(name);
+  public getNetworkById(id: NetworkId): NetworkInformation | undefined {
+    return this.participatingNetworks.get(id);
   }
 
   private scheduleNextJob(): void {
-    const timer = setTimeout(this.checkForNewInterfaces.bind(this), NetworkManager.POLLING_TIME);
+    const timer = setTimeout(this.checkForNewNetworks.bind(this), NetworkManager.POLLING_TIME);
     timer.unref(); // this timer won't prevent shutdown
   }
 
-  private checkForNewInterfaces(): void {
-    debug("Checking for new interfaces...");
+  private checkForNewNetworks(): void {
+    debug("Checking for new networks...");
 
-    const latestInterfaces = this.getCurrentNetworkInterfaces();
+    const latestNetworks = this.getCurrentNetworkInformation();
 
-    let added: NetworkInterface[] | undefined = undefined;
-    let removed: NetworkInterface[] | undefined = undefined;
-    let updated: InterfaceChange[] | undefined = undefined;
+    let added: NetworkInformation[] | undefined = undefined;
+    let removed: NetworkInformation[] | undefined = undefined;
+    let updated: NetworkChange[] | undefined = undefined;
 
-    for (const networkInterface of latestInterfaces.values()) {
-      const name = networkInterface.name;
-      const currentInterface = this.currentInterfaces.get(name);
+    for (const [name, network] of latestNetworks) {
+      const currentNetwork = this.participatingNetworks.get(name);
 
-      if (currentInterface) {
-        // check if interface was updated
-        if (!deepEqual(currentInterface, networkInterface)) {
-          const outdatedAddresses: string[] = [];
-          const newAddresses: string[] = [];
+      if (currentNetwork) { // the network could potentially have changed
+        if (!currentNetwork.equals(network)) { // the network actually changed
+          const change = currentNetwork.changeNetwork(network);
 
-          if (currentInterface.ipv4 !== networkInterface.ipv4) { // check for changed ipv4
-            if (currentInterface.ipv4) {
-              if (!networkInterface.ipv4) { // the ipv4 address disappeared
-                assert(currentInterface.ipv4NetAddress, "Encountered illegal state. Net address not found for ipv4 address");
-                this.removeNetworkIfPresent(currentInterface.ipv4NetAddress!, name);
-              }
+          (updated || (updated = [])) // get or create array
+            .push(change);
 
-              outdatedAddresses.push(currentInterface.ipv4);
-            }
-            if (networkInterface.ipv4) {
-              if (!currentInterface.ipv4) { // an ipv4 address appeared where previously there wasn't any
-                assert(currentInterface.ipv4NetAddress, "Encountered illegal state. Net address not found for ipv4 address");
-                this.addNetworkIfNotPresent(networkInterface.ipv4NetAddress!, name);
-              }
-
-              newAddresses.push(networkInterface.ipv4);
-            }
+          const equality = currentNetwork.equals(network);
+          if (!equality) {
+            console.log("current: " + JSON.stringify(currentNetwork));
+            console.log("created: " + JSON.stringify(network));
+            assert.fail("Network is still different after update!");
           }
-
-          if (currentInterface.ipv6 !== networkInterface.ipv6) { // check for changed ipv6
-            if (currentInterface.ipv6) {
-              if (!networkInterface.ipv6) { // the ipv6 address disappeared
-                assert(currentInterface.ipv6NetAddress, "Encountered illegal state. Net address not found for ipv6 address");
-                this.removeNetworkIfPresent(currentInterface.ipv6NetAddress!, name);
-              }
-
-              outdatedAddresses.push(currentInterface.ipv6);
-            }
-            if (networkInterface.ipv6) {
-              if (!currentInterface.ipv6) { // an ipv6 address appeared where previously there wasn't any
-                assert(currentInterface.ipv6NetAddress, "Encountered illegal state. Net address not found for ipv46address");
-                this.addNetworkIfNotPresent(networkInterface.ipv6NetAddress!, name);
-              }
-
-              newAddresses.push(networkInterface.ipv6);
-            }
-          }
-
-          if (!deepEqual(currentInterface.routeAbleIpv6, networkInterface.routeAbleIpv6)) {
-            const oldRoutable = currentInterface.routeAbleIpv6 || [];
-            const newRoutable = networkInterface.routeAbleIpv6 || [];
-
-            for (const address of oldRoutable) {
-              if (!newRoutable.includes(address)) {
-                outdatedAddresses.push(address);
-              }
-            }
-
-            for (const address of newAddresses) {
-              if (!oldRoutable.includes(address)) {
-                newAddresses.push(address);
-              }
-            }
-          }
-
-          (updated || (updated = [])) // get or create new array
-            .push({
-              newInterface: networkInterface,
-              oldInterface: currentInterface,
-              outdatedAddresses: outdatedAddresses,
-              updatedAddresses: newAddresses,
-            });
-
-          this.currentInterfaces.set(name, networkInterface);
         }
-      } else { // new interface was added/started
-        (added || (added = [])) // get or create new array
-          .push(networkInterface);
-
-        this.currentInterfaces.set(name, networkInterface);
-
-        if (networkInterface.ipv4NetAddress) {
-          this.addNetworkIfNotPresent(networkInterface.ipv4NetAddress, networkInterface.name);
-        }
-        if (networkInterface.ipv6NetAddress) {
-          this.addNetworkIfNotPresent(networkInterface.ipv6NetAddress, networkInterface.name);
-        }
+      } else { // the network was added
+        this.participatingNetworks.set(name, network);
+        (added || (added = [])) // get or create array
+          .push(network);
       }
     }
 
-    // at this point we updated any existing interfaces and added all new interfaces
-    // thus if the length of below is not the same interface must have been removed
-    // this check ensures that we do not unnecessarily loop twice through our interfaces
-    if (this.currentInterfaces.size !== latestInterfaces.size) {
-      for (const [name, networkInterface] of this.currentInterfaces) {
-        if (!latestInterfaces.has(name)) {
+    // at this point we updated any existing networks and added all new networks
+    // thus if the length of below is not the same, networks must have been removed completely
+    // this check ensures that we do not unnecessarily loop twice through our networks
+    if (this.participatingNetworks.size !== latestNetworks.size) {
+      for (const [name, network] of this.participatingNetworks) {
+        if (!latestNetworks.has(name)) { // network was removed
+          this.participatingNetworks.delete(name);
           (removed || (removed = [])) // get or create new array
-            .push(networkInterface);
-
-          this.currentInterfaces.delete(name);
-          if (networkInterface.ipv4NetAddress) {
-            this.removeNetworkIfPresent(networkInterface.ipv4NetAddress, name);
-          }
-          if (networkInterface.ipv6NetAddress) {
-            this.removeNetworkIfPresent(networkInterface.ipv6NetAddress, name);
-          }
+            .push(network);
         }
       }
     }
@@ -264,7 +187,7 @@ export class NetworkManager extends EventEmitter {
       debug("Detected network changes: %d added, %d removed, %d updated",
         added?.length || 0, removed?.length || 0, updated?.length || 0);
 
-      this.emit(NetworkManagerEvent.INTERFACE_UPDATE, {
+      this.emit(NetworkManagerEvent.NETWORK_UPDATE, {
         added: added,
         removed: removed,
         updated: updated,
@@ -323,7 +246,7 @@ export class NetworkManager extends EventEmitter {
         name: name,
         mac: (ipv4Info?.mac || ipv6Info?.mac)!,
 
-        routeAbleIpv6: routableIpv6Infos,
+        routableIpv6: routableIpv6Infos,
       };
 
       if (ipv4Info) {
@@ -342,33 +265,38 @@ export class NetworkManager extends EventEmitter {
     return interfaces;
   }
 
-  private addNetworkIfNotPresent(netAddress: IPAddress, interfaceName: string): void {
-    const network = this.networks.get(netAddress);
-    if (network) {
-      if (!network.interfaces.includes(interfaceName)) {
-        network.interfaces.push(interfaceName);
+  private getCurrentNetworkInformation(): Map<NetworkId, NetworkInformation> {
+    const networks: Map<NetworkId, NetworkInformation> = new Map();
+
+    const interfaces = this.getCurrentNetworkInterfaces();
+
+    for (const networkInterface of interfaces.values()) {
+      if (!networkInterface.ipv4NetAddress || !networkInterface.ipv4) { // the ipv4 check is only that Typescript also knows
+        /**
+         * First of all, the MDNSServer does currently only advertise on ipv4, meaning ipv6 only
+         * interfaces won't ever get advertised.
+         * Secondly we currently ignore the ipv6 subnet address. When adding ipv6 support to the MDNSServer
+         * one might need to rework this part here.
+         * If two network interfaces share the same ipv4 subnet it does not necessarily mean that they share
+         * the same ipv6 subnet.
+         * Though keep in mind we return all ipv6 addresses when a query arrives on the ipv4 of a network interface.
+         */
+        continue;
       }
-    } else {
-      this.networks.set(netAddress, {
-        netAddress: netAddress,
-        interfaces: [interfaceName],
-      });
-    }
-  }
 
-  private removeNetworkIfPresent(netAddress: IPAddress, interfaceName: string): void {
-    const network = this.networks.get(netAddress);
+      const existingNetwork = networks.get(networkInterface.ipv4NetAddress); // we currently only compare ipv4 net address
 
-    if (network) {
-      const index = network.interfaces.indexOf(interfaceName);
-      if (index >= 0) {
-        network.interfaces.splice(index, 1);
-
-        if (network.interfaces.length === 0) {
-          this.networks.delete(netAddress);
+      if (existingNetwork) {
+        if (!existingNetwork.hasInterface(networkInterface)) {
+          existingNetwork.addInterface(networkInterface);
         }
+      } else {
+        const network = new NetworkInformation(networkInterface);
+        networks.set(networkInterface.ipv4NetAddress, network);
       }
     }
+
+    return networks;
   }
 
   private static validNetworkInterfaceName(name: InterfaceName): boolean {
@@ -390,6 +318,156 @@ export class NetworkManager extends EventEmitter {
     }
 
     return interfaceName;
+  }
+
+}
+
+/**
+ * All NetworkInterfaces sharing the same IPv4 netAddress will be grouped into one network.
+ * Most of the time, if the ipv4 netaddress match the ipv6 netaddress will also match,
+ * though this is not guaranteed, tough we currently ignore that,
+ * as our MDNSServer implementation does only listen on tcp4 and not tcp6.
+ * Additionally when a client requests all A and AAAA records we will always return
+ * the ipv6 addresses of the interface the request came on, even though we can't verify if
+ * the ipv6 address may not match.
+ */
+export class NetworkInformation {
+
+  private interfaces: InterfaceName[]; // most of the time this will have a length of 1
+
+  private ipv4: IPv4Address[]; // one ipv4 for every network interface
+  private readonly ipv4NetAddress: IPv4Address; // one ipv6 for every network interface
+  private ipv6?: IPv6Address[];
+  //ip6NetAddress?: IPv6Address; // address identifying the address for the ipv6 net
+
+  private routableIpv6?: IPv6Address[];
+
+  // TODO mapping from interface to addresses (or vice versa)?
+
+  constructor(networkInterface: NetworkInterface) {
+    assert(networkInterface.ipv4, "Can't create Network without ipv4 (currently)");
+    assert(networkInterface.ipv4NetAddress, "Can't create Network without ipv4 (currently)");
+
+    // we currently do not keep track of the mac addresses of the network interfaces, as there is no use to this
+
+    this.interfaces = [networkInterface.name];
+    this.ipv4 = [networkInterface.ipv4!];
+    this.ipv4NetAddress = networkInterface.ipv4NetAddress!;
+
+    if (networkInterface.ipv6) {
+      this.ipv6 = [networkInterface.ipv6];
+    }
+
+    if (networkInterface.routableIpv6) {
+      this.routableIpv6 = [];
+      this.routableIpv6.push(...networkInterface.routableIpv6);
+    }
+  }
+
+  public getId(): NetworkId {
+    return this.ipv4NetAddress;
+  }
+
+  public getIPv4Addresses(): IPv4Address[] {
+    return this.ipv4;
+  }
+
+  public getIPv6Addresses(): IPv6Address[] {
+    return this.ipv6 || [];
+  }
+
+  public getRoutableIPv6Addresses(): IPv6Address[] {
+    return this.routableIpv6 || [];
+  }
+
+  public getAddresses(): IPAddress[] {
+    const addresses = this.ipv4.concat(this.ipv6? this.ipv6: []);
+    if (this.routableIpv6) {
+      addresses.push(...this.routableIpv6);
+    }
+
+    return addresses;
+  }
+
+  public getDefaultIPv4(): IPv4Address {
+    // basically just returns the first ipv4. This is used to bind the socket on for all interfaces on the network
+
+    const address = this.ipv4[0];
+    assert(address, "default ipv4 is undefined!");
+    return address;
+  }
+
+  public hasInterface(name: InterfaceName): boolean;
+  public hasInterface(name: NetworkInterface): boolean;
+  public hasInterface(name: InterfaceName | NetworkInterface): boolean {
+    if (typeof name === "string") {
+      return this.interfaces.includes(name);
+    } else {
+      return this.interfaces.includes(name.name);
+    }
+  }
+
+  public getInterfaceNames(): InterfaceName[] {
+    return this.interfaces;
+  }
+
+  public addInterface(networkInterface: NetworkInterface): void {
+    assert(this.ipv4NetAddress === networkInterface.ipv4NetAddress, "Cannot add a network interface to the network with a different net address");
+    this.interfaces.push(networkInterface.name);
+
+    if (networkInterface.ipv4) {
+      this.ipv4.push(networkInterface.ipv4);
+    }
+
+    if (networkInterface.ipv6) {
+      if (!this.ipv6) {
+        this.ipv6 = [];
+      }
+      this.ipv6.push(networkInterface.ipv6);
+    }
+
+    if (networkInterface.routableIpv6) {
+      if (!this.routableIpv6) {
+        this.routableIpv6 = [];
+      }
+      this.routableIpv6.push(...networkInterface.routableIpv6);
+    }
+  }
+
+  public changeNetwork(updated: NetworkInformation): NetworkChange {
+    const interfaceDifference = arrayDifference(this.interfaces, updated.interfaces);
+    const ipv4Difference = arrayDifference(this.ipv4, updated.ipv4);
+    const ipv6Difference = arrayDifference(this.ipv6, updated.ipv6);
+    const routableDifference = arrayDifference(this.routableIpv6, updated.routableIpv6);
+
+    const oldDefaultIpv4 = this.getDefaultIPv4();
+
+    const addedAddresses = ipv4Difference.added.concat(ipv6Difference.added).concat(routableDifference.added);
+    const removedAddresses = ipv4Difference.removed.concat(ipv6Difference.removed).concat(routableDifference.removed);
+
+    // preserve a predictable order
+    this.interfaces = updated.interfaces;
+    this.ipv4 = updated.ipv4;
+    this.ipv6 = updated.ipv6;
+    this.routableIpv6 = updated.routableIpv6;
+
+    return {
+      networkId: this.ipv4NetAddress,
+
+      addedInterfaces: interfaceDifference.added,
+      removedInterfaces: interfaceDifference.removed,
+
+      changedDefaultIPv4Address: oldDefaultIpv4 !== this.getDefaultIPv4()? this.getDefaultIPv4(): undefined,
+
+      newAddresses: addedAddresses,
+      removedAddresses: removedAddresses,
+    };
+  }
+
+  public equals(network: NetworkInformation): boolean {
+    return this.ipv4NetAddress === network.ipv4NetAddress && deepEqual(this.interfaces, network.interfaces)
+      && deepEqual(this.ipv4, network.ipv4) && deepEqual(this.ipv6, network.ipv6)
+      && deepEqual(this.routableIpv6, network.routableIpv6);
   }
 
 }

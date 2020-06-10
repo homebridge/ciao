@@ -13,7 +13,7 @@ import createDebug from "debug";
 import { EventEmitter } from "events";
 import net from "net";
 import { Protocol, Responder } from "./index";
-import { NetworkChange, NetworkManager, NetworkManagerEvent } from "./NetworkManager";
+import { NetworkUpdate, NetworkManager, NetworkManagerEvent, NetworkId, IPAddress } from "./NetworkManager";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 
@@ -102,9 +102,9 @@ export interface ServiceRecords {
   metaQueryPtr: PTRRecord; // pointer for the "_services._dns-sd._udp.local" meta query
   srv: SRVRecord;
   txt: TXTRecord;
-  a: Record<string, ARecord>; // indexed by interface name
-  aaaa: Record<string, AAAARecord[]>; // indexed by interface name
-  reverseAddressPTRs: Record<string, PTRRecord>; // indexed by address
+  a: Record<NetworkId, ARecord[]>;
+  aaaa: Record<NetworkId, AAAARecord[]>;
+  reverseAddressPTRs: Record<IPAddress, PTRRecord>; // indexed by address
 }
 
 export const enum ServiceEvent {
@@ -177,7 +177,7 @@ export class CiaoService extends EventEmitter {
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
 
     this.networkManager = networkManager;
-    this.networkManager.on(NetworkManagerEvent.INTERFACE_UPDATE, this.handleNetworkChange.bind(this));
+    this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkChange.bind(this));
 
     this.name = options.name;
     this.type = options.type;
@@ -281,22 +281,22 @@ export class CiaoService extends EventEmitter {
     return result;
   }
 
-  private handleNetworkChange(change: NetworkChange): void {
+  private handleNetworkChange(update: NetworkUpdate): void {
     if (this.serviceState !== ServiceState.ANNOUNCED) {
       return; // service records are rebuilt short before the announce step
     }
 
-    const added = change.added?.map(iface => iface.name) || [];
-    const updated = change.updated?.map(iface => iface.newInterface.name) || [];
-    const removed = change.removed?.map(iface => iface.name) || [];
+    const added = update.added?.map(network => network.getId()) || [];
+    const removed = update.removed?.map(network => network.getId()) || [];
+    const updated = update.updated?.map(change => change.networkId) || [];
 
-    debug("[%s] Encountered network change: added: '%s'; updated: '%s'; removed: '%s'", this.name, added.join(", "), updated.join(", "), removed.join(", "));
+    debug("[%s] Encountered network update: added: '%s'; updated: '%s'; removed: '%s'", this.name, added.join(", "), updated.join(", "), removed.join(", "));
 
     const records: AnswerRecord[] = [];
 
-    if (change.updated) {
-      for (const interfaceChange of change.updated) {
-        for (const outdated of interfaceChange.outdatedAddresses) {
+    if (update.updated) {
+      for (const change of update.updated) {
+        for (const outdated of change.removedAddresses) {
           records.push({
             name: this.hostname,
             type: net.isIPv4(outdated)? Type.A: Type.AAAA,
@@ -306,7 +306,7 @@ export class CiaoService extends EventEmitter {
           });
         }
 
-        for (const updated of interfaceChange.updatedAddresses) {
+        for (const updated of change.newAddresses) {
           records.push({
             name: this.hostname,
             type: net.isIPv4(updated)? Type.A: Type.AAAA,
@@ -330,6 +330,8 @@ export class CiaoService extends EventEmitter {
       // TODO add support for this. We will need to announce the service on the newly appeared interface
       //  as a name conflict could appear there we would also do a Probing. As we probably do not want
       //  that we have different names on different interfaces we should just Probe an reannounce on ALL interfaces
+
+      // TODO reannounce would need to be delayed until the socket is bound
       console.log("CIAO: [" + this.name + "] Detected a new network interface appearing on the machine. The service probably " +
         "needs to be announced on again on that interface. This is currently unsupported. " +
         "Please restart the program so that the new interface is properly advertised!");
@@ -438,65 +440,39 @@ export class CiaoService extends EventEmitter {
   }
 
   rebuildServiceRecords(): ServiceRecords {
-    const aRecordMap: Record<string, ARecord> = {};
-    const aaaaRecordMap: Record<string, AAAARecord[]> = {};
-    const reverseAddressMap: Record<string, PTRRecord> = {};
+    const aRecordMap: Record<NetworkId, ARecord[]> = {};
+    const aaaaRecordMap: Record<NetworkId, AAAARecord[]> = {};
+    const reverseAddressMap: Record<IPAddress, PTRRecord> = {};
     let subtypePTRs: PTRRecord[] | undefined = undefined;
 
-    for (const networkInterfaces of this.networkManager.getInterfaces()) {
-      if (networkInterfaces.ipv4) {
-        aRecordMap[networkInterfaces.name] = {
+    for (const network of this.networkManager.getNetworks()) {
+      for (const address of network.getAddresses()) {
+        const isIpv4 = net.isIPv4(address);
+
+        const record: ARecord | AAAARecord = {
           name: this.hostname,
-          type: Type.A,
+          type: isIpv4? Type.A: Type.AAAA,
           ttl: 120,
-          data: networkInterfaces.ipv4,
+          data: address,
           flush: true,
         };
-        reverseAddressMap[networkInterfaces.ipv4] = {
-          name: formatReverseAddressPTRName(networkInterfaces.ipv4),
+        const reverseMapping: PTRRecord = {
+          name: formatReverseAddressPTRName(address),
           type: Type.PTR,
-          ttl: 4500, // PTR records
+          ttl: 4500, // 75 minutes
           data: this.hostname,
         };
-      }
 
-      if (networkInterfaces.ipv6) {
-        aaaaRecordMap[networkInterfaces.name] = [{
-          name: this.hostname,
-          type: Type.AAAA,
-          ttl: 120,
-          data: networkInterfaces.ipv6,
-          flush: true,
-        }];
-        reverseAddressMap[networkInterfaces.ipv6] = {
-          name: formatReverseAddressPTRName(networkInterfaces.ipv6),
-          type: Type.PTR,
-          ttl: 4500, // PTR records
-          data: this.hostname,
-        };
-      }
-
-      if (networkInterfaces.routeAbleIpv6) {
-        let records = aaaaRecordMap[networkInterfaces.name];
-        if (!records) {
-          aaaaRecordMap[networkInterfaces.name] = records = [];
+        const map = isIpv4? aRecordMap: aaaaRecordMap;
+        let array = map[network.getId()];
+        if (!array) {
+          map[network.getId()] = array = [];
         }
 
-        for (const ip6 of networkInterfaces.routeAbleIpv6) {
-          records.push({
-            name: this.hostname,
-            type: Type.AAAA,
-            ttl: 120,
-            data: ip6,
-            flush: true,
-          });
-          reverseAddressMap[ip6] = {
-            name: formatReverseAddressPTRName(ip6),
-            type: Type.PTR,
-            ttl: 4500, // PTR records
-            data: this.hostname,
-          };
-        }
+        // eslint-disable-next-line @typescript-eslint/ban-ts-ignore
+        // @ts-ignore
+        array.push(record);
+        reverseAddressMap[address] = reverseMapping;
       }
     }
 
@@ -571,22 +547,24 @@ export class CiaoService extends EventEmitter {
     return CiaoService.copyRecord(this.serviceRecords.txt);
   }
 
-  aRecord(networkInterface: string): ARecord | undefined {
+  aRecord(id: NetworkId): ARecord[] | undefined {
     // TODO include localhost record if the response comes from our own machine
-    const record = this.serviceRecords.a[networkInterface];
-    return record? CiaoService.copyRecord(record): undefined;
+    const records = this.serviceRecords.a[id];
+    return records? CiaoService.copyRecords(records): undefined;
   }
 
-  aaaaRecords(networkInterface: string): AAAARecord[] | undefined {
+  aaaaRecords(id: NetworkId): AAAARecord[] | undefined {
     // TODO include localhost record if the response comes from our own machine
-    const records = this.serviceRecords.aaaa[networkInterface];
+    const records = this.serviceRecords.aaaa[id];
     return records? CiaoService.copyRecords(records): undefined;
   }
 
   allAddressRecords(): (ARecord | AAAARecord)[] {
     const records: (ARecord | AAAARecord)[] = [];
 
-    records.push(...CiaoService.copyRecords(Object.values(this.serviceRecords.a)));
+    Object.values(this.serviceRecords.a).forEach(recordArray => {
+      records.push(...CiaoService.copyRecords(recordArray));
+    });
     Object.values(this.serviceRecords.aaaa).forEach(recordArray => {
       records.push(...CiaoService.copyRecords(recordArray));
     });

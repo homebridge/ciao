@@ -218,7 +218,7 @@ export class Responder implements PacketHandler {
     const records: AnswerRecord[] = [
       service.ptrRecord(), ...service.subtypePtrRecords(),
       service.srvRecord(), service.txtRecord(),
-      // A and AAAA records are added below when sending. Which records get added depends on the interface the announcement happens
+      // A and AAAA records are added below when sending. Which records get added depends on the network the announcement happens for
     ];
 
     if (this.announcedServices.size === 0) {
@@ -585,11 +585,11 @@ export class Responder implements PacketHandler {
    * @param {Type[]} nsecDest - if A or AAAA do not exist the type will be pushed onto this array
    */
   private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: AnswerRecord[], aaaaDest: AnswerRecord[], nsecDest: Type[]): void {
-    const aRecord = service.aRecord(endpoint.interface);
-    const aaaaRecords = service.aaaaRecords(endpoint.interface);
+    const aRecords = service.aRecord(endpoint.network);
+    const aaaaRecords = service.aaaaRecords(endpoint.network);
 
-    if (aRecord) {
-      aDest.push(aRecord);
+    if (aRecords) {
+      aDest.push(...aRecords);
     } else {
       nsecDest.push(Type.A);
     }
@@ -620,20 +620,20 @@ export class Responder implements PacketHandler {
   }
 
   private sendResponseAddingAddressRecords(service: CiaoService, records: AnswerRecord[], goodbye: boolean, callback?: SendCallback): void {
-    let iterations = this.server.getInterfaceCount();
+    let iterations = this.server.getNetworkCount();
     const encounteredErrors: Error[] = [];
 
-    for (const networkInterface of this.server.getInterfaces()) {
+    for (const id of this.server.getNetworkIds()) {
       const answer: AnswerRecord[] = records.concat([]);
 
-      const aRecord = service.aRecord(networkInterface);
-      const aaaaRecords = service.aaaaRecords(networkInterface);
+      const aRecords = service.aRecord(id);
+      const aaaaRecords = service.aaaaRecords(id);
 
-      if (aRecord) {
+      if (aRecords) {
         if (goodbye) {
-          aRecord.ttl = 0;
+          aRecords.forEach(record => record.ttl = 0);
         }
-        answer.push(aRecord);
+        answer.push(...aRecords);
       }
       if (aaaaRecords) {
         if (goodbye) {
@@ -643,9 +643,9 @@ export class Responder implements PacketHandler {
       }
 
       if (!callback) {
-        this.server.sendResponse({ answers: answer }, networkInterface);
+        this.server.sendResponse({ answers: answer }, id);
       } else {
-        this.server.sendResponse({ answers: answer }, networkInterface, error => {
+        this.server.sendResponse({ answers: answer }, id, error => {
           if (error) {
             encounteredErrors.push(error);
           }

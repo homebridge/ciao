@@ -28,6 +28,7 @@
     "max-len": ["warn", 180],
 
     "@typescript-eslint/camelcase": "off", // off as dns-packet has a lot of stuff like this
-    "@typescript-eslint/no-non-null-assertion": "off"
+    "@typescript-eslint/no-non-null-assertion": "off",
+    "@typescript-eslint/no-use-before-define": ["error", {"classes": false}]
   }
 }

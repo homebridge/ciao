@@ -195,7 +195,7 @@ declare module "@homebridge/dns-packet" {
     type: "response" | "query";
     flags: number;
     flag_qr: boolean;
-    flag_aa: boolean; // authoriatative answer // OTODO
+    flag_aa: boolean; // authoriatative answer
     flag_tc: boolean; // truncated response
     flag_rd: boolean; // recursion desired
     flag_ra: boolean; // recursion available

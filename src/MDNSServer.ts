@@ -11,6 +11,9 @@ import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
 import { IPFamily } from "./index";
 import { NetworkUpdate, NetworkManager, NetworkManagerEvent, NetworkId } from "./NetworkManager";
+import createDebug from "debug";
+
+const debug = createDebug("ciao:MDNSServer");
 
 export interface DnsResponse {
   flags?: number;
@@ -268,6 +271,9 @@ export class MDNSServer {
   private assertBeforeSend(packet: EncodingDnsPacket, message: Buffer): void {
     assert(this.bound, "Cannot send packets before server is not bound!");
     assert(!this.closed, "Cannot send packets on a closed mdns server!");
+    if (message.length > 1024) { // TODO still need to check what we need to do?
+      debug("packet with exceeds the record size of 1024 with " + message.length);
+    }
     //assert(message.length <= 1024, "MDNS packet size cannot be larger than 1024 bytes for " + message.length + " " + JSON.stringify(packet)); // TODO we might want to tackle this
   }
 

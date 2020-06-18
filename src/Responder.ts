@@ -1,6 +1,7 @@
 import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
 import assert from "assert";
 import createDebug from "debug";
+import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import {
   CiaoService,
@@ -14,12 +15,97 @@ import { DnsResponse, EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
 import { ipAddressFromReversAddressName } from "./util/domain-formatter";
+import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Responder");
 
 interface CalculatedAnswer {
   answers: AnswerRecord[];
   additionals: AnswerRecord[];
+}
+
+const enum TruncatedQueryResult {
+  ABORT = 1,
+  AGAIN_TRUNCATED = 2,
+  FINISHED = 3,
+}
+
+const enum TruncatedQueryEvent {
+  TIMEOUT = "timeout",
+}
+
+declare interface TruncatedQuery {
+
+  on(event: "timeout", listener: () => void): this;
+
+  emit(event: "timeout"): boolean;
+
+}
+
+class TruncatedQuery extends EventEmitter {
+
+  private readonly timeOfArrival: number;
+  private readonly packet: DecodedDnsPacket;
+  private arrivedPackets = 1; // just for the stats
+
+  private timer: Timeout;
+
+  constructor(packet: DecodedDnsPacket) {
+    super();
+    this.timeOfArrival = new Date().getTime();
+    this.packet = packet;
+
+    this.timer = this.resetTimer();
+  }
+
+  public getPacket(): DecodedDnsPacket {
+    return this.packet;
+  }
+
+  public getArrivedPacketCount(): number {
+    return this.arrivedPackets;
+  }
+
+  public getTotalWaitTime(): number {
+    return new Date().getTime() - this.timeOfArrival;
+  }
+
+  public appendDNSPacket(packet: DecodedDnsPacket): TruncatedQueryResult {
+    this.packet.questions.push(...packet.questions);
+    this.packet.answers.push(...packet.answers);
+    this.packet.additionals.push(...packet.additionals);
+    this.packet.authorities.push(...packet.authorities);
+
+    this.arrivedPackets++;
+
+    if (packet.flag_tc) { // if the appended packet is again truncated, restart the timeout
+      const time = new Date().getTime();
+
+      if (time - this.timeOfArrival > 5 * 1000) { // if the first packet, is more than 5 seconds old, we abort
+        return TruncatedQueryResult.ABORT;
+      }
+
+      this.resetTimer();
+      return TruncatedQueryResult.AGAIN_TRUNCATED;
+    } else {
+      clearTimeout(this.timer);
+      return TruncatedQueryResult.FINISHED;
+    }
+  }
+
+  private resetTimer(): Timeout {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+
+    // timeout in time interval between 400-500ms
+    return this.timer = setTimeout(this.timeout.bind(this), 400 + Math.random() * 100);
+  }
+
+  private timeout(): void {
+    this.emit(TruncatedQueryEvent.TIMEOUT);
+  }
+
 }
 
 export class Responder implements PacketHandler {
@@ -34,13 +120,15 @@ export class Responder implements PacketHandler {
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
   private readonly announcedServices: Map<string, CiaoService> = new Map();
   /*
-   * map representing all out shared PTR records.
+   * map representing all our shared PTR records.
    * Typically we hold stuff like '_services._dns-sd._udp.local' (RFC 6763 9.), '_hap._tcp.local'.
    * Also pointers for every subtype like '_printer._sub._http._tcp.local' are inserted here.
    *
    * For every pointer we may hold multiple entries (like multiple services can advertise on _hap._tcp.local).
    */
   private readonly servicePointer: Map<string, string[]> = new Map();
+
+  private readonly truncatedQueries: Record<string, TruncatedQuery> = {}; // indexed by <ip>:<port>
 
   private currentProber?: Prober;
 
@@ -288,10 +376,39 @@ export class Responder implements PacketHandler {
   }
 
   handleQuery(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
-    if (packet.flag_tc) {
-      // RFC 6763 18.5 flag indicates that additional known-answer records follow shortly
-      // TODO wait here for those additional known-answer records READ RFC 6762 7.2
-      throw new Error("Truncated messages are currently unsupported");
+    const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
+
+    const previousQuery = this.truncatedQueries[endpointId];
+    if (previousQuery) {
+      const truncatedQueryResult = previousQuery.appendDNSPacket(packet);
+
+      switch (truncatedQueryResult) {
+        case TruncatedQueryResult.ABORT: // returned when we detect, that continuously TC queries are sent
+          debug("[%s] Aborting to wait for more truncated queries. Waited a total of %d ms receiving %d queries",
+            endpointId, previousQuery.getTotalWaitTime(), previousQuery.getArrivedPacketCount());
+          return;
+        case TruncatedQueryResult.AGAIN_TRUNCATED:
+          debug("[%s] Received a query marked as truncated, waiting for more to arrive", endpointId);
+          return; // wait for the next packet
+        case TruncatedQueryResult.FINISHED:
+          delete this.truncatedQueries[endpointId];
+          packet = previousQuery.getPacket(); // replace packet with the complete deal
+
+          debug("[%s] Last part of the truncated query arrived. Received %d packets taking a total of %d ms",
+            endpointId, previousQuery.getArrivedPacketCount(), previousQuery.getTotalWaitTime());
+          break;
+      }
+    } else if (packet.flag_tc) {
+      // RFC 6763 18.5 truncate flag indicates that additional known-answer records follow shortly
+      const truncatedQuery = new TruncatedQuery(packet);
+      this.truncatedQueries[endpointId] = truncatedQuery;
+      truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
+        // called when more than 400-500ms pass until the next packet arrives
+        debug("[%s] Timeout passed since the last truncated query was received. Discarding %d packets received in %d ms.",
+          endpointId, truncatedQuery.getArrivedPacketCount(), truncatedQuery.getTotalWaitTime());
+        delete this.truncatedQueries[endpointId];
+      });
+
     }
 
     const multicastAnswers: AnswerRecord[] = [];
@@ -370,7 +487,9 @@ export class Responder implements PacketHandler {
     //    and are still sent immediately.) => I don't think this is needed?
 
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
-    if (unicastAnswers.length > 0 || multicastAdditionals.length > 0) {
+    if (unicastAnswers.length > 0 || unicastAdditionals.length > 0) {
+      debug("Sending response to " + JSON.stringify(endpoint) + " via unicast with "
+        + unicastAnswers.length + " answers and " + unicastAdditionals.length + " additionals");
       this.server.sendResponse(unicastResponse, endpoint);
     }
     if (multicastAnswers.length > 0 || multicastAdditionals.length > 0) {
@@ -380,7 +499,9 @@ export class Responder implements PacketHandler {
       //    a record on a given interface until at least one second has elapsed
       //    since the last time that record was multicast on that particular
       //    interface.
-      this.server.sendResponseBroadcast(multicastResponse);
+      debug("Sending response via multicast on network " + endpoint.network + " with "
+        + multicastAnswers.map(answer => answer.type).join(";") + " answers and " + multicastAdditionals.map(answer => answer.type).join(";") + " additionals");
+      this.server.sendResponse(multicastResponse, endpoint.network);
     }
   }
 

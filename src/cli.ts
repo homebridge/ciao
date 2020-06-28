@@ -5,7 +5,7 @@ import { createResponder } from "./index";
 
 const responder = createResponder();
 const service = responder.createService({
-  name: "My Accessory",
+  name: "My Accessory2",
   type: ServiceType.HAP,
   port: 1234,
   txt: {
@@ -17,10 +17,10 @@ const service = responder.createService({
     "ff": "0",
     "ci": 11,
     "sf": "1", // "sf == 1" means "discoverable by HomeKit iOS clients"
-    "sh": "aaaaaa",
+    "sh": "aaaaab",
   },
 });
-const serviceCopy = responder.createService({
+/*const serviceCopy = responder.createService({
   name: "My Accessory",
   type: ServiceType.HAP,
   port: 1234,
@@ -36,10 +36,11 @@ const serviceCopy = responder.createService({
     "sh": "cccccc",
   },
 });
+*/
 
 service.advertise().then(() => {
   console.log("Advertised service1");
-  return serviceCopy.advertise();
+  //return serviceCopy.advertise();
 });
 /*
 const responder2 = createResponder();

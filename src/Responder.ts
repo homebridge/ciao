@@ -1,8 +1,6 @@
-import { AnswerRecord, Class, DecodedDnsPacket, QuestionRecord, Type } from "@homebridge/dns-packet";
 import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";
-import deepEqual from "fast-deep-equal";
 import {
   CiaoService,
   InternalServiceEvent,
@@ -11,7 +9,12 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DnsResponse, EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
+import { DNSPacket, DNSResponseDefinition, QClass, QType, RType } from "./coder/DNSPacket";
+import { Question } from "./coder/Question";
+import { NSECRecord } from "./coder/records/NSECRecord";
+import { PTRRecord } from "./coder/records/PTRRecord";
+import { ResourceRecord } from "./coder/ResourceRecord";
+import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
 import { ipAddressFromReversAddressName } from "./util/domain-formatter";
@@ -20,8 +23,8 @@ import Timeout = NodeJS.Timeout;
 const debug = createDebug("ciao:Responder");
 
 interface CalculatedAnswer {
-  answers: AnswerRecord[];
-  additionals: AnswerRecord[];
+  answers: ResourceRecord[];
+  additionals: ResourceRecord[];
 }
 
 const enum TruncatedQueryResult {
@@ -45,12 +48,12 @@ declare interface TruncatedQuery {
 class TruncatedQuery extends EventEmitter {
 
   private readonly timeOfArrival: number;
-  private readonly packet: DecodedDnsPacket;
+  private readonly packet: DNSPacket;
   private arrivedPackets = 1; // just for the stats
 
   private timer: Timeout;
 
-  constructor(packet: DecodedDnsPacket) {
+  constructor(packet: DNSPacket) {
     super();
     this.timeOfArrival = new Date().getTime();
     this.packet = packet;
@@ -58,7 +61,7 @@ class TruncatedQuery extends EventEmitter {
     this.timer = this.resetTimer();
   }
 
-  public getPacket(): DecodedDnsPacket {
+  public getPacket(): DNSPacket {
     return this.packet;
   }
 
@@ -70,7 +73,7 @@ class TruncatedQuery extends EventEmitter {
     return new Date().getTime() - this.timeOfArrival;
   }
 
-  public appendDNSPacket(packet: DecodedDnsPacket): TruncatedQueryResult {
+  public appendDNSPacket(packet: DNSPacket): TruncatedQueryResult {
     this.packet.questions.push(...packet.questions);
     this.packet.answers.push(...packet.answers);
     this.packet.additionals.push(...packet.additionals);
@@ -78,7 +81,7 @@ class TruncatedQuery extends EventEmitter {
 
     this.arrivedPackets++;
 
-    if (packet.flag_tc) { // if the appended packet is again truncated, restart the timeout
+    if (packet.flags.truncation) { // if the appended packet is again truncated, restart the timeout
       const time = new Date().getTime();
 
       if (time - this.timeOfArrival > 5 * 1000) { // if the first packet, is more than 5 seconds old, we abort
@@ -110,7 +113,7 @@ class TruncatedQuery extends EventEmitter {
 
 export class Responder implements PacketHandler {
 
-  public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local";
+  public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
 
   private readonly server: MDNSServer;
   private promiseChain: Promise<void>;
@@ -303,7 +306,7 @@ export class Responder implements PacketHandler {
     // just to be sure to announce all the latest data, we will rebuild the services.
     service.rebuildServiceRecords();
 
-    const records: AnswerRecord[] = [
+    const records: ResourceRecord[] = [
       service.ptrRecord(), ...service.subtypePtrRecords(),
       service.srvRecord(), service.txtRecord(),
       // A and AAAA records are added below when sending. Which records get added depends on the network the announcement happens for
@@ -341,7 +344,7 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private handleServiceRecordUpdate(service: CiaoService, records: AnswerRecord[], callback?: (error?: Error | null) => void): void {
+  private handleServiceRecordUpdate(service: CiaoService, records: ResourceRecord[], callback?: (error?: Error | null) => void): void {
     // when updating we just repeat the announce step
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
@@ -362,8 +365,8 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private goodbye(service: CiaoService, recordOverride?: AnswerRecord[]): Promise<void> {
-    const records: AnswerRecord[] = recordOverride || [
+  private goodbye(service: CiaoService, recordOverride?: ResourceRecord[]): Promise<void> {
+    const records: ResourceRecord[] = recordOverride || [
       service.ptrRecord(), ...service.subtypePtrRecords(),
       service.srvRecord(), service.txtRecord(),
     ];
@@ -375,7 +378,7 @@ export class Responder implements PacketHandler {
     });
   }
 
-  handleQuery(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
+  handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
 
     const previousQuery = this.truncatedQueries[endpointId];
@@ -398,7 +401,7 @@ export class Responder implements PacketHandler {
             endpointId, previousQuery.getArrivedPacketCount(), previousQuery.getTotalWaitTime());
           break;
       }
-    } else if (packet.flag_tc) {
+    } else if (packet.flags.truncation) {
       // RFC 6763 18.5 truncate flag indicates that additional known-answer records follow shortly
       const truncatedQuery = new TruncatedQuery(packet);
       this.truncatedQueries[endpointId] = truncatedQuery;
@@ -411,17 +414,18 @@ export class Responder implements PacketHandler {
 
     }
 
-    const multicastAnswers: AnswerRecord[] = [];
-    const multicastAdditionals: AnswerRecord[] = [];
-    const unicastAnswers: AnswerRecord[] = [];
-    const unicastAdditionals: AnswerRecord[] = [];
+    const multicastAnswers: ResourceRecord[] = [];
+    const multicastAdditionals: ResourceRecord[] = [];
+    const unicastAnswers: ResourceRecord[] = [];
+    const unicastAdditionals: ResourceRecord[] = [];
+    // TODO ensure we have no duplicates (like same record in the same list, or same record in additionals AND answer)
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
       const answer = this.answerQuestion(question, endpoint);
 
       // TODO maybe check that we are not adding the same answer twice, if multiple questions get overlapping answers
-      if (question.flag_qu) { // question requests unicast response
+      if (question.unicastResponseFlag) { // question requests unicast response
         unicastAnswers.push(...answer.answers);
         unicastAdditionals.push(...answer.additionals);
       } else {
@@ -442,12 +446,12 @@ export class Responder implements PacketHandler {
       Responder.removeKnownAnswers(record, unicastAdditionals);
     });
 
-    const multicastResponse: DnsResponse = {
+    const multicastResponse: DNSResponseDefinition = {
       // responses must not include questions RFC 6762 6.
       answers: multicastAnswers,
       additionals: multicastAdditionals,
     };
-    const unicastResponse: DnsResponse = {
+    const unicastResponse: DNSResponseDefinition = {
       answers: unicastAnswers,
       additionals: unicastAdditionals,
     };
@@ -465,13 +469,15 @@ export class Responder implements PacketHandler {
       unicastResponse.questions = packet.questions;
 
       unicastResponse.answers.forEach(answers => {
-        answers.flush = false;
+        answers.flushFlag = false;
         answers.ttl = 10;
       });
       unicastResponse.additionals?.forEach(answers => {
-        answers.flush = false;
+        answers.flushFlag = false;
         answers.ttl = 10;
       });
+
+      unicastResponse.legacyUnicast = true; // leagy unicast also affects the encoder
     }
 
     // TODO duplicate answer suppression 7.4 (especially for the meta query)
@@ -506,7 +512,7 @@ export class Responder implements PacketHandler {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  handleResponse(packet: DecodedDnsPacket, endpoint: EndpointInfo): void {
+  handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
     // any questions in a response must be ignored RFC 6762 6.
 
     if (this.currentProber) { // if there is a probing process running currently, just forward all messages to it
@@ -523,9 +529,9 @@ export class Responder implements PacketHandler {
     //         will be retained for the desired time.
   }
 
-  private answerQuestion(question: QuestionRecord, endpoint: EndpointInfo): CalculatedAnswer {
-    const answers: AnswerRecord[] = [];
-    const additionals: AnswerRecord[] = [];
+  private answerQuestion(question: Question, endpoint: EndpointInfo): CalculatedAnswer {
+    const answers: ResourceRecord[] = [];
+    const additionals: ResourceRecord[] = [];
 
     const collectedAnswers: CalculatedAnswer[] = [];
 
@@ -535,7 +541,7 @@ export class Responder implements PacketHandler {
     //    the qtype is "ANY" (255) or the rrtype is "CNAME" (5), and the record
     //    rrclass must match the question qclass unless the qclass is "ANY" (255).
 
-    if (question.class !== Class.IN && question.class !== Class.ANY) {
+    if (question.class !== QClass.IN && question.class !== QClass.ANY) {
       // We just publish answers with IN class. So only IN or ANY questions classes will match
       return {
         answers: answers,
@@ -544,7 +550,7 @@ export class Responder implements PacketHandler {
     }
 
     switch (question.type) {
-      case Type.PTR: {
+      case QType.PTR: {
         const loweredQuestionName = dnsLowerCase(question.name);
         const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
 
@@ -559,12 +565,7 @@ export class Responder implements PacketHandler {
             } else {
               // it's probably question for PTR '_services._dns-sd._udp.local'
               // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
-              answers.push({
-                name: question.name,
-                type: Type.PTR,
-                ttl: 4500, // 75 minutes
-                data: data,
-              });
+              answers.push(new PTRRecord(question.name, data));
             }
           }
         } else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
@@ -598,25 +599,25 @@ export class Responder implements PacketHandler {
     };
   }
 
-  private static answerServiceQuestion(service: CiaoService, question: QuestionRecord, endpoint: EndpointInfo): CalculatedAnswer {
+  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo): CalculatedAnswer {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const answers: AnswerRecord[] = [];
-    const additionals: AnswerRecord[] = [];
+    const answers: ResourceRecord[] = [];
+    const additionals: ResourceRecord[] = [];
 
     const questionName = dnsLowerCase(question.name);
-    const askingAny = question.type === Type.ANY || question.type === Type.CNAME;
+    const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
 
     // RFC 6762 6.2. In the event that a device has only IPv4 addresses but no IPv6
     //    addresses, or vice versa, then the appropriate NSEC record SHOULD be
     //    placed into the additional section, so that queriers can know with
     //    certainty that the device has no addresses of that kind.
-    const nsecTypes: Type[] = []; // collect types for a negative response
+    const nsecTypes: RType[] = []; // collect types for a negative response
 
     if (questionName === dnsLowerCase(service.getTypePTR())) {
-      if (askingAny || question.type === Type.PTR) {
+      if (askingAny || question.type === QType.PTR) {
         answers.push(service.ptrRecord());
 
         // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
@@ -629,12 +630,12 @@ export class Responder implements PacketHandler {
 
         // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
         Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
-      } else if (question.type === Type.SRV) {
+      } else if (question.type === QType.SRV) {
         answers.push(service.srvRecord());
 
         // RFC 6763 12.2: include additionals: a, aaaa
         Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
-      } else if (question.type === Type.TXT) {
+      } else if (question.type === QType.TXT) {
         answers.push(service.txtRecord());
 
         // RFC 6763 12.3: no not any other additionals
@@ -642,13 +643,13 @@ export class Responder implements PacketHandler {
     } else if (questionName === dnsLowerCase(service.getHostname())) {
       if (askingAny) {
         Responder.addAddressRecords(service, endpoint, answers, answers, nsecTypes);
-      } else if (question.type === Type.A) {
+      } else if (question.type === QType.A) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
         Responder.addAddressRecords(service, endpoint, answers, additionals, nsecTypes);
-      } else if (question.type === Type.AAAA) {
+      } else if (question.type === QType.AAAA) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
@@ -656,7 +657,7 @@ export class Responder implements PacketHandler {
         Responder.addAddressRecords(service, endpoint, additionals, answers, nsecTypes);
       }
     } else if (service.getSubtypePTRs()) {
-      if (askingAny || question.type === Type.PTR) {
+      if (askingAny || question.type === QType.PTR) {
         const dnsLowerSubTypes = service.getSubtypePTRs()!.map(dnsLowerCase);
         const index = dnsLowerSubTypes.indexOf(questionName);
 
@@ -673,15 +674,7 @@ export class Responder implements PacketHandler {
     }
 
     if (nsecTypes.length > 0) {
-      additionals.push({
-        name: service.getHostname(),
-        type: Type.NSEC,
-        ttl: 4500, // ttl of A/AAAA records as this are the only one producing NSEC
-        data: {
-          nextDomain: service.getHostname(),
-          rrtypes: nsecTypes,
-        },
-      });
+      additionals.push(new NSECRecord(service.getHostname(), service.getHostname(), nsecTypes));
     }
 
     return {
@@ -701,33 +694,32 @@ export class Responder implements PacketHandler {
    *
    * @param {CiaoService} service - service which records to be use
    * @param {EndpointInfo} endpoint - endpoint information providing the interface
-   * @param {AnswerRecord[]} aDest - array where the A record gets added
-   * @param {AnswerRecord[]} aaaaDest - array where all AAAA records get added
-   * @param {Type[]} nsecDest - if A or AAAA do not exist the type will be pushed onto this array
+   * @param {ResourceRecord[]} aDest - array where the A record gets added
+   * @param {ResourceRecord[]} aaaaDest - array where all AAAA records get added
+   * @param {RType[]} nsecDest - if A or AAAA do not exist the type will be pushed onto this array
    */
-  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: AnswerRecord[], aaaaDest: AnswerRecord[], nsecDest: Type[]): void {
+  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: ResourceRecord[], aaaaDest: ResourceRecord[], nsecDest: RType[]): void {
     const aRecords = service.aRecord(endpoint.network);
     const aaaaRecords = service.aaaaRecords(endpoint.network);
 
     if (aRecords) {
       aDest.push(...aRecords);
     } else {
-      nsecDest.push(Type.A);
+      nsecDest.push(RType.A);
     }
 
     if (aaaaRecords && aaaaRecords.length > 0) {
       aaaaDest.push(...aaaaRecords);
     } else {
-      nsecDest.push(Type.AAAA);
+      nsecDest.push(RType.AAAA);
     }
   }
 
-  private static removeKnownAnswers(knownAnswer: AnswerRecord, records: AnswerRecord[]): void {
-    const ids: number[] = [];
+  private static removeKnownAnswers(knownAnswer: ResourceRecord, records: ResourceRecord[]): void {
+    const ids: number[] = []; // ids which get removed
 
     records.forEach(((record, index) => {
-      if (knownAnswer.type === record.type && knownAnswer.name === record.name
-        && knownAnswer.class === record.class && deepEqual(knownAnswer.data, record.data)) {
+      if (knownAnswer.aboutEqual(record)) {
         // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
         if (knownAnswer.ttl >= record.ttl / 2) {
           ids.push(index);
@@ -740,12 +732,12 @@ export class Responder implements PacketHandler {
     }
   }
 
-  private sendResponseAddingAddressRecords(service: CiaoService, records: AnswerRecord[], goodbye: boolean, callback?: SendCallback): void {
+  private sendResponseAddingAddressRecords(service: CiaoService, records: ResourceRecord[], goodbye: boolean, callback?: SendCallback): void {
     let iterations = this.server.getNetworkCount();
     const encounteredErrors: Error[] = [];
 
     for (const id of this.server.getNetworkIds()) {
-      const answer: AnswerRecord[] = records.concat([]);
+      const answer: ResourceRecord[] = records.concat([]);
 
       const aRecords = service.aRecord(id);
       const aaaaRecords = service.aaaaRecords(id);

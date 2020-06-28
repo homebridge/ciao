@@ -1,65 +1,25 @@
-import dnsPacket, { AAAARecord, ARecord, Class, TXTRecord, Type } from "@homebridge/dns-packet";
+import { AAAARecord } from "../coder/records/AAAARecord";
+import { ARecord } from "../coder/records/ARecord";
+import { TXTRecord } from "../coder/records/TXTRecord";
 import { rrComparator, runTiebreaking, TiebreakingResult } from "./tiebreaking";
 
-const aRecord0: ARecord = {
-  name: "MyPrinter.local",
-  type: Type.A,
-  ttl: 120,
-  data: "169.254.99.200",
-};
-const aRecord1: ARecord = {
-  name: "MyPrinter.local",
-  type: Type.A,
-  ttl: 120,
-  data: "169.254.200.50",
-};
-const aRecord2: ARecord = {
-  name: "MyPrinter.local",
-  class: Class.CH, // class 3
-  type: Type.A,
-  ttl: 120,
-  data: "169.254.200.50",
-};
-const aaaaRecord3: AAAARecord = {
-  name: "MyPrinter.local",
-  type: Type.AAAA, // higher numeric value than A
-  ttl: 120,
-  data: "169:254:99:200:72:9015:6be6:f9e2",
-};
-const txtRecord0: TXTRecord = {
-  name: "MyPrinter.local",
-  type: Type.TXT, // higher numeric value than A
-  ttl: 120,
-  data: ["foo=bar"],
-};
-const txtRecord1: TXTRecord = {
-  name: "MyPrinter.local",
-  type: Type.TXT, // higher numeric value than A
-  ttl: 120,
-  data: ["foo=bar", "foo=baz"],
-};
-
-const decodedRecords = dnsPacket.decode(dnsPacket.encode({
-  answers: [aRecord0, aRecord1, aRecord2, aaaaRecord3, txtRecord0, txtRecord1],
-})).answers;
-
-const printerHost = decodedRecords[0];
-const printerOpponent = decodedRecords[1];
-const differentClass = decodedRecords[2];
-const differentType = decodedRecords[3];
-
-const shortData = decodedRecords[4];
-const longerData = decodedRecords[5];
-// pretty much every record is length prefixed. So to test the correctly handling
-// of identical data but one exceeding the length of the other, we craft some malformed data
-longerData.rawData[1] = shortData.rawData[1];
+const printerHost = new ARecord("MyPrinter.local", "169.254.99.200");
+const printerOpponent = new ARecord("MyPrinter.local", "169.254.200.50");
+const differentClass = new ARecord("MyPrinter.local", "169.254.200.50");
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error
+// noinspection JSConstantReassignment
+differentClass.class = 3;
+const differentType = new AAAARecord("MyPrinter.local", "169:254:99:200:72:9015:6be6:f9e2");
+const shortData = new TXTRecord("MyPrinter.local", [Buffer.from("foo=bar")]); // TXT has higher numeric value than A
+const longerData = new TXTRecord("MyPrinter.local", [Buffer.from("foo=bar"), Buffer.from("foo=baz")]);
 
 describe("tiebreaking", () => {
   describe(rrComparator, () => {
 
     it("should compare A records correctly", () => {
-      expect(rrComparator(printerHost, printerOpponent)).toBe(-1);
-      expect(rrComparator(printerOpponent, printerHost)).toBe(1);
+      expect(rrComparator(printerHost, printerOpponent)).toBeLessThanOrEqual(-1);
+      expect(rrComparator(printerOpponent, printerHost)).toBeGreaterThanOrEqual(1);
     });
 
     it("should detect tie correctly", () => {
@@ -68,18 +28,18 @@ describe("tiebreaking", () => {
     });
 
     it("should correctly decide on class", () => {
-      expect(rrComparator(printerHost, differentClass)).toBe(-1);
-      expect(rrComparator(differentClass, printerHost)).toBe(1);
+      expect(rrComparator(printerHost, differentClass)).toBeLessThanOrEqual(-1);
+      expect(rrComparator(differentClass, printerHost)).toBeGreaterThanOrEqual(1);
     });
 
     it("should correctly decide on type", () => {
-      expect(rrComparator(printerHost, differentType)).toBe(-1);
-      expect(rrComparator(differentType, printerHost)).toBe(1);
+      expect(rrComparator(printerHost, differentType)).toBeLessThanOrEqual(-1);
+      expect(rrComparator(differentType, printerHost)).toBeGreaterThanOrEqual(1);
     });
 
     it("should correctly decide on data length", () => {
-      expect(rrComparator(shortData, longerData)).toBe(-1);
-      expect(rrComparator(longerData, shortData)).toBe(1);
+      expect(rrComparator(shortData, longerData)).toBeLessThanOrEqual(-1);
+      expect(rrComparator(longerData, shortData)).toBeGreaterThanOrEqual(1);
     });
 
   });

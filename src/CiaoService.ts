@@ -1,26 +1,22 @@
-import {
-  AAAARecord,
-  AnswerRecord,
-  ARecord,
-  PTRRecord,
-  RecordBase,
-  SRVRecord,
-  TXTRecord,
-  Type,
-} from "@homebridge/dns-packet";
 import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";
 import net from "net";
+import { AAAARecord } from "./coder/records/AAAARecord";
+import { ARecord } from "./coder/records/ARecord";
+import { PTRRecord } from "./coder/records/PTRRecord";
+import { SRVRecord } from "./coder/records/SRVRecord";
+import { TXTRecord } from "./coder/records/TXTRecord";
+import { ResourceRecord } from "./coder/ResourceRecord";
 import { Protocol, Responder } from "./index";
-import { NetworkUpdate, NetworkManager, NetworkManagerEvent, NetworkId, IPAddress } from "./NetworkManager";
+import { IPAddress, NetworkId, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 
 const debug = createDebug("ciao:CiaoService");
 
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
-const numberedHostnamePattern = /^(.*)-(\d+)\((\.\w{2,})\)$/; // matches a hostname like "My-Computer-(2).local"
+const numberedHostnamePattern = /^(.*)-\((\d+)\)(\.\w{2,})$/; // matches a hostname like "My-Computer-(2).local."
 
 /**
  * This enum defines some commonly used service types.
@@ -134,14 +130,14 @@ export declare interface CiaoService {
 
   on(event: InternalServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
   on(event: InternalServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
-  on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: AnswerRecord[], callback?: (error?: Error | null) => void) => void): this;
+  on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: ResourceRecord[], callback?: (error?: Error | null) => void) => void): this;
 
   emit(event: ServiceEvent.NAME_CHANGED, name: string): boolean;
   emit(event: ServiceEvent.HOSTNAME_CHANGED, hostname: string): boolean;
 
   emit(event: InternalServiceEvent.PUBLISH, callback: PublishCallback): boolean;
   emit(event: InternalServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
-  emit(event: InternalServiceEvent.RECORD_UPDATE, records: AnswerRecord[], callback?: (error?: Error | null) => void): boolean;
+  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback?: (error?: Error | null) => void): boolean;
 
 }
 
@@ -202,6 +198,7 @@ export class CiaoService extends EventEmitter {
       }));
     }
 
+    // TODO formatHostname does not handle incommming "hostname.local." format
     this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;
@@ -292,28 +289,20 @@ export class CiaoService extends EventEmitter {
 
     debug("[%s] Encountered network update: added: '%s'; updated: '%s'; removed: '%s'", this.name, added.join(", "), updated.join(", "), removed.join(", "));
 
-    const records: AnswerRecord[] = [];
+    const records: ResourceRecord[] = [];
 
     if (update.updated) {
       for (const change of update.updated) {
         for (const outdated of change.removedAddresses) {
-          records.push({
-            name: this.hostname,
-            type: net.isIPv4(outdated)? Type.A: Type.AAAA,
-            ttl: 0,
-            data: outdated,
-            flush: true,
-          });
+          records.push(net.isIPv4(outdated)
+            ? new ARecord(this.hostname, outdated, true, 0)
+            : new AAAARecord(this.hostname, outdated, true, 0));
         }
 
         for (const updated of change.newAddresses) {
-          records.push({
-            name: this.hostname,
-            type: net.isIPv4(updated)? Type.A: Type.AAAA,
-            ttl: 120,
-            data: updated,
-            flush: true,
-          });
+          records.push(net.isIPv4(updated)
+            ? new ARecord(this.hostname, updated, true)
+            : new AAAARecord(this.hostname, updated, true));
         }
       }
     }
@@ -449,19 +438,10 @@ export class CiaoService extends EventEmitter {
       for (const address of network.getAddresses()) {
         const isIpv4 = net.isIPv4(address);
 
-        const record: ARecord | AAAARecord = {
-          name: this.hostname,
-          type: isIpv4? Type.A: Type.AAAA,
-          ttl: 120,
-          data: address,
-          flush: true,
-        };
-        const reverseMapping: PTRRecord = {
-          name: formatReverseAddressPTRName(address),
-          type: Type.PTR,
-          ttl: 4500, // 75 minutes
-          data: this.hostname,
-        };
+        const record: ARecord | AAAARecord = isIpv4
+          ? new ARecord(this.hostname, address, true)
+          : new AAAARecord(this.hostname, address, true);
+        const reverseMapping: PTRRecord = new PTRRecord(formatReverseAddressPTRName(address), this.hostname);
 
         const map = isIpv4? aRecordMap: aaaaRecordMap;
         let array = map[network.getId()];
@@ -469,8 +449,8 @@ export class CiaoService extends EventEmitter {
           map[network.getId()] = array = [];
         }
 
-        // eslint-disable-next-line @typescript-eslint/ban-ts-ignore
-        // @ts-ignore
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error
         array.push(record);
         reverseAddressMap[address] = reverseMapping;
       }
@@ -479,48 +459,19 @@ export class CiaoService extends EventEmitter {
     if (this.subTypePTRs) {
       subtypePTRs = [];
       for (const ptr of this.subTypePTRs) {
-        subtypePTRs.push({
-          name: ptr,
-          type: Type.PTR,
-          ttl: 4500, // 75 minutes
-          data: this.fqdn,
-        });
+        subtypePTRs.push(new PTRRecord(ptr, this.fqdn));
       }
     }
 
     debug("[%s] Rebuilding service records...", this.name);
 
     return this.serviceRecords = {
-      ptr: {
-        name: this.typePTR,
-        type: Type.PTR,
-        ttl: 4500, // 75 minutes
-        data: this.fqdn,
-      },
+      ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
-      metaQueryPtr: {
-        name: Responder.SERVICE_TYPE_ENUMERATION_NAME,
-        type: Type.PTR,
-        ttl: 4500, // 75 minutes
-        data: this.typePTR,
-      },
-      srv: {
-        name: this.fqdn,
-        type: Type.SRV,
-        ttl: 120,
-        data: {
-          target: this.hostname, // TODO we could just use the local hostname, and let the service respond to queries from the original responder
-          port: this.port,
-        },
-        flush: true,
-      },
-      txt: {
-        name: this.fqdn,
-        type: Type.TXT,
-        ttl: 4500, // 75 minutes
-        data: this.txt || [],
-        flush: true,
-      },
+      metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
+      // TODO we could just use the local hostname, and let the service respond to queries from the original responder
+      srv: new SRVRecord(this.fqdn, this.hostname, this.port, true),
+      txt: new TXTRecord(this.fqdn, this.txt || [], true),
       a: aRecordMap,
       aaaa: aaaaRecordMap,
       reverseAddressPTRs: reverseAddressMap,
@@ -528,43 +479,43 @@ export class CiaoService extends EventEmitter {
   }
 
   ptrRecord(): PTRRecord {
-    return CiaoService.copyRecord(this.serviceRecords.ptr);
+    return this.serviceRecords.ptr.clone();
   }
 
   subtypePtrRecords(): PTRRecord[] {
-    return this.serviceRecords.subtypePTRs? CiaoService.copyRecords(this.serviceRecords.subtypePTRs): [];
+    return this.serviceRecords.subtypePTRs? ResourceRecord.clone(this.serviceRecords.subtypePTRs): [];
   }
 
   metaQueryPtrRecord(): PTRRecord {
-    return CiaoService.copyRecord(this.serviceRecords.metaQueryPtr);
+    return this.serviceRecords.metaQueryPtr.clone();
   }
 
   srvRecord(): SRVRecord {
-    return CiaoService.copyRecord(this.serviceRecords.srv);
+    return this.serviceRecords.srv.clone();
   }
 
   txtRecord(): TXTRecord {
-    return CiaoService.copyRecord(this.serviceRecords.txt);
+    return this.serviceRecords.txt.clone();
   }
 
   aRecord(id: NetworkId): ARecord[] | undefined {
     const records = this.serviceRecords.a[id];
-    return records? CiaoService.copyRecords(records): undefined;
+    return records? ResourceRecord.clone(records): undefined;
   }
 
   aaaaRecords(id: NetworkId): AAAARecord[] | undefined {
     const records = this.serviceRecords.aaaa[id];
-    return records? CiaoService.copyRecords(records): undefined;
+    return records? ResourceRecord.clone(records): undefined;
   }
 
   allAddressRecords(): (ARecord | AAAARecord)[] {
     const records: (ARecord | AAAARecord)[] = [];
 
     Object.values(this.serviceRecords.a).forEach(recordArray => {
-      records.push(...CiaoService.copyRecords(recordArray));
+      records.push(...ResourceRecord.clone(recordArray));
     });
     Object.values(this.serviceRecords.aaaa).forEach(recordArray => {
-      records.push(...CiaoService.copyRecords(recordArray));
+      records.push(...ResourceRecord.clone(recordArray));
     });
 
     return records;
@@ -572,28 +523,7 @@ export class CiaoService extends EventEmitter {
 
   reverseAddressMapping(address: string): PTRRecord | undefined {
     const record = this.serviceRecords.reverseAddressPTRs[address];
-    return record? CiaoService.copyRecord(record): undefined;
-  }
-
-  private static copyRecord<T extends RecordBase>(record: T): T {
-    // eslint-disable-next-line
-    // @ts-ignore
-    return {
-      name: record.name,
-      type: record.type,
-      ttl: record.ttl,
-      data: record.data,
-      class: record.class,
-    };
-  }
-
-  private static copyRecords<T extends RecordBase>(records: T[]): T[] {
-    const result: T[] = [];
-    for (const record of records) {
-      result.push(CiaoService.copyRecord(record));
-    }
-
-    return result;
+    return record? record.clone(): undefined;
   }
 
 }

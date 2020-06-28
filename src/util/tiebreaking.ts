@@ -1,5 +1,3 @@
-import dnsPacket, { DecodedAnswerRecord } from "@homebridge/dns-packet";
-
 /**
  * Comparator for two ResourceRecords according to RFC 6762 8.2. "Simultaneous ProbeTiebreaking":
  *    The determination of "lexicographically later" is performed by first
@@ -11,26 +9,20 @@ import dnsPacket, { DecodedAnswerRecord } from "@homebridge/dns-packet";
  * @param recordB - record b
  * @returns -1 if record a < record b, 0 if record a == record b, 1 if record a > record b
  */
-export function rrComparator(recordA: DecodedAnswerRecord, recordB: DecodedAnswerRecord): number {
-  // Get the numeric representation of the class
-  const aClass = dnsPacket.classes.toClass(recordA.class);
-  const bClass = dnsPacket.classes.toClass(recordB.class);
+import { ResourceRecord } from "../coder/ResourceRecord";
 
-  if (aClass !== bClass) {
-    return aClass < bClass? -1: 1;
+export function rrComparator(recordA: ResourceRecord, recordB: ResourceRecord): number {
+  if (recordA.class !== recordB.class) {
+    return recordA.class - recordB.class;
   }
 
-  // Get the numeric representation of the type
-  const aType = dnsPacket.types.toType(recordA.type);
-  const bType = dnsPacket.types.toType(recordB.type);
-
-  if (aType !== bType) {
-    return aType < bType? -1: 1;
+  if (recordA.type !== recordB.type) {
+    return recordA.type - recordB.type;
   }
 
   // now follows a raw comparison of the binary data
-  const aData = recordA.rawData; // TODO name compression isn't properly undone
-  const bData = recordB.rawData;
+  const aData = recordA.getRawData();
+  const bData = recordB.getRawData();
   const maxLength = Math.max(aData.length, bData.length); // get the biggest length
 
   for (let i = 0; i < maxLength; i++) {
@@ -71,11 +63,11 @@ export const enum TiebreakingResult {
  * Runs the tiebreaking algorithm to resolve the race condition of simultaneous probing.
  * The input sets MUST already be sorted.
  *
- * @param {DecodedAnswerRecord[]} host - sorted list of records the host wants to publish
- * @param {DecodedAnswerRecord[]} opponent - sorted list of records the opponent wants to publish
+ * @param {ResourceRecord[]} host - sorted list of records the host wants to publish
+ * @param {ResourceRecord[]} opponent - sorted list of records the opponent wants to publish
  * @returns the result {@see TiebreakingResult} of the tiebreaking algorithm
  */
-export function runTiebreaking(host: DecodedAnswerRecord[], opponent: DecodedAnswerRecord[]): TiebreakingResult {
+export function runTiebreaking(host: ResourceRecord[], opponent: ResourceRecord[]): TiebreakingResult {
   const maxLength = Math.max(host.length, opponent.length);
 
   for (let i = 0; i < maxLength; i++) {

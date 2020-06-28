@@ -113,15 +113,18 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
     prefix = parts.name? `${parts.name}.`: "";
   }
 
-  return `${prefix}_${parts.type}._${parts.protocol || Protocol.TCP}.${parts.domain || "local"}`;
+  return `${prefix}_${parts.type}._${parts.protocol || Protocol.TCP}.${parts.domain || "local"}.`;
 }
 
 export function formatHostname(hostname: string, domain = "local"): string {
   const tld = "." + domain;
-  return !hostname.endsWith(tld)? hostname + tld: hostname;
+  return (!hostname.endsWith(tld)? hostname + tld: hostname) + ".";
 }
 
 export function removeTLD(hostname: string): string {
+  if (hostname.endsWith(".")) { // check for the DNS root label
+    hostname = hostname.substring(0, hostname.length - 1);
+  }
   const lastDot = hostname.lastIndexOf(".");
   return hostname.slice(0, lastDot);
 }
@@ -130,6 +133,7 @@ export function enlargeIPv6(address: string): string {
   assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
 
   // we are not supporting ipv4-mapped ipv6 addresses here
+  assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
 
   const split = address.split(":");
   assert(split.length <= 8, "Encountered invalid ipv6 with more than 8 sections!");
@@ -174,7 +178,7 @@ export function shortenIPv6(address: string | string[]): string {
     const part = address[i];
 
     let j = 0;
-    for (; j < 3; j++) { // search for the first index which is non zero, but leaving at least one zero
+    for (; j < Math.min(3, part.length - 1); j++) { // search for the first index which is non zero, but leaving at least one zero
       if (part.charAt(j) !== "0") {
         break;
       }
@@ -183,9 +187,42 @@ export function shortenIPv6(address: string | string[]): string {
     address[i] = part.substr(j);
   }
 
-  return address.join(":")
-    .replace(/(^|:)0(:0)*:0(:|$)/, "$1::$3") // strip out sections with zeros
-    .replace(/:{3,4}/, "::"); // simplfy :::: or ::: to ::
+  let longestBlockOfZerosIndex = -1;
+  let longestBlockOfZerosLength = 0;
+
+  for (let i = 0; i < address.length; i++) { // this is not very optimized, but it works
+    if (address[i] !== "0") {
+      continue;
+    }
+
+    let zerosCount = 1;
+    let j = i + 1;
+    for (; j < address.length; j++) {
+      if (address[j] === "0") {
+        zerosCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (zerosCount > longestBlockOfZerosLength) {
+      longestBlockOfZerosIndex = i;
+      longestBlockOfZerosLength = zerosCount;
+    }
+
+    i = j; // skipp all the zeros we already checked + the the one after that, we know that's not a zero
+  }
+
+  if (longestBlockOfZerosIndex !== -1) {
+    const startOrEnd = longestBlockOfZerosIndex === 0 || (longestBlockOfZerosIndex + longestBlockOfZerosLength === 8);
+    address[longestBlockOfZerosIndex] = startOrEnd? ":": "";
+
+    if (longestBlockOfZerosLength > 1) {
+      address.splice(longestBlockOfZerosIndex + 1, longestBlockOfZerosLength - 1);
+    }
+  }
+
+  return address.join(":");
 }
 
 export function formatReverseAddressPTRName(address: string): string {

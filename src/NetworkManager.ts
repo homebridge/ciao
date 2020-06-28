@@ -66,7 +66,9 @@ export declare interface NetworkManager {
 
 }
 
-export class NetworkManager extends EventEmitter {
+export class NetworkManager extends EventEmitter { // TODO migrate to a singleton design
+
+  // TODO netaddresses can be the same for a different subnet mask
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
@@ -337,8 +339,6 @@ export class NetworkInformation {
   private routableIpv6?: IPv6Address[];
 
   private defaultIPv4Address: IPv4Address = "";
-
-  // TODO mapping from interface to addresses (or vice versa)?
 
   constructor(networkInterface: NetworkInterface) {
     assert(networkInterface.ipv4, "Can't create Network without ipv4 (currently)");

@@ -12,14 +12,12 @@ export function removeFromArray<T>(array: T[], element: T | T []): void {
     }
   }
 }
-// TODO remove it as it is not used
 
 export interface ArrayDifference<T> {
   removed: T[];
   added: T[];
 }
 
-// TODO write a test for this
 export function arrayDifference<T>(base: T[] | undefined = [], newArray: T[] | undefined = []): ArrayDifference<T> {
   return {
     removed: base.filter(element => !newArray.includes(element)),
@@ -27,7 +25,6 @@ export function arrayDifference<T>(base: T[] | undefined = [], newArray: T[] | u
   };
 }
 
-// TODO remove it as it is not used
 export function applyDifference<T>(array: T[], difference: ArrayDifference<T>): void {
   removeFromArray(array, difference.removed);
   array.push(...difference.added);

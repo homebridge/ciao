@@ -1,37 +1,17 @@
-import dnsPacket, {
-  AnswerRecord,
-  DecodedDnsPacket,
-  EncodingDnsPacket,
-  Opcode,
-  QuestionRecord,
-  RCode,
-} from "@homebridge/dns-packet";
 import assert from "assert";
 import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
+import {
+  DNSPacket,
+  DNSProbeQueryDefinition,
+  DNSQueryDefinition,
+  DNSResponseDefinition,
+  OpCode,
+  PacketType,
+  RCode,
+} from "./coder/DNSPacket";
 import { IPFamily } from "./index";
-import { NetworkUpdate, NetworkManager, NetworkManagerEvent, NetworkId } from "./NetworkManager";
-import createDebug from "debug";
-
-const debug = createDebug("ciao:MDNSServer");
-
-export interface DnsResponse {
-  flags?: number;
-  id?: number;
-  questions?: QuestionRecord[];
-  answers: AnswerRecord[];
-  authorities?: AnswerRecord[];
-  additionals?: AnswerRecord[];
-}
-
-export interface DnsQuery {
-  flags?: number;
-  id?: number;
-  questions: QuestionRecord[];
-  answers?: AnswerRecord[];
-  authorities?: AnswerRecord[];
-  additionals?: AnswerRecord[];
-}
+import { NetworkId, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 
 export interface EndpointInfo {
   address: string;
@@ -48,10 +28,15 @@ export interface MDNSServerOptions {
 
 export interface PacketHandler {
 
-  handleQuery(packet: DecodedDnsPacket, rinfo: EndpointInfo): void;
+  handleQuery(packet: DNSPacket, rinfo: EndpointInfo): void;
 
-  handleResponse(packet: DecodedDnsPacket, rinfo: EndpointInfo): void;
+  handleResponse(packet: DNSPacket, rinfo: EndpointInfo): void;
 
+}
+
+interface SocketError {
+  id: string;
+  error: Error;
 }
 
 /**
@@ -63,14 +48,10 @@ export interface PacketHandler {
  */
 export class MDNSServer {
 
-  /*
-  TODO random RFC note
-  From section 6.2 of RFC 1035 <https://tools.ietf.org/html/rfc1035>:
-    //    When a response is so long that truncation is required, the truncation
-    //    should start at the end of the response and work forward in the
-    //    datagram.  Thus if there is any data for the authority section, the
-    //    answer section is guaranteed to be unique.
-   */
+  public static readonly MTU = process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500;
+  public static readonly DEFAULT_IP4_HEADER = 20;
+  public static readonly DEFAULT_IP6_HEADER = 40;
+  public static readonly UDP_HEADER = 8;
 
   public static readonly MDNS_PORT = 5353;
   public static readonly MDNS_TTL = 255;
@@ -127,6 +108,26 @@ export class MDNSServer {
       throw new Error("Cannot rebind closed server!");
     }
 
+    // TODO RFC 6762 15.1: In most operating systems, incoming *multicast* packets can be
+    //    delivered to *all* open sockets bound to the right port number,
+    //    provided that the clients take the appropriate steps to allow this.
+    //    For this reason, all Multicast DNS implementations SHOULD use the
+    //    SO_REUSEPORT and/or SO_REUSEADDR options (or equivalent as
+    //    appropriate for the operating system in question) so they will all be
+    //    able to bind to UDP port 5353 and receive incoming multicast packets
+    //    addressed to that port.  However, unlike multicast packets, incoming
+    //    unicast UDP packets are typically delivered only to the first socket
+    //    to bind to that port.  This means that "QU" responses and other
+    //    packets sent via unicast will be received only by the first Multicast
+    //    DNS responder and/or querier on a system.  This limitation can be
+    //    partially mitigated if Multicast DNS implementations detect when they
+    //    are not the first to bind to port 5353, and in that case they do not
+    //    request "QU" responses.  One way to detect if there is another
+    //    Multicast DNS implementation already running is to attempt binding to
+    //    port 5353 without using SO_REUSEPORT and/or SO_REUSEADDR, and if that
+    //    fails it indicates that some other socket is already bound to this
+    //    port.
+
     const promises: Promise<void>[] = [];
 
     for (const [id, socket] of this.multicastSockets) {
@@ -162,119 +163,128 @@ export class MDNSServer {
     this.unicastSockets.clear();
   }
 
-  public sendQueryBroadcast(query: DnsQuery, callback?: SendCallback): void {
-    const packet: EncodingDnsPacket = {
-      type: "query",
-      flags: query.flags || 0,
-      id: query.id,
-      questions: query.questions,
-      answers: query.answers,
-      authorities: query.authorities,
-      additionals: query.additionals,
-    };
+  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, callback?: SendCallback): void {
+    const packets = DNSPacket.createDNSQueryPackets(query, MDNSServer.MTU, IPFamily.IPv4);
 
-    this.sendOnAllNetworks(packet, callback);
-  }
-
-  public sendResponse(response: DnsResponse, endpoint: EndpointInfo, callback?: SendCallback): void;
-  public sendResponse(response: DnsResponse, networkId: NetworkId, callback?: SendCallback): void;
-  public sendResponse(response: DnsResponse, endpointOrNetwork: EndpointInfo | NetworkId, callback?: SendCallback): void {
-    const packet: EncodingDnsPacket = {
-      type: "response",
-      flags: response.flags || 0,
-      id: response.id,
-      questions: response.questions,
-      answers: response.answers,
-      authorities: response.authorities,
-      additionals: response.additionals,
-    };
-
-    packet.flags! |= dnsPacket.AUTHORITATIVE_ANSWER; // RFC 6763 18.4 AA MUST be set
-
-    this.send(packet, endpointOrNetwork, callback);
-  }
-
-  public sendResponseBroadcast(response: DnsResponse, callback?: SendCallback): void {
-    const packet: EncodingDnsPacket = {
-      type: "response",
-      flags: response.flags || 0,
-      id: response.id,
-      questions: response.questions,
-      answers: response.answers,
-      authorities: response.authorities,
-      additionals: response.additionals,
-    };
-
-    packet.flags! |= dnsPacket.AUTHORITATIVE_ANSWER; // RFC 6763 18.4 AA MUST be set
-
-    this.sendOnAllNetworks(packet, callback);
-  }
-
-  private sendOnAllNetworks(packet: EncodingDnsPacket, callback?: SendCallback): void {
-    const message = dnsPacket.encode(packet);
-    this.assertBeforeSend(packet, message);
-
-    const socketMap = packet.type === "response"? this.multicastSockets: this.unicastSockets;
-
-    let socketCount = socketMap.size;
-    const encounteredErrors: Error[] = [];
-
-    for (const [id, socket] of socketMap) {
-      socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
-        if (!callback) {
-          if (error) {
-            MDNSServer.handleSocketError(id, error);
-          }
-          return;
-        }
-
-        if (error) {
-          encounteredErrors.push(error);
-        }
-
-        if (--socketCount <= 0) {
-          if (encounteredErrors.length > 0) {
-            callback(new Error("Socket errors: " + encounteredErrors.map(error => error.stack).join(";")));
-          } else {
-            callback();
-          }
-        }
-      });
+    const promises: Promise<void>[] = [];
+    for (const packet of packets) {
+      promises.push(this.sendOnAllNetworks(packet, PacketType.QUERY));
     }
+
+    Promise.all(promises).then(() => {
+      if (callback) {
+        callback();
+      }
+    }, (error: SocketError) => {
+      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+    });
   }
 
-  private send(packet: EncodingDnsPacket, endpointOrNetwork: EndpointInfo | NetworkId, callback?: SendCallback): void {
-    const message = dnsPacket.encode(packet);
-    this.assertBeforeSend(packet, message);
+  public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
+    const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
 
-    let address;
-    let port;
-    let network;
+    const promises: Promise<void>[] = [];
+    for (const packet of packets) {
+      promises.push(this.sendOnAllNetworks(packet, PacketType.RESPONSE));
+    }
+
+    Promise.all(promises).then(() => {
+      if (callback) {
+        callback();
+      }
+    }, (error: SocketError) => {
+      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+    });
+  }
+
+  public sendResponse(response: DNSResponseDefinition, endpoint: EndpointInfo, callback?: SendCallback): void;
+  public sendResponse(response: DNSResponseDefinition, networkId: NetworkId, callback?: SendCallback): void;
+  public sendResponse(response: DNSResponseDefinition, endpointOrNetwork: EndpointInfo | NetworkId, callback?: SendCallback): void {
+    const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
+
+    const promises: Promise<void>[] = [];
+    for (const packet of packets) {
+      promises.push(this.send(packet, endpointOrNetwork));
+    }
+
+    Promise.all(promises).then(() => {
+      if (callback) {
+        callback();
+      }
+    }, (error: SocketError) => {
+      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+    });
+  }
+
+  private sendOnAllNetworks(packet: DNSPacket, type: PacketType): Promise<void> {
+    const message = packet.encode();
+    this.assertBeforeSend(message, IPFamily.IPv4);
+
+    const socketMap =  type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
+
+    const promises: Promise<void>[] = [];
+    for (const [id, socket] of socketMap) {
+      const promise = new Promise<void>((resolve, reject) => {
+        socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
+          if (error) {
+            const socketError: SocketError = { id: id, error: error };
+            reject(socketError);
+          } else {
+            resolve();
+          }
+        });
+      });
+      promises.push(promise);
+    }
+
+    return Promise.all(promises).then(() => {
+      // map void[] to void
+    });
+  }
+
+  private send(packet: DNSPacket, endpointOrNetwork: EndpointInfo | NetworkId): Promise<void> {
+    const message = packet.encode();
+    this.assertBeforeSend(message, IPFamily.IPv4);
+
+    let address: string;
+    let port: number;
+    let id: string;
 
     if (typeof endpointOrNetwork === "string") { // its a network id
       address = MDNSServer.MULTICAST_IPV4;
       port = MDNSServer.MDNS_PORT;
-      network = endpointOrNetwork;
+      id = endpointOrNetwork;
     } else {
       address = endpointOrNetwork.address;
       port = endpointOrNetwork.port;
-      network = endpointOrNetwork.network;
+      id = endpointOrNetwork.network;
     }
 
-    const socketMap = packet.type === "response"? this.multicastSockets: this.unicastSockets;
-    const socket = socketMap.get(network);
-    assert(socket, `Could not find socket for given network '${network}'`);
+    const socketMap = packet.type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
+    const socket = socketMap.get(id);
+    assert(socket, `Could not find socket for given network id '${id}'`);
 
-    socket!.send(message, port, address, callback);
+    return new Promise<void>((resolve, reject) => {
+      socket!.send(message, port, address, error => {
+        if (error) {
+          const socketError: SocketError = { id: id, error: error };
+          reject(socketError);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
-  private assertBeforeSend(packet: EncodingDnsPacket, message: Buffer): void {
+  private assertBeforeSend(message: Buffer, family: IPFamily): void {
     assert(this.bound, "Cannot send packets before server is not bound!");
     assert(!this.closed, "Cannot send packets on a closed mdns server!");
-    if (message.length > 1024) { // TODO still need to check what we need to do?
-      debug("packet with exceeds the record size of 1024 with " + message.length);
-    }
-    //assert(message.length <= 1024, "MDNS packet size cannot be larger than 1024 bytes for " + message.length + " " + JSON.stringify(packet)); // TODO we might want to tackle this
+
+    const ipHeaderSize = family === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER;
+
+    // RFC 6762 17.
+    assert(ipHeaderSize + MDNSServer.UDP_HEADER + message.length <= 9000,
+      "DNS cannot exceed the size of 9000 bytes even with IP Fragmentation!");
   }
 
   private createDgramSocket(id: NetworkId, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
@@ -307,6 +317,8 @@ export class MDNSServer {
           socket.addMembership(multicastAddress, interfaceAddress);
         }
 
+        socket.setMulticastInterface(network!.getDefaultIPv4()); // TODO // TODO set default outgoing multicast interface socket.setMulticastInterface();
+
         socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
         socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
@@ -329,8 +341,8 @@ export class MDNSServer {
       socket.bind(0, network!.getDefaultIPv4(), () => {
         socket.removeListener("error", errorHandler);
 
-        socket.setMulticastTTL(255); // outgoing multicast datagrams
-        socket.setTTL(255); // outgoing unicast datagrams
+        socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
+        socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
         resolve();
       });
@@ -342,20 +354,22 @@ export class MDNSServer {
       return;
     }
 
-    let packet: DecodedDnsPacket;
+    let packet: DNSPacket;
     try {
-      packet = dnsPacket.decode(buffer);
+      packet = DNSPacket.decode(buffer);
     } catch (error) {
-      console.warn("Received malformed packet from " + rinfo + ": " + error.message);
+      // TODO move this to debug level once we have a fairly stable library
+      console.warn("Received malformed packet from " + JSON.stringify(rinfo) + ": " + error.message);
+      console.warn(error.stack); // TODO remove
       return;
     }
 
-    if (packet.opcode !== Opcode.QUERY) {
+    if (packet.opcode !== OpCode.QUERY) {
       // RFC 6762 18.3 we MUST ignore messages with opcodes other than zero (QUERY)
       return;
     }
 
-    if (packet.rcode !== RCode.NOERROR) {
+    if (packet.rcode !== RCode.NoError) {
       // RFC 6762 18.3 we MUST ignore messages with response code other than zero (NOERROR)
       return;
     }
@@ -366,9 +380,9 @@ export class MDNSServer {
       network: id,
     };
 
-    if (packet.type === "query") {
+    if (packet.type === PacketType.QUERY) {
       this.handler.handleQuery(packet, endpoint);
-    } else if (packet.type === "response") {
+    } else if (packet.type === PacketType.RESPONSE) {
       if (rinfo.port !== MDNSServer.MDNS_PORT) {
         // RFC 6762 6.  Multicast DNS implementations MUST silently ignore any Multicast DNS responses
         //    they receive where the source UDP port is not 5353.
@@ -396,6 +410,8 @@ export class MDNSServer {
         if (!change.changedDefaultIPv4Address) {
           continue;
         }
+
+        // TODO we are bound to 0.0.0.0, we don't need to rebind, just adjust the default outgoing multicast interface and remove membership maybe(?)
 
         // the default address changed were the socket was running
         this.removeSocket(change.networkId);

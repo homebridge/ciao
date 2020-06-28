@@ -1,7 +1,9 @@
-import dnsPacket, { DecodedAnswerRecord, DecodedDnsPacket, Type } from "@homebridge/dns-packet";
 import assert from "assert";
 import createDebug from "debug";
 import { CiaoService, ServiceState } from "./CiaoService";
+import { DNSPacket, QType } from "./coder/DNSPacket";
+import { Question } from "./coder/Question";
+import { ResourceRecord } from "./coder/ResourceRecord";
 import { MDNSServer } from "./MDNSServer";
 import dnsEqual from "./util/dns-equal";
 import * as tiebreaking from "./util/tiebreaking";
@@ -23,7 +25,7 @@ export class Prober {
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
 
-  private records: DecodedAnswerRecord[] = [];
+  private records: ResourceRecord[] = [];
 
   private startTime?: number;
   private serviceEncounteredNameChange = false;
@@ -109,13 +111,11 @@ export class Prober {
   private sendProbeRequest(): void {
     if (this.sentQueries === 0) { // this is the first query sent, init some stuff
       // we encode and decode the records so we get the rawData representation of our records which we need for the tiebreaking algorithm
-      this.records = dnsPacket.decode(dnsPacket.encode({
-        answers: [
-          this.service.srvRecord(), this.service.txtRecord(),
-          this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
-          ...this.service.allAddressRecords(),
-        ],
-      })).answers.sort(rrComparator); // we sort them fir the tiebreaking algorithm
+      this.records = [
+        this.service.srvRecord(), this.service.txtRecord(),
+        this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
+        ...this.service.allAddressRecords(),
+      ].sort(rrComparator); // we sort them fir the tiebreaking algorithm
     }
 
     if (this.sentQueries >= 3) {
@@ -138,16 +138,9 @@ export class Prober {
 
     this.server.sendQueryBroadcast({
       questions: [
-        {
-          name: this.service.getFQDN(),
-          type: Type.ANY,
-          flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
-        },
-        {
-          name: this.service.getHostname(),
-          type: Type.ANY,
-          flag_qu: true, // probes SHOULD be send with unicast response flag as of the RFC
-        },
+        // probes SHOULD be send with unicast response flag as of the RFC // TODO only for responders which hold the MAIN port
+        new Question(this.service.getFQDN(), QType.ANY, true),
+        new Question(this.service.getHostname(), QType.ANY, true),
       ],
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
     }, error => {
@@ -171,7 +164,7 @@ export class Prober {
     });
   }
 
-  handleResponse(packet: DecodedDnsPacket): void {
+  handleResponse(packet: DNSPacket): void {
     if (!this.sentFirstProbeQuery) {
       return;
     }
@@ -203,7 +196,7 @@ export class Prober {
     }
   }
 
-  handleQuery(packet: DecodedDnsPacket): void {
+  handleQuery(packet: DNSPacket): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
     }
@@ -223,7 +216,7 @@ export class Prober {
     }
   }
 
-  private doTiebreaking(packet: DecodedDnsPacket): void {
+  private doTiebreaking(packet: DNSPacket): void {
     if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
       return;
     }
@@ -241,9 +234,6 @@ export class Prober {
     // now run the actual tiebreaking algorithm to decide the winner
 
     // tiebreaking is actually run pretty often, as we always receive our own packets
-
-    // workaround to clear out name compression inside the rawData field (we don't support name compression when encoding)
-    packet = dnsPacket.decode(dnsPacket.encode(packet));
 
     // first of all build our own records
     const answers = this.records; // already sorted

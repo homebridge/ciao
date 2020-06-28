@@ -60,3 +60,13 @@ service.end().then(() => {
   // service is now UNANNOUNCED and can be published again
 });
 ```
+
+## Documentation 
+
+### MTU
+
+As of [RFC 6762 17. Multicast DNS Message Size](https://tools.ietf.org/html/rfc6762#section-17) DNS packets must avoid
+IP Fragmentation and ensure that all sent packets are smaller than the Maximum Transmission Unit (MTU) defined by
+the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
+ciao can't reliable detect modifications made to this default MTU size. Thus, if you know, that the MTU
+differs on your machine, you can set the true MTU in bytes using the `CIAO_MTU` environment variable. 

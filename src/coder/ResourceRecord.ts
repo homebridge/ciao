@@ -165,6 +165,10 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       && this.dataEquals(record);
   }
 
+  public representsSameData(record: ResourceRecord): boolean {
+    return this.type === record.type && this.name === record.name && this.class === record.class;
+  }
+
   public static decode(coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<ResourceRecord> {
     const oldOffset = offset;
 

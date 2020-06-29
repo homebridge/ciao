@@ -1,6 +1,6 @@
 import assert from "assert";
 import { IPFamily, MDNSServer } from "../index";
-import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
+import { DNSLabelCoder } from "./DNSLabelCoder";
 import { Question } from "./Question";
 import { SRVRecord } from "./records/SRVRecord";
 import { ResourceRecord } from "./ResourceRecord";

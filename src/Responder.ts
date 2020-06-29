@@ -111,6 +111,138 @@ class TruncatedQuery extends EventEmitter {
 
 }
 
+class QueryResponse implements DNSResponseDefinition {
+
+  id?: number;
+  questions?: Question[];
+  answers: ResourceRecord[] = [];
+  additionals: ResourceRecord[] = [];
+  legacyUnicast?: boolean;
+
+  public addAnswer(...records: ResourceRecord[]): void {
+    for (const record of records) {
+      const overwritten = QueryResponse.replaceExistingRecord(this.answers, record);
+
+      if (!overwritten) {
+        this.answers.push(record);
+      }
+
+      QueryResponse.removeAboutSameRecord(this.additionals, record);
+    }
+  }
+
+  public addAdditional(...records: ResourceRecord[]): void {
+    for (const record of records) {
+      const overwrittenAnswer = QueryResponse.replaceExistingRecord(this.answers, record);
+
+      // if it is already in the answer section, don't include it in additionals
+      if (!overwrittenAnswer) {
+        const overwrittenAdditional = QueryResponse.replaceExistingRecord(this.additionals, record);
+        if (!overwrittenAdditional) {
+          this.additionals.push(record);
+        }
+      }
+    }
+  }
+
+  public markLegacyUnicastResponse(id: number, questions: Question[], multicastResponse: QueryResponse): void {
+    // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
+    //  * MUSTS: response via unicast, repeat query ID, repeat questions (actually it should just be one), clear cache flush bit
+    //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
+    this.addAnswer(...multicastResponse.answers);
+    this.addAdditional(...multicastResponse.additionals);
+    multicastResponse.clear();
+
+    this.id = id;
+    this.questions = questions;
+
+    this.answers.forEach(answers => {
+      answers.flushFlag = false;
+      answers.ttl = 10;
+    });
+    this.additionals?.forEach(answers => {
+      answers.flushFlag = false;
+      answers.ttl = 10;
+    });
+
+    this.legacyUnicast = true; // legacy unicast also affects the encoder (must not use compression for the SRV record) so we need to tell him
+  }
+
+  public hasAnswers(): boolean {
+    // we may still have additionals, though there is no reason when answers is empty
+    // removeKnownAnswer may have removed all answers and only additionals are known.
+    return this.answers.length > 0;
+  }
+
+  public removeKnownAnswer(record: ResourceRecord): void {
+    QueryResponse.removeKnownAnswers(record, this.answers);
+    QueryResponse.removeKnownAnswers(record, this.additionals);
+  }
+
+  private clear(): void {
+    this.answers.splice(0, this.answers.length);
+    this.additionals.splice(0, this.additionals.length);
+  }
+
+  private static removeKnownAnswers(knownAnswer: ResourceRecord, records: ResourceRecord[]): void {
+    const ids: number[] = []; // ids which get removed
+
+    records.forEach(((record, index) => {
+      if (knownAnswer.aboutEqual(record)) {
+        // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
+        if (knownAnswer.ttl >= record.ttl / 2) {
+          ids.push(index);
+        }
+      }
+    }));
+
+    for (const i of ids) {
+      records.splice(i, 1);
+    }
+  }
+
+  private static replaceExistingRecord(records: ResourceRecord[], record: ResourceRecord): boolean {
+    let overwrittenSome = false;
+
+    for (let i = 0; i < records.length; i++) {
+      const record0 = records[i];
+
+      if (record0.representsSameData(record)) {
+        if (record.flushFlag) {
+          records[i] = record;
+          overwrittenSome = true;
+          break;
+        } else if (record0.dataEquals(record)) {
+          // flush flag is not set, but it is the same data thus the SAME record
+          record0.ttl = record.ttl;
+          overwrittenSome = true;
+          break;
+        }
+      }
+    }
+
+    return overwrittenSome;
+  }
+
+  private static removeAboutSameRecord(records: ResourceRecord[], record: ResourceRecord): void {
+    let i = 0;
+    for (; i < records.length; i++) {
+      const record0 = records[i];
+
+      if (record0.representsSameData(record)) {
+        if (record.flushFlag || record0.dataEquals(record)) {
+          break; // we can break, as assumption is that no records does not contain duplicates
+        }
+      }
+    }
+
+    if (i < records.length) {
+      records.splice(i, 1);
+    }
+  }
+
+}
+
 export class Responder implements PacketHandler {
 
   public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
@@ -380,6 +512,7 @@ export class Responder implements PacketHandler {
 
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
+    // TODO remove: debug("Incoming query on " + JSON.stringify(endpointId));
 
     const previousQuery = this.truncatedQueries[endpointId];
     if (previousQuery) {
@@ -414,23 +547,20 @@ export class Responder implements PacketHandler {
 
     }
 
-    const multicastAnswers: ResourceRecord[] = [];
-    const multicastAdditionals: ResourceRecord[] = [];
-    const unicastAnswers: ResourceRecord[] = [];
-    const unicastAdditionals: ResourceRecord[] = [];
-    // TODO ensure we have no duplicates (like same record in the same list, or same record in additionals AND answer)
+    // responses must not include questions RFC 6762 6.
+    const multicastResponse = new QueryResponse();
+    const unicastResponse = new QueryResponse();
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
       const answer = this.answerQuestion(question, endpoint);
 
-      // TODO maybe check that we are not adding the same answer twice, if multiple questions get overlapping answers
       if (question.unicastResponseFlag) { // question requests unicast response
-        unicastAnswers.push(...answer.answers);
-        unicastAdditionals.push(...answer.additionals);
+        unicastResponse.addAnswer(...answer.answers);
+        unicastResponse.addAdditional(...answer.additionals);
       } else {
-        multicastAnswers.push(...answer.answers);
-        multicastAdditionals.push(...answer.additionals);
+        multicastResponse.addAnswer(...answer.answers);
+        multicastResponse.addAdditional(...answer.additionals);
       }
     });
 
@@ -440,44 +570,15 @@ export class Responder implements PacketHandler {
 
     // do known answer suppression according to RFC 6762 7.1.
     packet.answers.forEach(record => {
-      Responder.removeKnownAnswers(record, multicastAnswers);
-      Responder.removeKnownAnswers(record, multicastAdditionals);
-      Responder.removeKnownAnswers(record, unicastAnswers);
-      Responder.removeKnownAnswers(record, unicastAdditionals);
+      unicastResponse.removeKnownAnswer(record);
+      multicastResponse.removeKnownAnswer(record);
     });
-
-    const multicastResponse: DNSResponseDefinition = {
-      // responses must not include questions RFC 6762 6.
-      answers: multicastAnswers,
-      additionals: multicastAdditionals,
-    };
-    const unicastResponse: DNSResponseDefinition = {
-      answers: unicastAnswers,
-      additionals: unicastAdditionals,
-    };
 
     if (endpoint.port !== MDNSServer.MDNS_PORT) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
       //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
       //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
-      unicastAnswers.push(...multicastAnswers);
-      unicastAdditionals.push(...multicastAdditionals);
-      multicastAnswers.splice(0, multicastAnswers.length);
-      multicastAdditionals.splice(0, multicastAdditionals.length);
-
-      unicastResponse.id = packet.id;
-      unicastResponse.questions = packet.questions;
-
-      unicastResponse.answers.forEach(answers => {
-        answers.flushFlag = false;
-        answers.ttl = 10;
-      });
-      unicastResponse.additionals?.forEach(answers => {
-        answers.flushFlag = false;
-        answers.ttl = 10;
-      });
-
-      unicastResponse.legacyUnicast = true; // legacy unicast also affects the encoder (must not use compression for the SRV record) so we need to tell him
+      unicastResponse.markLegacyUnicastResponse(packet.id, packet.questions, multicastResponse);
     }
 
     // TODO duplicate answer suppression 7.4 (especially for the meta query)
@@ -493,20 +594,23 @@ export class Responder implements PacketHandler {
     //    and are still sent immediately.) => I don't think this is needed?
 
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
-    if (unicastAnswers.length > 0 || unicastAdditionals.length > 0) {
+    if (unicastResponse.hasAnswers()) {
+      // TODO remove
       debug("Sending response to " + JSON.stringify(endpoint) + " via unicast with "
-        + unicastAnswers.length + " answers and " + unicastAdditionals.length + " additionals");
+        + unicastResponse.answers.length + " answers and " + unicastResponse.additionals.length + " additionals");
       this.server.sendResponse(unicastResponse, endpoint);
     }
-    if (multicastAnswers.length > 0 || multicastAdditionals.length > 0) {
+    if (multicastResponse.hasAnswers()) {
       // TODO To protect the network against excessive packet flooding due to
       //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
       //    (except in the one special case of answering probe queries) multicast
       //    a record on a given interface until at least one second has elapsed
       //    since the last time that record was multicast on that particular
       //    interface.
+
+      // TODO remove
       debug("Sending response via multicast on network " + endpoint.network + " with "
-        + multicastAnswers.map(answer => answer.type).join(";") + " answers and " + multicastAdditionals.map(answer => answer.type).join(";") + " additionals");
+        + multicastResponse.answers.map(answer => answer.type).join(";") + " answers and " + multicastResponse.additionals.map(answer => answer.type).join(";") + " additionals");
       this.server.sendResponse(multicastResponse, endpoint.network);
     }
   }
@@ -712,23 +816,6 @@ export class Responder implements PacketHandler {
       aaaaDest.push(...aaaaRecords);
     } else {
       nsecDest.push(RType.AAAA);
-    }
-  }
-
-  private static removeKnownAnswers(knownAnswer: ResourceRecord, records: ResourceRecord[]): void {
-    const ids: number[] = []; // ids which get removed
-
-    records.forEach(((record, index) => {
-      if (knownAnswer.aboutEqual(record)) {
-        // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
-        if (knownAnswer.ttl >= record.ttl / 2) {
-          ids.push(index);
-        }
-      }
-    }));
-
-    for (const i of ids) {
-      records.splice(i, 1);
     }
   }
 

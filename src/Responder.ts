@@ -160,7 +160,7 @@ export class Responder implements PacketHandler {
 
     const promises: Promise<void>[] = [];
     for (const service of this.announcedServices.values()) {
-      promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets) TODO what's the max size?
+      promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets)
     }
 
     // eslint-disable-next-line
@@ -477,7 +477,7 @@ export class Responder implements PacketHandler {
         answers.ttl = 10;
       });
 
-      unicastResponse.legacyUnicast = true; // leagy unicast also affects the encoder
+      unicastResponse.legacyUnicast = true; // legacy unicast also affects the encoder (must not use compression for the SRV record) so we need to tell him
     }
 
     // TODO duplicate answer suppression 7.4 (especially for the meta query)

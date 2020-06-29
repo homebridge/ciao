@@ -152,7 +152,7 @@ export class DNSPacket {
   private readonly labelCoder: DNSLabelCoder;
   private estimatedPacketSize = 0; // only set in encoding mode
 
-  private constructor(definition: PacketDefinition) {
+  private constructor(definition: PacketDefinition, encode = true) {
     this.id = definition.id || 0;
 
     this.type = definition.type;
@@ -166,17 +166,10 @@ export class DNSPacket {
     this.additionals = definition.additionals || [];
 
     this.labelCoder = new DNSLabelCoder();
-    this.questions.forEach(question => question.trackNames(this.labelCoder));
-    this.answers.forEach(record => record.trackNames(this.labelCoder));
-    this.authorities.forEach(record => record.trackNames(this.labelCoder));
-    this.additionals.forEach(record => record.trackNames(this.labelCoder));
 
-    this.estimatedPacketSize = DNSPacket.DNS_PACKET_HEADER_SIZE;
-
-    this.questions.forEach(question => this.estimatedPacketSize += question.getEstimatedEncodingLength());
-    this.answers.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
-    this.authorities.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
-    this.additionals.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
+    if (encode) {
+      this.initialNameTracking();
+    }
   }
 
   public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, mtu: number, ipFamily = IPFamily.IPv4): DNSPacket[] {
@@ -371,6 +364,8 @@ export class DNSPacket {
   }
 
   private addAnswers(...answers: ResourceRecord[]): void {
+    this.initialNameTracking();
+
     for (const record of answers) {
       record.trackNames(this.labelCoder);
       this.answers.push(record);
@@ -380,6 +375,8 @@ export class DNSPacket {
   }
 
   private addAuthorities(...authorities: ResourceRecord[]): void {
+    this.initialNameTracking();
+
     for (const record of authorities) {
       record.trackNames(this.labelCoder);
       this.authorities.push(record);
@@ -389,12 +386,32 @@ export class DNSPacket {
   }
 
   private addAdditionals(...additionals: ResourceRecord[]): void {
+    this.initialNameTracking();
+
     for (const record of additionals) {
       record.trackNames(this.labelCoder);
       this.additionals.push(record);
 
       this.estimatedPacketSize += record.getEstimatedEncodingLength();
     }
+  }
+
+  private initialNameTracking() {
+    if (this.estimatedPacketSize > 0) {
+      return;
+    }
+
+    this.questions.forEach(question => question.trackNames(this.labelCoder));
+    this.answers.forEach(record => record.trackNames(this.labelCoder));
+    this.authorities.forEach(record => record.trackNames(this.labelCoder));
+    this.additionals.forEach(record => record.trackNames(this.labelCoder));
+
+    this.estimatedPacketSize = DNSPacket.DNS_PACKET_HEADER_SIZE;
+
+    this.questions.forEach(question => this.estimatedPacketSize += question.getEstimatedEncodingLength());
+    this.answers.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
+    this.authorities.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
+    this.additionals.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
   }
 
   private getEstimatedEncodingLength(): number {
@@ -417,6 +434,8 @@ export class DNSPacket {
   }
 
   public encode(): Buffer {
+    this.initialNameTracking();
+
     const length = this.getEncodingLength();
     const buffer = Buffer.allocUnsafe(length);
     this.labelCoder.initBuf(buffer);
@@ -568,7 +587,6 @@ export class DNSPacket {
       packetFlags.checkingDisabled = true;
     }
 
-    // TODO it doesn't make sense that we are tracking names for incoming packets
     return new DNSPacket({
       id: id,
 
@@ -581,7 +599,7 @@ export class DNSPacket {
       answers: answers,
       authorities: authorities,
       additionals: additionals,
-    });
+    }, false);
   }
 
 }

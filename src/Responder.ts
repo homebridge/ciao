@@ -208,7 +208,7 @@ class QueryResponse implements DNSResponseDefinition {
       const record0 = records[i];
 
       if (record0.representsSameData(record)) {
-        if (record.flushFlag) {
+        if (record.flushFlag && (record.type !== RType.A && record.type !== RType.AAAA)) {
           records[i] = record;
           overwrittenSome = true;
           break;
@@ -230,7 +230,7 @@ class QueryResponse implements DNSResponseDefinition {
       const record0 = records[i];
 
       if (record0.representsSameData(record)) {
-        if (record.flushFlag || record0.dataEquals(record)) {
+        if ((record.flushFlag && (record.type !== RType.A && record.type !== RType.AAAA)) || record0.dataEquals(record)) {
           break; // we can break, as assumption is that no records does not contain duplicates
         }
       }
@@ -484,17 +484,7 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
-    this.server.sendResponseBroadcast( { answers: records }, error => {
-      if (error) {
-        callback && callback(error);
-        return;
-      }
-
-      setTimeout(() => {
-        // TODO check if circumstances may have changed by now?
-        this.server.sendResponseBroadcast({ answers: records }, callback);
-      }, 1000).unref();
-    });
+    this.server.sendResponseBroadcast( { answers: records }, callback);
   }
 
   private goodbye(service: CiaoService, recordOverride?: ResourceRecord[]): Promise<void> {

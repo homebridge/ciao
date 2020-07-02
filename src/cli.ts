@@ -65,7 +65,7 @@ service.advertise().then(() => {
         new ARecord("My-Accessory2.local.", "192.168.178.62", true, 0),
         new ARecord("My-Accessory2.local.", "192.168.178.66", true, 120),
       ],
-    }, "192.168.178.0");
+    }, "en0");
   }, 20000);
   //updateRecord(service);
   //return serviceCopy.advertise();

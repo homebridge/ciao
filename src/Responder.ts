@@ -10,7 +10,7 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DNSPacket, DNSResponseDefinition, QClass, QType, RType } from "./coder/DNSPacket";
+import { DNSPacket, DNSResponseDefinition, dnsTypeToString, QClass, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
 import { PTRRecord } from "./coder/records/PTRRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
@@ -235,7 +235,8 @@ class QueryResponse implements DNSResponseDefinition {
       const record0 = records[i];
 
       if (record0.representsSameData(record)) {
-        if (record.flushFlag && (record.type !== RType.A && record.type !== RType.AAAA)) {
+        // A and AAAA records can be duplicate in one packet even though flush flag is set
+        if (record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) {
           records[i] = record;
           overwrittenSome = true;
           break;
@@ -257,8 +258,10 @@ class QueryResponse implements DNSResponseDefinition {
       const record0 = records[i];
 
       if (record0.representsSameData(record)) {
-        if ((record.flushFlag && (record.type !== RType.A && record.type !== RType.AAAA)) || record0.dataEquals(record)) {
-          break; // we can break, as assumption is that no records does not contain duplicates
+        // A and AAAA records can be duplicate in one packet even though flush flag is set
+        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA)
+          || record0.dataEquals(record)) {
+          break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
         }
       }
     }
@@ -617,7 +620,8 @@ export class Responder implements PacketHandler {
     if (unicastResponse.hasAnswers()) {
       // TODO remove
       debug("Sending response to " + JSON.stringify(endpoint) + " via unicast with "
-        + unicastResponse.answers.map(answer => answer.type).join(";") + " answers and " + unicastResponse.additionals.map(answer => answer.type).join(";") + " additionals");
+        + unicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(";") + " answers and "
+        + unicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(";") + " additionals");
       this.server.sendResponse(unicastResponse, endpoint);
     }
     if (multicastResponse.hasAnswers()) {
@@ -630,7 +634,8 @@ export class Responder implements PacketHandler {
 
       // TODO remove
       debug("Sending response via multicast on network " + endpoint.interface + " with "
-        + multicastResponse.answers.map(answer => answer.type).join(";") + " answers and " + multicastResponse.additionals.map(answer => answer.type).join(";") + " additionals");
+        + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(";") + " answers and "
+        + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(";") + " additionals");
       this.server.sendResponse(multicastResponse, endpoint.interface);
     }
   }
@@ -830,7 +835,8 @@ export class Responder implements PacketHandler {
         addedAny = dest(record);
       }
       if (routableRecord) {
-        addedAny = addedAny || dest(routableRecord);
+        const added = dest(routableRecord);
+        addedAny = addedAny || added;
       }
 
       return addedAny;

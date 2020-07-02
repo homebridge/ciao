@@ -22,6 +22,7 @@ export const enum RType { // RFC 1035 3.2.2.
   TXT = 16,
   AAAA = 28, // RFC 3596 2.1.
   SRV = 33, // RFC 2782
+  // TODO implement decoding 41 OPT
   NSEC = 47, // RFC 4034 4.
   // incomplete list
 }
@@ -34,9 +35,30 @@ export const enum QType { // RFC 1035 3.2.2. 3.2.3.
   AAAA = 28, // RFC 3596 2.1.
   SRV = 33, // RFC 2782
   NSEC = 47, // RFC 4034 4.
-  // TODO implement decoding 41 OPT
   ANY = 255,
   // incomplete list
+}
+
+export function dnsTypeToString(type: RType | QType): string {
+  switch (type) {
+    case 1:
+      return "A";
+    case 5:
+      return "CNAME";
+    case 12:
+      return "PTR";
+    case 16:
+      return "TXT";
+    case 28:
+      return "AAAA";
+    case 33:
+      return "SRV";
+    case 47:
+      return "NSEC";
+    case 255:
+      return "ANY";
+  }
+  return "UNSUPPORTED";
 }
 
 export const enum RClass { // RFC 1035 3.2.4.

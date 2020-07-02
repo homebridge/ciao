@@ -5,6 +5,7 @@ import {
   CiaoService,
   InternalServiceEvent,
   PublishCallback,
+  RecordsUpdateCallback,
   ServiceOptions,
   ServiceState,
   UnpublishCallback,
@@ -14,6 +15,7 @@ import { Question } from "./coder/Question";
 import { PTRRecord } from "./coder/records/PTRRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
+import { InterfaceName } from "./NetworkManager";
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
 import { ipAddressFromReversAddressName } from "./util/domain-formatter";
@@ -277,6 +279,7 @@ export class Responder implements PacketHandler {
     service.on(InternalServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
     service.on(InternalServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
     service.on(InternalServiceEvent.RECORD_UPDATE, this.handleServiceRecordUpdate.bind(this, service));
+    service.on(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, this.handleServiceRecordUpdateOnInterface.bind(this, service));
 
     return service;
   }
@@ -474,7 +477,7 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private handleServiceRecordUpdate(service: CiaoService, records: ResourceRecord[], callback?: (error?: Error | null) => void): void {
+  private handleServiceRecordUpdate(service: CiaoService, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
     // when updating we just repeat the announce step
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
@@ -483,6 +486,17 @@ export class Responder implements PacketHandler {
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
     this.server.sendResponseBroadcast( { answers: records }, callback);
+  }
+
+  private handleServiceRecordUpdateOnInterface(service: CiaoService, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
+    // when updating we just repeat the announce step
+    if (service.serviceState !== ServiceState.ANNOUNCED) {
+      throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
+    }
+
+    debug("[%s] Updating %d record(s) for given service on interface %s!", service.getFQDN(), records.length, name);
+
+    this.server.sendResponse({ answers: records }, name, callback);
   }
 
   private goodbye(service: CiaoService, recordOverride?: ResourceRecord[]): Promise<void> {

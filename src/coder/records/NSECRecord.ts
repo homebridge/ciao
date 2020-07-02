@@ -21,7 +21,7 @@ export class NSECRecord extends ResourceRecord {
   constructor(header: RecordRepresentation, nextDomainName: string, rrtypes: RType[]);
   constructor(name: string | RecordRepresentation, nextDomainName: string, rrtypes: RType[], flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.NSEC, ttl, flushFlag);
+      super(name, RType.NSEC, ttl || 120, flushFlag);
     } else {
       assert(name.type === RType.NSEC);
       super(name);

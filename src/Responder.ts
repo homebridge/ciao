@@ -11,7 +11,6 @@ import {
 } from "./CiaoService";
 import { DNSPacket, DNSResponseDefinition, QClass, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
-import { NSECRecord } from "./coder/records/NSECRecord";
 import { PTRRecord } from "./coder/records/PTRRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
@@ -452,7 +451,6 @@ export class Responder implements PacketHandler {
       // minimum required is to send two unsolicited responses, one second apart
       // we could announce up to 8 times in total (time between messages must increase by two every message)
 
-      // TODO we may want to also announce our revers mapping records?
       this.sendResponseAddingAddressRecords(service, records, false, error => {
         if (error) {
           service.serviceState = ServiceState.UNANNOUNCED;
@@ -560,6 +558,7 @@ export class Responder implements PacketHandler {
 
     // do known answer suppression according to RFC 6762 7.1.
     packet.answers.forEach(record => {
+      // TODO we may have added additionals because of records in the answer section, which get removed again here !!!
       unicastResponse.removeKnownAnswer(record);
       multicastResponse.removeKnownAnswer(record);
     });
@@ -599,9 +598,9 @@ export class Responder implements PacketHandler {
       //    interface.
 
       // TODO remove
-      debug("Sending response via multicast on network " + endpoint.network + " with "
+      debug("Sending response via multicast on network " + endpoint.interface + " with "
         + multicastResponse.answers.map(answer => answer.type).join(";") + " answers and " + multicastResponse.additionals.map(answer => answer.type).join(";") + " additionals");
-      this.server.sendResponse(multicastResponse, endpoint.network);
+      this.server.sendResponse(multicastResponse, endpoint.interface);
     }
   }
 
@@ -708,7 +707,6 @@ export class Responder implements PacketHandler {
     //    addresses, or vice versa, then the appropriate NSEC record SHOULD be
     //    placed into the additional section, so that queriers can know with
     //    certainty that the device has no addresses of that kind.
-    const nsecTypes: RType[] = []; // collect types for a negative response
 
     if (questionName === dnsLowerCase(service.getTypePTR())) {
       if (askingAny || question.type === QType.PTR) {
@@ -716,19 +714,22 @@ export class Responder implements PacketHandler {
 
         // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
         additionals.push(service.srvRecord(), service.txtRecord());
-        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, additionals, additionals);
+        additionals.push(service.nsecRecord());
       }
     } else if (questionName === dnsLowerCase(service.getFQDN())) {
       if (askingAny) {
         answers.push(service.srvRecord(), service.txtRecord());
 
         // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, additionals, additionals);
+        additionals.push(service.nsecRecord());
       } else if (question.type === QType.SRV) {
         answers.push(service.srvRecord());
 
         // RFC 6763 12.2: include additionals: a, aaaa
-        Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, additionals, additionals);
+        additionals.push(service.nsecRecord());
       } else if (question.type === QType.TXT) {
         answers.push(service.txtRecord());
 
@@ -736,19 +737,22 @@ export class Responder implements PacketHandler {
       }
     } else if (questionName === dnsLowerCase(service.getHostname())) {
       if (askingAny) {
-        Responder.addAddressRecords(service, endpoint, answers, answers, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, answers, answers);
+        answers.push(service.nsecRecord());
       } else if (question.type === QType.A) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        Responder.addAddressRecords(service, endpoint, answers, additionals, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, answers, additionals);
+        additionals.push(service.nsecRecord());
       } else if (question.type === QType.AAAA) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        Responder.addAddressRecords(service, endpoint, additionals, answers, nsecTypes);
+        Responder.addAddressRecords(service, endpoint, additionals, answers);
+        additionals.push(service.nsecRecord());
       }
     } else if (service.getSubtypePTRs()) {
       if (askingAny || question.type === QType.PTR) {
@@ -762,13 +766,10 @@ export class Responder implements PacketHandler {
           answers.push(record);
 
           additionals.push(service.srvRecord(), service.txtRecord());
-          Responder.addAddressRecords(service, endpoint, additionals, additionals, nsecTypes);
+          Responder.addAddressRecords(service, endpoint, additionals, additionals);
+          additionals.push(service.nsecRecord());
         }
       }
-    }
-
-    if (nsecTypes.length > 0) {
-      additionals.push(new NSECRecord(service.getHostname(), service.getHostname(), nsecTypes));
     }
 
     return {
@@ -783,29 +784,26 @@ export class Responder implements PacketHandler {
    * The method calculates which A and AAAA records to be added for a given {@code endpoint} using
    * the records from the provided {@code service}.
    * It will push the A record onto the aDest array and all AAAA records onto the aaaaDest array.
-   * The last argument is the array of negative response types. If a record for a given type (A or AAAA)
-   * is not present the type will be added to this array.
    *
    * @param {CiaoService} service - service which records to be use
    * @param {EndpointInfo} endpoint - endpoint information providing the interface
    * @param {ResourceRecord[]} aDest - array where the A record gets added
    * @param {ResourceRecord[]} aaaaDest - array where all AAAA records get added
-   * @param {RType[]} nsecDest - if A or AAAA do not exist the type will be pushed onto this array
    */
-  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: ResourceRecord[], aaaaDest: ResourceRecord[], nsecDest: RType[]): void {
-    const aRecords = service.aRecord(endpoint.network);
-    const aaaaRecords = service.aaaaRecords(endpoint.network);
+  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: ResourceRecord[], aaaaDest: ResourceRecord[]): void {
+    const aRecord = service.aRecord(endpoint.interface);
+    const aaaaRecord = service.aaaaRecord(endpoint.interface);
+    const aaaaRoutableRecord = service.aaaaRoutableRecord(endpoint.interface);
 
-    if (aRecords) {
-      aDest.push(...aRecords);
-    } else {
-      nsecDest.push(RType.A);
+    if (aRecord) {
+      aDest.push(aRecord);
     }
 
-    if (aaaaRecords && aaaaRecords.length > 0) {
-      aaaaDest.push(...aaaaRecords);
-    } else {
-      nsecDest.push(RType.AAAA);
+    if (aaaaRecord) {
+      aaaaDest.push(aaaaRecord);
+    }
+    if (aaaaRoutableRecord) {
+      aaaaDest.push(aaaaRoutableRecord);
     }
   }
 
@@ -813,29 +811,51 @@ export class Responder implements PacketHandler {
     let iterations = this.server.getNetworkCount();
     const encounteredErrors: Error[] = [];
 
-    for (const id of this.server.getNetworkIds()) {
+    for (const [name, networkInterface] of this.server.getNetworkManager().getInterfaceMap()) {
       const answer: ResourceRecord[] = records.concat([]);
 
-      const aRecords = service.aRecord(id);
-      const aaaaRecords = service.aaaaRecords(id);
+      const aRecord = service.aRecord(name);
+      const aaaaRecord = service.aaaaRecord(name);
+      const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
+      const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
+      const nsecRecord = service.nsecRecord();
 
-      if (aRecords) {
+      if (aRecord) {
         if (goodbye) {
-          aRecords.forEach(record => record.ttl = 0);
+          aRecord.ttl = 0;
         }
-        answer.push(...aRecords);
+        answer.push(aRecord);
       }
-      if (aaaaRecords) {
+
+      if (aaaaRecord) {
         if (goodbye) {
-          aaaaRecords.forEach(record => record.ttl = 0);
+          aaaaRecord.ttl = 0;
         }
-        answer.push(...aaaaRecords);
+        answer.push(aaaaRecord);
       }
+      if (aaaaRoutableRecord) {
+        if (goodbye) {
+          aaaaRoutableRecord.ttl = 0;
+        }
+        answer.push(aaaaRoutableRecord);
+      }
+
+      for (const reversMapping of reversMappings) {
+        if (goodbye) {
+          reversMapping.ttl = 0;
+        }
+        answer.push(reversMapping);
+      }
+
+      if (goodbye) {
+        nsecRecord.ttl = 0;
+      }
+      answer.push(nsecRecord);
 
       if (!callback) {
-        this.server.sendResponse({ answers: answer }, id);
+        this.server.sendResponse({ answers: answer }, name);
       } else {
-        this.server.sendResponse({ answers: answer }, id, error => {
+        this.server.sendResponse({ answers: answer }, name, error => {
           if (error) {
             encounteredErrors.push(error);
           }

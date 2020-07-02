@@ -1,24 +1,37 @@
-import { ServiceType } from "./CiaoService";
-import { createResponder } from "./index";
+import { CiaoService, ServiceType } from "./CiaoService";
+import { ARecord } from "./coder/records/ARecord";
+import { createResponder, MDNSServer } from "./index";
 
 // TODO remove this file, it's only used for testing currently
+
+const txt = {
+  md: "My Accessory",
+  pv: "1.1",
+  id: "A1:00:0A:92:7D:1D",
+  "c#": "1",
+  "s#": "1",
+  "ff": "0",
+  "ci": 11,
+  "sf": "1", // "sf == 1" means "discoverable by HomeKit iOS clients"
+  "sh": "aaaaab",
+};
+
+function updateRecord(service: CiaoService) {
+  setTimeout(() => {
+    console.log("Updating record!");
+    txt.sf = txt.sf === "1" ? "0" : "1";
+    service.updateTxt(txt).then(() => {
+      updateRecord(service);
+    });
+  }, 10000);
+}
 
 const responder = createResponder();
 const service = responder.createService({
   name: "My Accessory2",
   type: ServiceType.HAP,
   port: 1234,
-  txt: {
-    md: "My Accessory",
-    pv: "1.1",
-    id: "A1:00:0A:92:7D:1D",
-    "c#": "1",
-    "s#": "1",
-    "ff": "0",
-    "ci": 11,
-    "sf": "1", // "sf == 1" means "discoverable by HomeKit iOS clients"
-    "sh": "aaaaab",
-  },
+  txt: txt,
 });
 /*const serviceCopy = responder.createService({
   name: "My Accessory",
@@ -40,6 +53,21 @@ const service = responder.createService({
 
 service.advertise().then(() => {
   console.log("Advertised service1");
+
+  setTimeout(() => {
+    console.log("Sending REMOVAL of A record!");
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const server: MDNSServer = responder.server;
+
+    server.sendResponse({
+      answers: [
+        new ARecord("My-Accessory2.local.", "192.168.178.62", true, 0),
+        new ARecord("My-Accessory2.local.", "192.168.178.66", true, 120),
+      ],
+    }, "192.168.178.0");
+  }, 20000);
+  //updateRecord(service);
   //return serviceCopy.advertise();
 });
 /*

@@ -96,6 +96,8 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
     let rClass = this.class;
     if (this.flushFlag) {
+      // for pseudo records like OPT, TSIG, TKEY, SIG0 the top bit should not be interpreted as the flush flag
+      // though we do not support those (OPT seems to be the only used, though no idea for what [by Apple for mdns])
       rClass |= ResourceRecord.FLUSH_MASK;
     }
     buffer.writeUInt16BE(rClass, offset);

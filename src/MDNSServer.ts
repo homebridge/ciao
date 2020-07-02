@@ -11,12 +11,12 @@ import {
   RCode,
 } from "./coder/DNSPacket";
 import { IPFamily } from "./index";
-import { NetworkId, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import { InterfaceName, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 
 export interface EndpointInfo {
   address: string;
   port: number;
-  network: string;
+  interface: string;
 }
 
 export type SendCallback = (error?: Error | null) => void;
@@ -35,7 +35,7 @@ export interface PacketHandler {
 }
 
 interface SocketError {
-  id: string;
+  name: string;
   error: Error;
 }
 
@@ -62,8 +62,11 @@ export class MDNSServer {
 
   private readonly networkManager: NetworkManager;
 
-  private readonly multicastSockets: Map<NetworkId, Socket> = new Map();
-  private readonly unicastSockets: Map<NetworkId, Socket> = new Map();
+  private readonly multicastSockets: Map<InterfaceName, Socket> = new Map();
+  private readonly unicastSockets: Map<InterfaceName, Socket> = new Map();
+  // TODO remove unicastSockets, detect if we are not alone on the machine and if so force NOT setting the QU flag
+  // TODO if we remove this, we must make sure that we don't respond to our own queries when reannouncing the
+  //  service (for example when a new network interface got added)
 
   private bound = false;
   private closed = false;
@@ -76,9 +79,9 @@ export class MDNSServer {
       interface: options && options.interface,
       excludeIpv6Only: true,
     });
-    this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkUpdate.bind(this));
+    this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
 
-    for (const name of this.networkManager.getNetworkMap().keys()) {
+    for (const name of this.networkManager.getInterfaceMap().keys()) {
       const multicast = this.createDgramSocket(name, true);
       const unicast = this.createDgramSocket(name);
 
@@ -93,10 +96,6 @@ export class MDNSServer {
 
   public getNetworkManager(): NetworkManager {
     return this.networkManager;
-  }
-
-  public getNetworkIds(): IterableIterator<NetworkId> {
-    return this.multicastSockets.keys();
   }
 
   public getNetworkCount(): number {
@@ -130,12 +129,12 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
 
-    for (const [id, socket] of this.multicastSockets) {
-      promises.push(this.bindMulticastSocket(socket, id, IPFamily.IPv4));
+    for (const [name, socket] of this.multicastSockets) {
+      promises.push(this.bindMulticastSocket(socket, name, IPFamily.IPv4));
     }
 
-    for (const [id, socket] of this.unicastSockets) {
-      promises.push(this.bindUnicastSocket(socket, id));
+    for (const [name, socket] of this.unicastSockets) {
+      promises.push(this.bindUnicastSocket(socket, name));
     }
 
     return Promise.all(promises).then(() => {
@@ -147,11 +146,11 @@ export class MDNSServer {
   public shutdown(): void {
     this.networkManager.shutdown();
 
-    // TODO sockets can already be closed when the interface was shut down previously :thinking:
     for (const socket of this.multicastSockets.values()) {
       socket.close();
     }
 
+    // TODO sockets can already be closed when the interface was shut down previously :thinking:
     for (const socket of this.unicastSockets.values()) {
       socket.close();
     }
@@ -176,7 +175,7 @@ export class MDNSServer {
         callback();
       }
     }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
     });
   }
 
@@ -193,18 +192,18 @@ export class MDNSServer {
         callback();
       }
     }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
     });
   }
 
   public sendResponse(response: DNSResponseDefinition, endpoint: EndpointInfo, callback?: SendCallback): void;
-  public sendResponse(response: DNSResponseDefinition, networkId: NetworkId, callback?: SendCallback): void;
-  public sendResponse(response: DNSResponseDefinition, endpointOrNetwork: EndpointInfo | NetworkId, callback?: SendCallback): void {
+  public sendResponse(response: DNSResponseDefinition, interfaceName: InterfaceName, callback?: SendCallback): void;
+  public sendResponse(response: DNSResponseDefinition, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
     const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {
-      promises.push(this.send(packet, endpointOrNetwork));
+      promises.push(this.send(packet, endpointOrInterface));
     }
 
     Promise.all(promises).then(() => {
@@ -212,7 +211,7 @@ export class MDNSServer {
         callback();
       }
     }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.id, error.error);
+      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
     });
   }
 
@@ -223,11 +222,11 @@ export class MDNSServer {
     const socketMap =  type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
 
     const promises: Promise<void>[] = [];
-    for (const [id, socket] of socketMap) {
+    for (const [name, socket] of socketMap) {
       const promise = new Promise<void>((resolve, reject) => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
           if (error) {
-            const socketError: SocketError = { id: id, error: error };
+            const socketError: SocketError = { name: name, error: error };
             reject(socketError);
           } else {
             resolve();
@@ -242,32 +241,32 @@ export class MDNSServer {
     });
   }
 
-  private send(packet: DNSPacket, endpointOrNetwork: EndpointInfo | NetworkId): Promise<void> {
+  private send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<void> {
     const message = packet.encode();
     this.assertBeforeSend(message, IPFamily.IPv4);
 
     let address: string;
     let port: number;
-    let id: string;
+    let name: string;
 
-    if (typeof endpointOrNetwork === "string") { // its a network id
+    if (typeof endpointOrInterface === "string") { // its a network interface name
       address = MDNSServer.MULTICAST_IPV4;
       port = MDNSServer.MDNS_PORT;
-      id = endpointOrNetwork;
+      name = endpointOrInterface;
     } else {
-      address = endpointOrNetwork.address;
-      port = endpointOrNetwork.port;
-      id = endpointOrNetwork.network;
+      address = endpointOrInterface.address;
+      port = endpointOrInterface.port;
+      name = endpointOrInterface.interface;
     }
 
     const socketMap = packet.type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
-    const socket = socketMap.get(id);
-    assert(socket, `Could not find socket for given network id '${id}'`);
+    const socket = socketMap.get(name);
+    assert(socket, `Could not find socket for given network interface '${name}'`);
 
     return new Promise<void>((resolve, reject) => {
       socket!.send(message, port, address, error => {
         if (error) {
-          const socketError: SocketError = { id: id, error: error };
+          const socketError: SocketError = { name: name, error: error };
           reject(socketError);
         } else {
           resolve();
@@ -287,21 +286,21 @@ export class MDNSServer {
       "DNS cannot exceed the size of 9000 bytes even with IP Fragmentation!");
   }
 
-  private createDgramSocket(id: NetworkId, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
+  private createDgramSocket(name: InterfaceName, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
     const socket = dgram.createSocket({
       type: type,
       reuseAddr: reuseAddr,
     });
 
-    socket.on("message", this.handleMessage.bind(this, id));
-    socket.on("error", MDNSServer.handleSocketError.bind(this, id));
+    socket.on("message", this.handleMessage.bind(this, name));
+    socket.on("error", MDNSServer.handleSocketError.bind(this, name));
 
     return socket;
   }
 
-  private bindMulticastSocket(socket: Socket, id: NetworkId, family: IPFamily): Promise<void> {
-    const network = this.networkManager.getNetworkById(id);
-    assert(network, "Could not find network '" + id + "' in network manager which socket is going to be bind to!");
+  private bindMulticastSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
+    const networkInterface = this.networkManager.getInterface(name);
+    assert(networkInterface, "Could not find network interface '" + name + "' in network manager which socket is going to be bind to!");
 
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
@@ -311,13 +310,12 @@ export class MDNSServer {
         socket.removeListener("error", errorHandler);
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;
-        const addresses = family === IPFamily.IPv4? network!.getIPv4Addresses(): network!.getIPv6Addresses();
+        const interfaceAddress = family === IPFamily.IPv4? networkInterface!.ipv4: networkInterface!.ipv6;
+        assert(interfaceAddress, "Interface address canot be undefined!");
 
-        for (const interfaceAddress of addresses) {
-          socket.addMembership(multicastAddress, interfaceAddress);
-        }
+        socket.addMembership(multicastAddress, interfaceAddress!);
 
-        socket.setMulticastInterface(network!.getDefaultIPv4()); // TODO // TODO set default outgoing multicast interface socket.setMulticastInterface();
+        socket.setMulticastInterface(interfaceAddress!);
 
         socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
         socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
@@ -329,16 +327,16 @@ export class MDNSServer {
     });
   }
 
-  private bindUnicastSocket(socket: Socket, id: NetworkId): Promise<void> {
-    const network = this.networkManager.getNetworkById(id);
-    assert(network, "Could not find network '" + id + "' in network manager which socket is going to be bind to!");
+  private bindUnicastSocket(socket: Socket, name: InterfaceName): Promise<void> {
+    const networkInterface = this.networkManager.getInterface(name);
+    assert(networkInterface, "Could not find network interface '" + name + "' in network manager which socket is going to be bind to!");
 
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
       socket.once("error", errorHandler);
 
       // bind on random port
-      socket.bind(0, network!.getDefaultIPv4(), () => {
+      socket.bind(0, networkInterface!.ipv4, () => {
         socket.removeListener("error", errorHandler);
 
         socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
@@ -349,7 +347,7 @@ export class MDNSServer {
     });
   }
 
-  private handleMessage(id: NetworkId, buffer: Buffer, rinfo: AddressInfo): void {
+  private handleMessage(name: InterfaceName, buffer: Buffer, rinfo: AddressInfo): void {
     if (!this.bound) {
       return;
     }
@@ -377,7 +375,7 @@ export class MDNSServer {
     const endpoint: EndpointInfo = {
       address: rinfo.address,
       port: rinfo.port,
-      network: id,
+      interface: name,
     };
 
     if (packet.type === PacketType.QUERY) {
@@ -393,59 +391,49 @@ export class MDNSServer {
     }
   }
 
-  private static handleSocketError(id: NetworkId, error: Error): void {
-    console.warn("Encountered MDNS socket error on socket " + id + " : " + error.message);
+  private static handleSocketError(name: InterfaceName, error: Error): void {
+    console.warn(`Encountered MDNS socket error on socket '${name}' : ${error.message}`);
     console.warn(error.stack);
   }
 
-  private handleNetworkUpdate(update: NetworkUpdate): void {
-    if (update.removed) {
-      for (const network of update.removed) {
-        this.removeSocket(network.getId());
+  private handleUpdatedNetworkInterfaces(networkUpdate: NetworkUpdate): void {
+    if (networkUpdate.removed) {
+      for (const networkInterface of networkUpdate.removed) {
+        this.removeSockets(networkInterface.name);
       }
     }
 
-    if (update.updated) {
-      for (const change of update.updated) {
-        if (!change.changedDefaultIPv4Address) {
-          continue;
-        }
-
-        // TODO we are bound to 0.0.0.0, we don't need to rebind, just adjust the default outgoing multicast interface and remove membership maybe(?)
-
-        // the default address changed were the socket was running
-        this.removeSocket(change.networkId);
-        this.addAndBindSocket(change.networkId);
-      }
+    if (networkUpdate.changes) {
+      // TODO rebind our unicast socket if we detect ipv4 changes (added/remove/updated)
     }
 
-    if (update.added) {
-      for (const network of update.added) {
-        this.addAndBindSocket(network.getId());
+    if (networkUpdate.added) {
+      for (const networkInterface of networkUpdate.added) {
+        this.addAndBindSocket(networkInterface.name);
       }
     }
   }
 
-  private addAndBindSocket(id: NetworkId): void {
-    const multicast = this.createDgramSocket(id, true);
-    const unicast = this.createDgramSocket(id);
+  private addAndBindSocket(name: InterfaceName): void {
+    const multicast = this.createDgramSocket(name, true);
+    const unicast = this.createDgramSocket(name);
 
     const promises = [
-      this.bindMulticastSocket(multicast, id, IPFamily.IPv4),
-      this.bindUnicastSocket(unicast, id),
+      this.bindMulticastSocket(multicast, name, IPFamily.IPv4),
+      this.bindUnicastSocket(unicast, name),
     ];
 
     Promise.all(promises).then(() => {
-      this.multicastSockets.set(id, multicast);
-      this.unicastSockets.set(id, unicast);
+      this.multicastSockets.set(name, multicast);
+      this.unicastSockets.set(name, unicast);
     });
   }
 
-  private removeSocket(id: NetworkId): void {
-    const multicastSocket = this.multicastSockets.get(id);
-    this.multicastSockets.delete(id);
-    const unicastSocket = this.unicastSockets.get(id);
-    this.multicastSockets.delete(id);
+  private removeSockets(name: InterfaceName): void {
+    const multicastSocket = this.multicastSockets.get(name);
+    this.multicastSockets.delete(name);
+    const unicastSocket = this.unicastSockets.get(name);
+    this.multicastSockets.delete(name);
 
     if (multicastSocket) {
       try {

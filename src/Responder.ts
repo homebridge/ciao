@@ -112,6 +112,8 @@ class TruncatedQuery extends EventEmitter {
 
 }
 
+type RecordAddMethod = (...records: ResourceRecord[]) => boolean;
+
 class QueryResponse implements DNSResponseDefinition {
 
   id?: number;
@@ -120,19 +122,37 @@ class QueryResponse implements DNSResponseDefinition {
   additionals: ResourceRecord[] = [];
   legacyUnicast?: boolean;
 
-  public addAnswer(...records: ResourceRecord[]): void {
+  private knownAnswers?: ResourceRecord[];
+
+  public defineKnownAnswers(records: ResourceRecord[]): void {
+    this.knownAnswers = records;
+  }
+
+  public addAnswer(...records: ResourceRecord[]): boolean {
+    let addedAny = false;
+
     for (const record of records) {
       const overwritten = QueryResponse.replaceExistingRecord(this.answers, record);
 
       if (!overwritten) {
-        this.answers.push(record);
+        // check if the record to be added is not a known answer
+        if (!this.isKnownAnswer(record)) {
+          this.answers.push(record);
+          addedAny = true;
+        }
+      } else {
+        addedAny = true;
       }
 
       QueryResponse.removeAboutSameRecord(this.additionals, record);
     }
+
+    return addedAny;
   }
 
-  public addAdditional(...records: ResourceRecord[]): void {
+  public addAdditional(...records: ResourceRecord[]): boolean {
+    let addedAny = false;
+
     for (const record of records) {
       const overwrittenAnswer = QueryResponse.replaceExistingRecord(this.answers, record);
 
@@ -140,10 +160,20 @@ class QueryResponse implements DNSResponseDefinition {
       if (!overwrittenAnswer) {
         const overwrittenAdditional = QueryResponse.replaceExistingRecord(this.additionals, record);
         if (!overwrittenAdditional) {
-          this.additionals.push(record);
+          // check if the additional record is a known answer, otherwise there is no need to send it
+          if (!this.isKnownAnswer(record)) {
+            this.additionals.push(record);
+            addedAny = true;
+          }
+        } else {
+          addedAny = true;
         }
+      } else {
+        addedAny = true;
       }
     }
+
+    return addedAny;
   }
 
   public markLegacyUnicastResponse(id: number, questions: Question[], multicastResponse: QueryResponse): void {
@@ -175,31 +205,27 @@ class QueryResponse implements DNSResponseDefinition {
     return this.answers.length > 0;
   }
 
-  public removeKnownAnswer(record: ResourceRecord): void {
-    QueryResponse.removeKnownAnswers(record, this.answers);
-    QueryResponse.removeKnownAnswers(record, this.additionals);
-  }
-
   private clear(): void {
     this.answers.splice(0, this.answers.length);
     this.additionals.splice(0, this.additionals.length);
   }
 
-  private static removeKnownAnswers(knownAnswer: ResourceRecord, records: ResourceRecord[]): void {
-    const ids: number[] = []; // ids which get removed
+  private isKnownAnswer(record: ResourceRecord): boolean {
+    if (!this.knownAnswers) {
+      return false;
+    }
 
-    records.forEach(((record, index) => {
+    for (const knownAnswer of this.knownAnswers) {
       if (knownAnswer.aboutEqual(record)) {
         // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
+        // so only if the ttl is more than half than the original ttl we consider it a valid known answer
         if (knownAnswer.ttl >= record.ttl / 2) {
-          ids.push(index);
+          return true;
         }
       }
-    }));
-
-    for (const i of ids) {
-      records.splice(i, 1);
     }
+
+    return false;
   }
 
   private static replaceExistingRecord(records: ResourceRecord[], record: ResourceRecord): boolean {
@@ -552,30 +578,21 @@ export class Responder implements PacketHandler {
     // responses must not include questions RFC 6762 6.
     const multicastResponse = new QueryResponse();
     const unicastResponse = new QueryResponse();
+    const knownAnswers = packet.answers;
+
+    // define knownAnswers so the addAnswer/addAdditional method can check if records need to be added or not
+    // known answer suppression according to RFC 6762 7.1.
+    multicastResponse.defineKnownAnswers(knownAnswers);
+    unicastResponse.defineKnownAnswers(knownAnswers);
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
-      const answer = this.answerQuestion(question, endpoint);
-
-      if (question.unicastResponseFlag) { // question requests unicast response
-        unicastResponse.addAnswer(...answer.answers);
-        unicastResponse.addAdditional(...answer.additionals);
-      } else {
-        multicastResponse.addAnswer(...answer.answers);
-        multicastResponse.addAdditional(...answer.additionals);
-      }
+      this.answerQuestion(question, endpoint, question.unicastResponseFlag? unicastResponse: multicastResponse);
     });
 
     if (this.currentProber) {
       this.currentProber.handleQuery(packet);
     }
-
-    // do known answer suppression according to RFC 6762 7.1.
-    packet.answers.forEach(record => {
-      // TODO we may have added additionals because of records in the answer section, which get removed again here !!!
-      unicastResponse.removeKnownAnswer(record);
-      multicastResponse.removeKnownAnswer(record);
-    });
 
     if (endpoint.port !== MDNSServer.MDNS_PORT) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
@@ -600,7 +617,7 @@ export class Responder implements PacketHandler {
     if (unicastResponse.hasAnswers()) {
       // TODO remove
       debug("Sending response to " + JSON.stringify(endpoint) + " via unicast with "
-        + unicastResponse.answers.length + " answers and " + unicastResponse.additionals.length + " additionals");
+        + unicastResponse.answers.map(answer => answer.type).join(";") + " answers and " + unicastResponse.additionals.map(answer => answer.type).join(";") + " additionals");
       this.server.sendResponse(unicastResponse, endpoint);
     }
     if (multicastResponse.hasAnswers()) {
@@ -636,12 +653,7 @@ export class Responder implements PacketHandler {
     //         will be retained for the desired time.
   }
 
-  private answerQuestion(question: Question, endpoint: EndpointInfo): CalculatedAnswer {
-    const answers: ResourceRecord[] = [];
-    const additionals: ResourceRecord[] = [];
-
-    const collectedAnswers: CalculatedAnswer[] = [];
-
+  private answerQuestion(question: Question, endpoint: EndpointInfo, response: QueryResponse): void {
     // RFC 6762 6: The determination of whether a given record answers a given question
     //    is made using the standard DNS rules: the record name must match the
     //    question name, the record rrtype must match the question qtype unless
@@ -650,10 +662,7 @@ export class Responder implements PacketHandler {
 
     if (question.class !== QClass.IN && question.class !== QClass.ANY) {
       // We just publish answers with IN class. So only IN or ANY questions classes will match
-      return {
-        answers: answers,
-        additionals: [],
-      };
+      return;
     }
 
     switch (question.type) {
@@ -668,11 +677,11 @@ export class Responder implements PacketHandler {
 
             if (service) {
               // call the method so additionals get added properly
-              collectedAnswers.push(Responder.answerServiceQuestion(service, question, endpoint));
+              Responder.answerServiceQuestion(service, question, endpoint, response);
             } else {
               // it's probably question for PTR '_services._dns-sd._udp.local'
               // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
-              answers.push(new PTRRecord(question.name, data));
+              response.addAnswer(new PTRRecord(question.name, data));
             }
           }
         } else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
@@ -681,7 +690,7 @@ export class Responder implements PacketHandler {
           for (const service of this.announcedServices.values()) {
             const record = service.reverseAddressMapping(address);
             if (record) {
-              answers.push(record);
+              response.addAnswer(record);
             }
           }
         }
@@ -689,33 +698,22 @@ export class Responder implements PacketHandler {
       }
       default:
         for (const service of this.announcedServices.values()) {
-          const serviceAnswer = Responder.answerServiceQuestion(service, question, endpoint);
-          collectedAnswers.push(serviceAnswer);
+          Responder.answerServiceQuestion(service, question, endpoint, response);
         }
         break;
     }
-
-    for (const answer of collectedAnswers) {
-      answers.push(...answer.answers);
-      additionals.push(...answer.additionals);
-    }
-
-    return {
-      answers: answers,
-      additionals: additionals,
-    };
   }
 
-  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo): CalculatedAnswer {
+  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, response: QueryResponse): void {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const answers: ResourceRecord[] = [];
-    const additionals: ResourceRecord[] = [];
-
     const questionName = dnsLowerCase(question.name);
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
+
+    const addAnswer = response.addAnswer.bind(response);
+    const addAdditional = response.addAdditional.bind(response);
 
     // RFC 6762 6.2. In the event that a device has only IPv4 addresses but no IPv6
     //    addresses, or vice versa, then the appropriate NSEC record SHOULD be
@@ -724,49 +722,66 @@ export class Responder implements PacketHandler {
 
     if (questionName === dnsLowerCase(service.getTypePTR())) {
       if (askingAny || question.type === QType.PTR) {
-        answers.push(service.ptrRecord());
+        const added = response.addAnswer(service.ptrRecord());
 
-        // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-        additionals.push(service.srvRecord(), service.txtRecord());
-        Responder.addAddressRecords(service, endpoint, additionals, additionals);
-        additionals.push(service.nsecRecord());
+        if (added) {
+          // only add additionals if answer is not supressed by the known answer section
+
+          // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
+          response.addAdditional(service.srvRecord(), service.txtRecord());
+          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+        }
       }
     } else if (questionName === dnsLowerCase(service.getFQDN())) {
       if (askingAny) {
-        answers.push(service.srvRecord(), service.txtRecord());
+        const added = response.addAnswer(service.srvRecord(), service.txtRecord());
 
-        // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-        Responder.addAddressRecords(service, endpoint, additionals, additionals);
-        additionals.push(service.nsecRecord());
+        if (added) {
+          // RFC 6763 12.2: include additionals: a, aaaa
+          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+        }
       } else if (question.type === QType.SRV) {
-        answers.push(service.srvRecord());
+        const added = response.addAnswer(service.srvRecord());
 
-        // RFC 6763 12.2: include additionals: a, aaaa
-        Responder.addAddressRecords(service, endpoint, additionals, additionals);
-        additionals.push(service.nsecRecord());
+        if (added) {
+          // RFC 6763 12.2: include additionals: a, aaaa
+          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+        }
       } else if (question.type === QType.TXT) {
-        answers.push(service.txtRecord());
+        response.addAnswer(service.txtRecord());
 
         // RFC 6763 12.3: no not any other additionals
       }
     } else if (questionName === dnsLowerCase(service.getHostname())) {
       if (askingAny) {
-        Responder.addAddressRecords(service, endpoint, answers, answers);
-        answers.push(service.nsecRecord());
+        this.addAddressRecords(service, endpoint, RType.A, addAnswer);
+        this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
+        response.addAnswer(service.nsecRecord());
       } else if (question.type === QType.A) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        Responder.addAddressRecords(service, endpoint, answers, additionals);
-        additionals.push(service.nsecRecord());
+        const added = this.addAddressRecords(service, endpoint, RType.A, addAnswer);
+        if (added) {
+          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+        }
+
+        response.addAnswer(service.nsecRecord()); // always add the negative response, always assert dominance
       } else if (question.type === QType.AAAA) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        Responder.addAddressRecords(service, endpoint, additionals, answers);
-        additionals.push(service.nsecRecord());
+        const added = this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
+        if (added) {
+          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+        }
+
+        response.addAnswer(service.nsecRecord()); // always add the negative response, always assert dominance
       }
     } else if (service.getSubtypePTRs()) {
       if (askingAny || question.type === QType.PTR) {
@@ -777,47 +792,50 @@ export class Responder implements PacketHandler {
           const records = service.subtypePtrRecords();
           const record = records![index];
           assert(questionName === dnsLowerCase(record.name), "Question Name didn't match selected sub type ptr record!");
-          answers.push(record);
 
-          additionals.push(service.srvRecord(), service.txtRecord());
-          Responder.addAddressRecords(service, endpoint, additionals, additionals);
-          additionals.push(service.nsecRecord());
+          const added = response.addAnswer(record);
+          if (added) {
+            // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
+            response.addAdditional(service.srvRecord(), service.txtRecord());
+            this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+            this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+          }
         }
       }
     }
-
-    return {
-      answers: answers,
-      additionals: additionals,
-    };
   }
 
   /**
    * This method is a helper method to reduce the complexity inside {@link answerServiceQuestion}.
-   * This method is a bit ugly and complex how it does it's job. Consider it to act like a macro.
    * The method calculates which A and AAAA records to be added for a given {@code endpoint} using
    * the records from the provided {@code service}.
-   * It will push the A record onto the aDest array and all AAAA records onto the aaaaDest array.
+   * It will add the records by calling the provided {@code dest} method.
    *
    * @param {CiaoService} service - service which records to be use
    * @param {EndpointInfo} endpoint - endpoint information providing the interface
-   * @param {ResourceRecord[]} aDest - array where the A record gets added
-   * @param {ResourceRecord[]} aaaaDest - array where all AAAA records get added
+   * @param {RType.A | RType.AAAA} type - defines the type of records to be added
+   * @param {RecordAddMethod} dest - defines the destination which the records should be added
+   * @returns true if any records got added
    */
-  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, aDest: ResourceRecord[], aaaaDest: ResourceRecord[]): void {
-    const aRecord = service.aRecord(endpoint.interface);
-    const aaaaRecord = service.aaaaRecord(endpoint.interface);
-    const aaaaRoutableRecord = service.aaaaRoutableRecord(endpoint.interface);
+  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, type: RType.A | RType.AAAA, dest: RecordAddMethod): boolean {
+    if (type === RType.A) {
+      const record = service.aRecord(endpoint.interface);
+      return record? dest(record): false;
+    } else if (type === RType.AAAA) {
+      const record = service.aaaaRecord(endpoint.interface);
+      const routableRecord = service.aaaaRoutableRecord(endpoint.interface);
 
-    if (aRecord) {
-      aDest.push(aRecord);
-    }
+      let addedAny = false;
+      if (record) {
+        addedAny = dest(record);
+      }
+      if (routableRecord) {
+        addedAny = addedAny || dest(routableRecord);
+      }
 
-    if (aaaaRecord) {
-      aaaaDest.push(aaaaRecord);
-    }
-    if (aaaaRoutableRecord) {
-      aaaaDest.push(aaaaRoutableRecord);
+      return addedAny;
+    } else {
+      assert.fail("Illegal argument!");
     }
   }
 

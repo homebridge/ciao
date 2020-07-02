@@ -16,16 +16,6 @@ const txt = {
   "sh": "aaaaab",
 };
 
-function updateRecord(service: CiaoService) {
-  setTimeout(() => {
-    console.log("Updating record!");
-    txt.sf = txt.sf === "1" ? "0" : "1";
-    service.updateTxt(txt).then(() => {
-      updateRecord(service);
-    });
-  }, 10000);
-}
-
 const responder = createResponder();
 const service = responder.createService({
   name: "My Accessory2",
@@ -53,21 +43,6 @@ const service = responder.createService({
 
 service.advertise().then(() => {
   console.log("Advertised service1");
-
-  setTimeout(() => {
-    console.log("Sending REMOVAL of A record!");
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const server: MDNSServer = responder.server;
-
-    server.sendResponse({
-      answers: [
-        new ARecord("My-Accessory2.local.", "192.168.178.62", true, 0),
-        new ARecord("My-Accessory2.local.", "192.168.178.66", true, 120),
-      ],
-    }, "en0");
-  }, 20000);
-  //updateRecord(service);
   //return serviceCopy.advertise();
 });
 /*

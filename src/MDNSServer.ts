@@ -1,4 +1,5 @@
 import assert from "assert";
+import createDebug from "debug";
 import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
 import {
@@ -12,6 +13,8 @@ import {
 } from "./coder/DNSPacket";
 import { IPFamily } from "./index";
 import { InterfaceName, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+
+const debug = createDebug("ciao:MDNSServer");
 
 export interface EndpointInfo {
   address: string;
@@ -42,8 +45,6 @@ interface SocketError {
 /**
  * This class can be used to create a mdns server to send and receive mdns packets on the local network.
  *
- * There are some limitations, please refer to https://github.com/homebridge/ciao/wiki/Unicast-Response-Workaround.
- *
  * Currently only udp4 sockets will be advertised.
  */
 export class MDNSServer {
@@ -59,14 +60,14 @@ export class MDNSServer {
   public static readonly MULTICAST_IPV6 = "FF02::FB";
 
   private readonly handler: PacketHandler;
-
   private readonly networkManager: NetworkManager;
 
-  private readonly multicastSockets: Map<InterfaceName, Socket> = new Map();
-  private readonly unicastSockets: Map<InterfaceName, Socket> = new Map();
-  // TODO remove unicastSockets, detect if we are not alone on the machine and if so force NOT setting the QU flag
-  // TODO if we remove this, we must make sure that we don't respond to our own queries when reannouncing the
-  //  service (for example when a new network interface got added)
+  private readonly sockets: Map<InterfaceName, Socket> = new Map();
+
+  // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
+  // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
+  // Probe queries should be sent with QU set, though can't be sent with QU when we can't receive unicast responses.
+  private suppressUnicastResponseFlag = false;
 
   private bound = false;
   private closed = false;
@@ -83,13 +84,11 @@ export class MDNSServer {
 
     for (const name of this.networkManager.getInterfaceMap().keys()) {
       const multicast = this.createDgramSocket(name, true);
-      const unicast = this.createDgramSocket(name);
 
-      this.multicastSockets.set(name, multicast);
-      this.unicastSockets.set(name, unicast);
+      this.sockets.set(name, multicast);
     }
 
-    if (this.multicastSockets.size === 0) { // misconfigured options
+    if (this.sockets.size === 0) { // misconfigured options
       throw new Error("Did not bind any sockets!");
     }
   }
@@ -99,7 +98,7 @@ export class MDNSServer {
   }
 
   public getNetworkCount(): number {
-    return this.multicastSockets.size;
+    return this.sockets.size;
   }
 
   public async bind(): Promise<void> {
@@ -107,34 +106,14 @@ export class MDNSServer {
       throw new Error("Cannot rebind closed server!");
     }
 
-    // TODO RFC 6762 15.1: In most operating systems, incoming *multicast* packets can be
-    //    delivered to *all* open sockets bound to the right port number,
-    //    provided that the clients take the appropriate steps to allow this.
-    //    For this reason, all Multicast DNS implementations SHOULD use the
-    //    SO_REUSEPORT and/or SO_REUSEADDR options (or equivalent as
-    //    appropriate for the operating system in question) so they will all be
-    //    able to bind to UDP port 5353 and receive incoming multicast packets
-    //    addressed to that port.  However, unlike multicast packets, incoming
-    //    unicast UDP packets are typically delivered only to the first socket
-    //    to bind to that port.  This means that "QU" responses and other
-    //    packets sent via unicast will be received only by the first Multicast
-    //    DNS responder and/or querier on a system.  This limitation can be
-    //    partially mitigated if Multicast DNS implementations detect when they
-    //    are not the first to bind to port 5353, and in that case they do not
-    //    request "QU" responses.  One way to detect if there is another
-    //    Multicast DNS implementation already running is to attempt binding to
-    //    port 5353 without using SO_REUSEPORT and/or SO_REUSEADDR, and if that
-    //    fails it indicates that some other socket is already bound to this
-    //    port.
+    // RFC 6762 15.1. suggest that we probe if we are not the only socket.
+    // though as ciao will probably always be installed besides an existing mdns responder, we just assume that
+    // As it only affects probe queries, impact isn't that big.
+    this.suppressUnicastResponseFlag = true;
 
     const promises: Promise<void>[] = [];
-
-    for (const [name, socket] of this.multicastSockets) {
+    for (const [name, socket] of this.sockets) {
       promises.push(this.bindMulticastSocket(socket, name, IPFamily.IPv4));
-    }
-
-    for (const [name, socket] of this.unicastSockets) {
-      promises.push(this.bindUnicastSocket(socket, name));
     }
 
     return Promise.all(promises).then(() => {
@@ -146,20 +125,14 @@ export class MDNSServer {
   public shutdown(): void {
     this.networkManager.shutdown();
 
-    for (const socket of this.multicastSockets.values()) {
-      socket.close();
-    }
-
-    // TODO sockets can already be closed when the interface was shut down previously :thinking:
-    for (const socket of this.unicastSockets.values()) {
+    for (const socket of this.sockets.values()) {
       socket.close();
     }
 
     this.bound = false;
     this.closed = true;
 
-    this.multicastSockets.clear();
-    this.unicastSockets.clear();
+    this.sockets.clear();
   }
 
   public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, callback?: SendCallback): void {
@@ -167,7 +140,7 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {
-      promises.push(this.sendOnAllNetworks(packet, PacketType.QUERY));
+      promises.push(this.sendOnAllNetworks(packet));
     }
 
     Promise.all(promises).then(() => {
@@ -184,7 +157,7 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {
-      promises.push(this.sendOnAllNetworks(packet, PacketType.RESPONSE));
+      promises.push(this.sendOnAllNetworks(packet));
     }
 
     Promise.all(promises).then(() => {
@@ -215,14 +188,14 @@ export class MDNSServer {
     });
   }
 
-  private sendOnAllNetworks(packet: DNSPacket, type: PacketType): Promise<void> {
+  private sendOnAllNetworks(packet: DNSPacket): Promise<void> {
+    this.checkUnicastResponseFlag(packet);
+
     const message = packet.encode();
     this.assertBeforeSend(message, IPFamily.IPv4);
 
-    const socketMap =  type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
-
     const promises: Promise<void>[] = [];
-    for (const [name, socket] of socketMap) {
+    for (const [name, socket] of this.sockets) {
       const promise = new Promise<void>((resolve, reject) => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
           if (error) {
@@ -242,6 +215,8 @@ export class MDNSServer {
   }
 
   private send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<void> {
+    this.checkUnicastResponseFlag(packet);
+
     const message = packet.encode();
     this.assertBeforeSend(message, IPFamily.IPv4);
 
@@ -259,8 +234,7 @@ export class MDNSServer {
       name = endpointOrInterface.interface;
     }
 
-    const socketMap = packet.type === PacketType.RESPONSE? this.multicastSockets: this.unicastSockets;
-    const socket = socketMap.get(name);
+    const socket = this.sockets.get(name);
     assert(socket, `Could not find socket for given network interface '${name}'`);
 
     return new Promise<void>((resolve, reject) => {
@@ -273,6 +247,12 @@ export class MDNSServer {
         }
       });
     });
+  }
+
+  private checkUnicastResponseFlag(packet: DNSPacket): void {
+    if (this.suppressUnicastResponseFlag && packet.type === PacketType.QUERY) {
+      packet.questions.forEach(record => record.unicastResponseFlag = false);
+    }
   }
 
   private assertBeforeSend(message: Buffer, family: IPFamily): void {
@@ -300,7 +280,7 @@ export class MDNSServer {
 
   private bindMulticastSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
     const networkInterface = this.networkManager.getInterface(name);
-    assert(networkInterface, "Could not find network interface '" + name + "' in network manager which socket is going to be bind to!");
+    assert(networkInterface, `Could not find network interface '${name}' in network manager which socket is going to be bind to!`);
 
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);
@@ -311,7 +291,7 @@ export class MDNSServer {
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;
         const interfaceAddress = family === IPFamily.IPv4? networkInterface!.ipv4: networkInterface!.ipv6;
-        assert(interfaceAddress, "Interface address canot be undefined!");
+        assert(interfaceAddress, "Interface address cannot be undefined!");
 
         socket.addMembership(multicastAddress, interfaceAddress!);
 
@@ -327,26 +307,6 @@ export class MDNSServer {
     });
   }
 
-  private bindUnicastSocket(socket: Socket, name: InterfaceName): Promise<void> {
-    const networkInterface = this.networkManager.getInterface(name);
-    assert(networkInterface, "Could not find network interface '" + name + "' in network manager which socket is going to be bind to!");
-
-    return new Promise((resolve, reject) => {
-      const errorHandler = (error: Error | number): void => reject(error);
-      socket.once("error", errorHandler);
-
-      // bind on random port
-      socket.bind(0, networkInterface!.ipv4, () => {
-        socket.removeListener("error", errorHandler);
-
-        socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
-        socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
-
-        resolve();
-      });
-    });
-  }
-
   private handleMessage(name: InterfaceName, buffer: Buffer, rinfo: AddressInfo): void {
     if (!this.bound) {
       return;
@@ -356,9 +316,8 @@ export class MDNSServer {
     try {
       packet = DNSPacket.decode(buffer);
     } catch (error) {
-      // TODO move this to debug level once we have a fairly stable library
-      console.warn("Received malformed packet from " + JSON.stringify(rinfo) + ": " + error.message);
-      console.warn(error.stack); // TODO remove
+      debug("Received malformed packet from %s: %s", JSON.stringify(rinfo), error.message);
+      debug(error.stack); // might be a bit spammy, but not having the error cause when it's maybe needed is not better
       return;
     }
 
@@ -368,7 +327,7 @@ export class MDNSServer {
     }
 
     if (packet.rcode !== RCode.NoError) {
-      // RFC 6762 18.3 we MUST ignore messages with response code other than zero (NOERROR)
+      // RFC 6762 18.3 we MUST ignore messages with response code other than zero (NoError)
       return;
     }
 
@@ -399,54 +358,47 @@ export class MDNSServer {
   private handleUpdatedNetworkInterfaces(networkUpdate: NetworkUpdate): void {
     if (networkUpdate.removed) {
       for (const networkInterface of networkUpdate.removed) {
-        this.removeSockets(networkInterface.name);
+        const socket = this.sockets.get(networkInterface.name);
+        this.sockets.delete(networkInterface.name);
+
+        if (socket) {
+          socket.close();
+        }
       }
     }
 
     if (networkUpdate.changes) {
-      // TODO rebind our unicast socket if we detect ipv4 changes (added/remove/updated)
+      for (const change of networkUpdate.changes) {
+        const socket = this.sockets.get(change.name);
+        assert(socket, "Couldn't find socket for network change!");
+
+        if (!change.outdatedIpv4 && change.updatedIpv4) {
+          // this does currently not happen, as we exclude ipv6 only interfaces
+          // thus such a change would be happening through the ADDED array
+          assert.fail("Reached illegal state! IPv4 address changed from undefined to defined!");
+        } else if (change.outdatedIpv4 && !change.updatedIpv4) {
+          // this does currently not happen, as we exclude ipv6 only interfaces
+          // thus such a change would be happening through the REMOVED array
+          assert.fail("Reached illegal state! IPV4 address change from defined to undefined!");
+        } else if (change.outdatedIpv4 && change.updatedIpv4) {
+          try {
+            socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
+          } catch (error) {
+            debug("Thrown expected error when dropping outdated address membership: " + error.message);
+          }
+
+          socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
+          socket!.setMulticastInterface(change.updatedIpv4);
+        }
+      }
     }
 
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
-        this.addAndBindSocket(networkInterface.name);
-      }
-    }
-  }
-
-  private addAndBindSocket(name: InterfaceName): void {
-    const multicast = this.createDgramSocket(name, true);
-    const unicast = this.createDgramSocket(name);
-
-    const promises = [
-      this.bindMulticastSocket(multicast, name, IPFamily.IPv4),
-      this.bindUnicastSocket(unicast, name),
-    ];
-
-    Promise.all(promises).then(() => {
-      this.multicastSockets.set(name, multicast);
-      this.unicastSockets.set(name, unicast);
-    });
-  }
-
-  private removeSockets(name: InterfaceName): void {
-    const multicastSocket = this.multicastSockets.get(name);
-    this.multicastSockets.delete(name);
-    const unicastSocket = this.unicastSockets.get(name);
-    this.multicastSockets.delete(name);
-
-    if (multicastSocket) {
-      try {
-        multicastSocket.close();
-      } catch (error) {
-        console.log(error.stack); // TODO remove or properly handle
-      }
-    }
-    if (unicastSocket) {
-      try {
-        unicastSocket.close();
-      } catch (error) {
-        console.log(error.stack); // TODO remove or properly handle
+        const socket = this.createDgramSocket(networkInterface.name, true);
+        this.bindMulticastSocket(socket, networkInterface.name, IPFamily.IPv4).then(() => {
+          this.sockets.set(networkInterface.name, socket);
+        });
       }
     }
   }

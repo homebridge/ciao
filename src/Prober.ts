@@ -110,12 +110,24 @@ export class Prober {
 
   private sendProbeRequest(): void {
     if (this.sentQueries === 0) { // this is the first query sent, init some stuff
-      // we encode and decode the records so we get the rawData representation of our records which we need for the tiebreaking algorithm
+      // RFC 6762 8.2. When a host is probing for a group of related records with the same
+      //    name (e.g., the SRV and TXT record describing a DNS-SD service), only
+      //    a single question need be placed in the Question Section, since query
+      //    type "ANY" (255) is used, which will elicit answers for all records
+      //    with that name.  However, for tiebreaking to work correctly in all
+      //    cases, the Authority Section must contain *all* the records and
+      //    proposed rdata being probed for uniqueness.
+
+      // it states *all* records, though we include ALL A/AAAA records as well, even
+      // though it may not be relevant data if the probe query is published on different interfaces.
+      // Having the same "format" probed on all interfaces, the simultaneous probe tiebreaking
+      // algorithm can work correctly. Otherwise we would conflict with ourselfs in a situation were
+      // a device is connected to the same network via WiFi and Ethernet.
       this.records = [
         this.service.srvRecord(), this.service.txtRecord(),
         this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
         ...this.service.allAddressRecords(),
-      ].sort(rrComparator); // we sort them fir the tiebreaking algorithm
+      ].sort(rrComparator); // we sort them for the tiebreaking algorithm
     }
 
     if (this.sentQueries >= 3) {
@@ -138,7 +150,8 @@ export class Prober {
 
     this.server.sendQueryBroadcast({
       questions: [
-        // probes SHOULD be send with unicast response flag as of the RFC // TODO only for responders which hold the MAIN port
+        // probes SHOULD be send with unicast response flag as of the RFC
+        // MDNServer might overwrite the QU flag to false, as we can't use unicast if there is another responder on the machine
         new Question(this.service.getFQDN(), QType.ANY, true),
         new Question(this.service.getHostname(), QType.ANY, true),
       ],

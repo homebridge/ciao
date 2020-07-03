@@ -546,7 +546,6 @@ export class CiaoService extends EventEmitter {
   }
 
   allAddressRecords(): (ARecord | AAAARecord)[] {
-    // TODO only used for probe requests, we should probably not send ALL records to ALL interfaces
     const records: (ARecord | AAAARecord)[] = [];
 
     Object.values(this.serviceRecords.a).forEach(record => {

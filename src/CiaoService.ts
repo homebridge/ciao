@@ -592,6 +592,10 @@ export class CiaoService extends EventEmitter {
     return records;
   }
 
+  allReverseAddressMappings(): PTRRecord[] {
+    return ResourceRecord.clone(Object.values(this.serviceRecords.reverseAddressPTRs));
+  }
+
   nsecRecord(): NSECRecord {
     return this.serviceRecords.nsec.clone();
   }

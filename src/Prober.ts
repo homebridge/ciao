@@ -126,7 +126,7 @@ export class Prober {
       this.records = [
         this.service.srvRecord(), this.service.txtRecord(),
         this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
-        ...this.service.allAddressRecords(),
+        ...this.service.allAddressRecords(), ...this.service.allReverseAddressMappings()
       ].sort(rrComparator); // we sort them for the tiebreaking algorithm
     }
 

@@ -1,4 +1,5 @@
 import assert from "assert";
+import "./records";
 import { MDNSServer } from "../MDNSServer";
 import { IPFamily } from "../NetworkManager";
 import { DNSLabelCoder } from "./DNSLabelCoder";

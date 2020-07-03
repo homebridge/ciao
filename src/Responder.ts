@@ -23,11 +23,6 @@ import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Responder");
 
-interface CalculatedAnswer {
-  answers: ResourceRecord[];
-  additionals: ResourceRecord[];
-}
-
 const enum TruncatedQueryResult {
   ABORT = 1,
   AGAIN_TRUNCATED = 2,
@@ -351,26 +346,28 @@ export class Responder implements PacketHandler {
 
     return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
       .then(() => this.probe(service))
-      .then(() => this.announce(service)) // TODO we may not synchronise ALL announcments?
       .then(() => {
-        const serviceFQDN = service.getFQDN();
-        const typePTR = service.getTypePTR();
-        const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+        this.announce(service).then(() => {
+          const serviceFQDN = service.getFQDN();
+          const typePTR = service.getTypePTR();
+          const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
 
-        this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-        this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
-        if (subtypePTRs) {
-          for (const ptr of subtypePTRs) {
-            this.addPTR(dnsLowerCase(ptr), serviceFQDN);
+          this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+          this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
+          if (subtypePTRs) {
+            for (const ptr of subtypePTRs) {
+              this.addPTR(dnsLowerCase(ptr), serviceFQDN);
+            }
           }
-        }
 
-        this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
-        callback();
+          this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
+          callback();
+        }, reason => callback(reason));
       }, reason => callback(reason));
   }
 
   private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
+    // TODO handle PROBING, handle ANNOUNCING/PROBED
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -390,8 +387,6 @@ export class Responder implements PacketHandler {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    // TODO we still got some race conditions we we are in the process of sending announcements and this will fail
-
     if (service.serviceState === ServiceState.ANNOUNCED) {
       debug("[%s] Removing service from the network", service.getFQDN());
       this.clearService(service);
@@ -402,6 +397,8 @@ export class Responder implements PacketHandler {
         promise = promise.then(() => callback(), reason => callback(reason));
       }
       return promise;
+    } else if (service.serviceState === ServiceState.ANNOUNCING) {
+      // TODO cancel additional announcment steps
     } else if (service.serviceState === ServiceState.PROBING) {
       debug("[%s] Canceling probing", service.getFQDN());
       if (this.currentProber && this.currentProber.getService() === service) {
@@ -469,7 +466,7 @@ export class Responder implements PacketHandler {
     return this.currentProber.probe()
       .then(() => {
         this.currentProber = undefined;
-        service.serviceState = ServiceState.ANNOUNCED; // we consider it announced now
+        service.serviceState = ServiceState.PROBED;
       }, reason => {
         service.serviceState = ServiceState.UNANNOUNCED;
         this.currentProber = undefined;
@@ -478,8 +475,8 @@ export class Responder implements PacketHandler {
   }
 
   private announce(service: CiaoService): Promise<void> {
-    if (service.serviceState !== ServiceState.ANNOUNCED) {
-      throw new Error("Cannot announce service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
+    if (service.serviceState !== ServiceState.PROBED) {
+      throw new Error("Cannot announce service which was not probed unique. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
     debug("[%s] Announcing service", service.getFQDN());
@@ -501,6 +498,7 @@ export class Responder implements PacketHandler {
     return new Promise((resolve, reject) => {
       // minimum required is to send two unsolicited responses, one second apart
       // we could announce up to 8 times in total (time between messages must increase by two every message)
+      service.serviceState = ServiceState.ANNOUNCING;
 
       this.sendResponseAddingAddressRecords(service, records, false, error => {
         if (error) {
@@ -517,6 +515,7 @@ export class Responder implements PacketHandler {
               service.serviceState = ServiceState.UNANNOUNCED;
               reject(error);
             } else {
+              service.serviceState = ServiceState.ANNOUNCED;
               resolve();
             }
           });
@@ -531,6 +530,8 @@ export class Responder implements PacketHandler {
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
+    // TODO when in state ANNOUNCING, add to the queue
+
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
     this.server.sendResponseBroadcast( { answers: records }, callback);
@@ -541,6 +542,8 @@ export class Responder implements PacketHandler {
     if (service.serviceState !== ServiceState.ANNOUNCED) {
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
+
+    // TODO when in state ANNOUNCING, add to the queue
 
     debug("[%s] Updating %d record(s) for given service on interface %s!", service.getFQDN(), records.length, name);
 

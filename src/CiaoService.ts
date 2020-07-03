@@ -97,6 +97,8 @@ export type ServiceTxt = Record<string, any>;
 export const enum ServiceState {
   UNANNOUNCED = "unannounced",
   PROBING = "probing",
+  PROBED = "probed", // service was probed to be unique
+  ANNOUNCING = "announcing", // service is in the process of being announced
   ANNOUNCED = "announced",
 }
 

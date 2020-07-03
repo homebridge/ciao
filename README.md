@@ -21,6 +21,8 @@ as it can't recieve unicast responses).
 
 ## Installation
 
+Add `ciao` as a dependency to your project by running the following command:
+
 ```
 npm install --save @homebridge/ciao
 ```
@@ -64,6 +66,32 @@ service.end().then(() => {
 ## Documentation 
 
 The full documentation can be found [here](https://github.com/homebridge/ciao/tree/master/docs/globals.html).
+
+### API overview
+
+This section links to the most important aspects of the documentation as used in the example above.
+
+First of all the [getResponder](https://developers.homebridge.io/ciao/globals.html#getresponder) function 
+should be used to get a reference to a [Responder](https://developers.homebridge.io/ciao/classes/responder.html) object.
+The function takes some optional [options](https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html)
+to configure the underlying mdns server.
+
+The [createService](https://developers.homebridge.io/ciao/classes/responder.html#createservice) method of the `Responder`
+object can now be used to create a new [CiaoService](https://developers.homebridge.io/ciao/classes/ciaoservice.html) 
+supplying the desired [configuration](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html)
+as the first parameter.
+
+The [advertise](https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise) method can now be called
+on the `service` object to start advertising the service on the network.
+An application should ideally listen to the [NAME_CHANGE](https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed)
+event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
+The method [updateTxt](https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt) can be used
+to update the contest of the txt exposed by the service.
+
+Any application should ideally hook up a listener on events like SIGTERM or SIGINT and call the 
+[shutdown](https://developers.homebridge.io/ciao/classes/responder.html#shutdown) method of the responder object.
+This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
+on the network get instantly notified of the shutdown.
 
 ### MTU
 

@@ -265,7 +265,7 @@ export function ipAddressFromReversAddressName(name: string): string {
   }
 }
 
-export function getNetAddress(address: string, netmask: string): string { // TODO could be removed?
+export function getNetAddress(address: string, netmask: string): string {
   assert(net.isIP(address) === net.isIP(netmask), "IP address version must match. Netmask cannot have a version different from the address!");
 
   if (net.isIPv4(address)) {

@@ -97,6 +97,10 @@ export class MDNSServer {
     return this.networkManager;
   }
 
+  public getInterfaceNames(): IterableIterator<InterfaceName> {
+    return this.sockets.keys();
+  }
+
   public getNetworkCount(): number {
     return this.sockets.size;
   }
@@ -113,7 +117,7 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
     for (const [name, socket] of this.sockets) {
-      promises.push(this.bindMulticastSocket(socket, name, IPFamily.IPv4));
+      promises.push(this.bindSocket(socket, name, IPFamily.IPv4));
     }
 
     return Promise.all(promises).then(() => {
@@ -278,7 +282,7 @@ export class MDNSServer {
     return socket;
   }
 
-  private bindMulticastSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
+  private bindSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
     const networkInterface = this.networkManager.getInterface(name);
     assert(networkInterface, `Could not find network interface '${name}' in network manager which socket is going to be bind to!`);
 
@@ -294,6 +298,7 @@ export class MDNSServer {
         assert(interfaceAddress, "Interface address cannot be undefined!");
 
         socket.addMembership(multicastAddress, interfaceAddress!);
+        // TODO can a ipv4 be added on a dual-stack udp6 socket? if that's the case, ipv6 support would be a quick add
 
         socket.setMulticastInterface(interfaceAddress!);
 
@@ -383,11 +388,13 @@ export class MDNSServer {
         } else if (change.outdatedIpv4 && change.updatedIpv4) {
           try {
             socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
+            socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
+
+            // TODO check if that is maybe made automatically
           } catch (error) {
             debug("Thrown expected error when dropping outdated address membership: " + error.message);
           }
 
-          socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
           socket!.setMulticastInterface(change.updatedIpv4);
         }
       }
@@ -396,7 +403,7 @@ export class MDNSServer {
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
         const socket = this.createDgramSocket(networkInterface.name, true);
-        this.bindMulticastSocket(socket, networkInterface.name, IPFamily.IPv4).then(() => {
+        this.bindSocket(socket, networkInterface.name, IPFamily.IPv4).then(() => {
           this.sockets.set(networkInterface.name, socket);
         });
       }

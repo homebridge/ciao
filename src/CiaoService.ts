@@ -10,14 +10,7 @@ import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { Protocol, Responder } from "./index";
-import {
-  InterfaceName,
-  IPAddress,
-  NetworkInterface,
-  NetworkManager,
-  NetworkManagerEvent,
-  NetworkUpdate,
-} from "./NetworkManager";
+import { InterfaceName, IPAddress, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 
@@ -499,7 +492,6 @@ export class CiaoService extends EventEmitter {
       ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
       metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
-      // TODO we could just use the local hostname, and let the service respond to queries from the original responder
       srv: new SRVRecord(this.fqdn, this.hostname, this.port, true),
       txt: new TXTRecord(this.fqdn, this.txt || [], true),
       a: aRecordMap,

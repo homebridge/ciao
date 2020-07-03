@@ -18,7 +18,6 @@ import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallbac
 import { InterfaceName } from "./NetworkManager";
 import { Prober } from "./Prober";
 import { dnsLowerCase } from "./util/dns-equal";
-import { ipAddressFromReversAddressName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Responder");
@@ -587,7 +586,6 @@ export class Responder implements PacketHandler {
 
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
-    // TODO remove: debug("Incoming query on " + JSON.stringify(endpointId));
 
     const previousQuery = this.truncatedQueries[endpointId];
     if (previousQuery) {
@@ -662,8 +660,7 @@ export class Responder implements PacketHandler {
 
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
     if (unicastResponse.hasAnswers()) {
-      // TODO remove
-      debug("Sending response to " + JSON.stringify(endpoint) + " via unicast with "
+      debug("Sending response via unicast to " + JSON.stringify(endpoint) + " with "
         + unicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(";") + " answers and "
         + unicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(";") + " additionals");
       this.server.sendResponse(unicastResponse, endpoint);
@@ -676,7 +673,6 @@ export class Responder implements PacketHandler {
       //    since the last time that record was multicast on that particular
       //    interface.
 
-      // TODO remove
       debug("Sending response via multicast on network " + endpoint.interface + " with "
         + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(";") + " answers and "
         + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(";") + " additionals");
@@ -896,7 +892,7 @@ export class Responder implements PacketHandler {
     let iterations = this.server.getNetworkCount();
     const encounteredErrors: Error[] = [];
 
-    for (const [name, networkInterface] of this.server.getNetworkManager().getInterfaceMap()) {
+    for (const name of this.server.getInterfaceNames()) {
       const answer: ResourceRecord[] = records.concat([]);
 
       const aRecord = service.aRecord(name);

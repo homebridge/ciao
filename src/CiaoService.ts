@@ -561,6 +561,7 @@ export class CiaoService extends EventEmitter {
     return records;
   }
 
+  /*
   reverseAddressMapping(address: string): PTRRecord | undefined {
     const record = this.serviceRecords.reverseAddressPTRs[address];
     return record? record.clone(): undefined;
@@ -595,6 +596,7 @@ export class CiaoService extends EventEmitter {
   allReverseAddressMappings(): PTRRecord[] {
     return ResourceRecord.clone(Object.values(this.serviceRecords.reverseAddressPTRs));
   }
+  */
 
   nsecRecord(): NSECRecord {
     return this.serviceRecords.nsec.clone();

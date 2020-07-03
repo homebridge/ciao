@@ -733,7 +733,7 @@ export class Responder implements PacketHandler {
               response.addAnswer(new PTRRecord(question.name, data));
             }
           }
-        } else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
+        } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
           const address = ipAddressFromReversAddressName(loweredQuestionName);
 
           for (const service of this.announcedServices.values()) {
@@ -743,6 +743,9 @@ export class Responder implements PacketHandler {
             }
           }
         }
+        We won't actually respond to reverse address queries.
+        This typically confuses responders like avahi, which then over and over try to increment the hostname.
+        */
         break;
       }
       default:
@@ -899,7 +902,7 @@ export class Responder implements PacketHandler {
       const aRecord = service.aRecord(name);
       const aaaaRecord = service.aaaaRecord(name);
       const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
-      const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
+      //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       const nsecRecord = service.nsecRecord();
 
       if (aRecord) {
@@ -922,12 +925,14 @@ export class Responder implements PacketHandler {
         answer.push(aaaaRoutableRecord);
       }
 
+      /*
       for (const reversMapping of reversMappings) {
         if (goodbye) {
           reversMapping.ttl = 0;
         }
         answer.push(reversMapping);
       }
+      */
 
       if (goodbye) {
         nsecRecord.ttl = 0;

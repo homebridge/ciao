@@ -286,7 +286,7 @@ export class Responder implements PacketHandler {
   private promiseChain: Promise<void>;
 
   private refCount = 1;
-  private optionsString: string = "";
+  private optionsString = "";
   private bound = false;
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)

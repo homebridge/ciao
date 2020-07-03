@@ -4,7 +4,6 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
-import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
@@ -22,12 +21,12 @@ export interface NetworkInterface {
 
   // one of ipv4 or ipv6 will be present, most of the time even both
   ipv4?: IPv4Address;
-  ipv4NetAddress?: IPv4Address; // address identifying the address for the ipv4 net // TODO revert to storing netmask?
+  ipv4Netmask?: IPv4Address;
   ipv6?: IPv6Address; // link-local ipv6
-  ipv6NetAddress?: IPv6Address; // address identifying the address for the ipv6 net // TODO revert to storing netmask?
+  ipv6Netmask?: IPv6Address;
 
   routableIpv6?: IPv6Address; // first routable ipv6 address
-  routableIpv6NetAddress?: IPv6Address; // TODO revert to storing netmask?
+  routableIpv6Netmask?: IPv6Address;
 }
 
 export interface NetworkUpdate {
@@ -66,7 +65,7 @@ export declare interface NetworkManager {
 
 }
 
-export class NetworkManager extends EventEmitter { // TODO migrate to a singleton design
+export class NetworkManager extends EventEmitter {
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
@@ -288,17 +287,17 @@ export class NetworkManager extends EventEmitter { // TODO migrate to a singleto
 
       if (ipv4Info) {
         networkInterface.ipv4 = ipv4Info.address;
-        networkInterface.ipv4NetAddress = getNetAddress(ipv4Info.address, ipv4Info.netmask);
+        networkInterface.ipv4Netmask = ipv4Info.netmask;
       }
 
       if (ipv6Info) {
         networkInterface.ipv6 = ipv6Info.address;
-        networkInterface.ipv6NetAddress = getNetAddress(ipv6Info.address, ipv6Info.netmask);
+        networkInterface.ipv6Netmask = ipv6Info.netmask;
       }
 
       if (routableIpv6Info) {
         networkInterface.routableIpv6 = routableIpv6Info.address;
-        networkInterface.routableIpv6NetAddress = getNetAddress(routableIpv6Info.address, routableIpv6Info.netmask);
+        networkInterface.routableIpv6Netmask = routableIpv6Info.netmask;
       }
 
       interfaces.set(name, networkInterface);

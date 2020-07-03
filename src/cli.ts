@@ -1,6 +1,5 @@
-import { CiaoService, ServiceType } from "./CiaoService";
-import { ARecord } from "./coder/records/ARecord";
-import { createResponder, MDNSServer } from "./index";
+import { ServiceType } from "./CiaoService";
+import ciao from "./index";
 
 // TODO remove this file, it's only used for testing currently
 
@@ -16,7 +15,7 @@ const txt = {
   "sh": "aaaaab",
 };
 
-const responder = createResponder();
+const responder = ciao.getResponder();
 const service = responder.createService({
   name: "My Accessory2",
   type: ServiceType.HAP,

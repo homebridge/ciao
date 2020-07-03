@@ -29,8 +29,9 @@ npm install --save @homebridge/ciao
 ```js
 const ciao = require("@homebridge/ciao");
 
-
-const responder = ciao.createResponder();
+// getResponder() returns a new responder instance. Ciao tries to share as many responders as possible
+// Ciao will create for any distinct set of options exactly one responder.
+const responder = ciao.getResponder();
 
 // create a service defining a web server running on port 3000
 const service = responder.createService({

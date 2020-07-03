@@ -272,9 +272,12 @@ export class Responder implements PacketHandler {
 
   public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
 
+  private static readonly INSTANCES: Map<string, Responder> = new Map();
+
   private readonly server: MDNSServer;
   private promiseChain: Promise<void>;
 
+  private refCount = 1;
   private bound = false;
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
@@ -292,7 +295,21 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
-  constructor(options?: MDNSServerOptions) {
+  public static getResponder(options?: MDNSServerOptions): Responder {
+    const optionsString = options? JSON.stringify(options): "";
+
+    const responder = this.INSTANCES.get(optionsString);
+    if (responder) {
+      responder.refCount++;
+      return responder;
+    } else {
+      const responder = new Responder(options);
+      this.INSTANCES.set(optionsString, responder);
+      return responder;
+    }
+  }
+
+  private constructor(options?: MDNSServerOptions) {
     this.server = new MDNSServer(this, options);
     this.promiseChain = this.start();
   }
@@ -315,6 +332,11 @@ export class Responder implements PacketHandler {
    * network is informed of the shutdown of this machine.
    */
   public shutdown(): Promise<void> {
+    this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
+    if (this.refCount > 0) {
+      return Promise.resolve();
+    }
+
     debug("Shutting down Responder...");
 
     const promises: Promise<void>[] = [];

@@ -5,6 +5,7 @@ import {MDNSServerOptions} from "./MDNSServer";
 export * from "./CiaoService";
 export * from "./MDNSServer";
 export * from "./Responder";
+export * from "./NetworkManager";
 
 /**
  * Defines the transport protocol of a service.
@@ -24,10 +25,11 @@ export const enum IPFamily {
   IPv6 = "IPv6",
 }
 
-export function createResponder(options?: MDNSServerOptions): Responder {
-  return new Responder(options);
+
+export function getResponder(options?: MDNSServerOptions): Responder {
+  return Responder.getResponder(options);
 }
 
 export default  {
-  createResponder: createResponder,
+  getResponder: getResponder,
 };

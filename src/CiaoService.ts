@@ -127,6 +127,7 @@ export const enum ServiceEvent {
 export const enum InternalServiceEvent {
   PUBLISH = "publish",
   UNPUBLISH = "unpublish",
+  REPUBLISH = "republish",
   RECORD_UPDATE = "records-update",
   RECORD_UPDATE_ON_INTERFACE = "records-update-interface",
 }
@@ -142,6 +143,7 @@ export declare interface CiaoService {
 
   on(event: InternalServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
   on(event: InternalServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
+  on(event: InternalServiceEvent.REPUBLISH, listener: (callback: PublishCallback) => void): this;
   on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: ResourceRecord[], callback?: (error?: Error | null) => void) => void): this;
   on(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, listener: (name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback) => void): this;
 
@@ -150,7 +152,8 @@ export declare interface CiaoService {
 
   emit(event: InternalServiceEvent.PUBLISH, callback: PublishCallback): boolean;
   emit(event: InternalServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
-  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback?: (error?: Error | null) => void): boolean;
+  emit(event: InternalServiceEvent.REPUBLISH, callback?: PublishCallback): boolean;
+  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback: (error?: Error | null) => void): boolean;
   emit(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): boolean;
 
 }
@@ -344,14 +347,15 @@ export class CiaoService extends EventEmitter {
       // as we don't know if we still own uniqueness for our service name on the new network.
       // To make things easy and keep the SAME name on all networks, we probe on ALL interfaces.
 
-      // TODO add support for this. We will need to announce the service on the newly appeared interface
-      //  as a name conflict could appear there we would also do a Probing. As we probably do not want
-      //  that we have different names on different interfaces we should just Probe an reannounce on ALL interfaces
-
-      // TODO reannounce would need to be delayed until the socket is bound
-      console.log("CIAO: [" + this.name + "] Detected a new network interface appearing on the machine. The service probably " +
-        "needs to be announced on again on that interface. This is currently unsupported. " +
-        "Please restart the program so that the new interface is properly advertised!");
+      this.emit(InternalServiceEvent.REPUBLISH, error => {
+        if (error) {
+          console.log("FATAL Error occurred trying to reannounce service! We can't recover from this!");
+          console.log(error.stack);
+          process.exit(1); // we have a service which should be announced, though we failed to reannounce.
+          // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
+          // for situations where it makes sense
+        }
+      });
     }
   }
 

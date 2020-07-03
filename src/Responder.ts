@@ -307,6 +307,7 @@ export class Responder implements PacketHandler {
 
     service.on(InternalServiceEvent.PUBLISH, this.advertiseService.bind(this, service));
     service.on(InternalServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
+    service.on(InternalServiceEvent.REPUBLISH, this.republishService.bind(this, service));
     service.on(InternalServiceEvent.RECORD_UPDATE, this.handleServiceRecordUpdate.bind(this, service));
     service.on(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, this.handleServiceRecordUpdateOnInterface.bind(this, service));
 
@@ -350,7 +351,7 @@ export class Responder implements PacketHandler {
 
     return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
       .then(() => this.probe(service))
-      .then(() => this.announce(service))
+      .then(() => this.announce(service)) // TODO we may not synchronise ALL announcments?
       .then(() => {
         const serviceFQDN = service.getFQDN();
         const typePTR = service.getTypePTR();
@@ -369,6 +370,21 @@ export class Responder implements PacketHandler {
       }, reason => callback(reason));
   }
 
+  private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
+    if (service.serviceState !== ServiceState.ANNOUNCED) {
+      throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
+    }
+
+    debug("[%s] Readvertising service...", service.getFQDN());
+
+    // first of all remove it from our advertisedService Map and remove all of the maintained PTRs
+    this.clearService(service);
+    service.serviceState = ServiceState.UNANNOUNCED; // the service is now considered unannounced
+
+    // and now we basically just announce the service by doing probing and the announce step
+    return this.advertiseService(service, callback);
+  }
+
   private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
     if (service.serviceState === ServiceState.UNANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
@@ -378,20 +394,7 @@ export class Responder implements PacketHandler {
 
     if (service.serviceState === ServiceState.ANNOUNCED) {
       debug("[%s] Removing service from the network", service.getFQDN());
-      const serviceFQDN = service.getFQDN();
-      const typePTR = service.getTypePTR();
-      const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
-
-      this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-      this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
-      if (subtypePTRs) {
-        for (const ptr of subtypePTRs) {
-          this.removePTR(dnsLowerCase(ptr), serviceFQDN);
-        }
-      }
-
-      this.announcedServices.delete(dnsLowerCase(serviceFQDN));
-
+      this.clearService(service);
       service.serviceState = ServiceState.UNANNOUNCED;
 
       let promise = this.goodbye(service);
@@ -410,6 +413,22 @@ export class Responder implements PacketHandler {
     }
 
     return Promise.resolve();
+  }
+
+  private clearService(service: CiaoService): void {
+    const serviceFQDN = service.getFQDN();
+    const typePTR = service.getTypePTR();
+    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+
+    this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
+    if (subtypePTRs) {
+      for (const ptr of subtypePTRs) {
+        this.removePTR(dnsLowerCase(ptr), serviceFQDN);
+      }
+    }
+
+    this.announcedServices.delete(dnsLowerCase(serviceFQDN));
   }
 
   private addPTR(ptr: string, name: string): void {

@@ -44,17 +44,21 @@ export const enum ServiceType {
   PRINTER = "printer",
 }
 
+/**
+ * Service options supplied when creating a new ciao service.
+ */
 export interface ServiceOptions {
   /**
-   * Instance Name of the service
+   * Instance name of the service
    */
   name: string;
   /**
-   * Type of the service
+   * Type of the service.
    */
   type: ServiceType | string;
   /**
-   * Optional array of subtypes of the service
+   * Optional array of subtypes of the service.
+   * Refer to {@link ServiceType} for some known examples.
    */
   subtypes?: (ServiceType | string)[];
   /**
@@ -68,12 +72,12 @@ export interface ServiceOptions {
   protocol?: Protocol;
   /**
    * Defines a hostname under which the service can be reached.
-   * The specified hostname should not include the TLD.
+   * The specified hostname must not include the TLD.
    * If undefined the service name will be used as default.
    */
   hostname?: string;
   /**
-   * If defined a txt record will be published with the given service.
+   * If defined, a txt record will be published with the given service.
    */
   txt?: ServiceTxt;
 
@@ -84,9 +88,16 @@ export interface ServiceOptions {
   domain?: string;
 }
 
+/**
+ * A service txt consist of multiple key=value pairs,
+ * which get advertised on the network.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServiceTxt = Record<string, any>;
 
+/**
+ * @internal
+ */
 export const enum ServiceState {
   UNANNOUNCED = "unannounced",
   PROBING = "probing",
@@ -95,6 +106,9 @@ export const enum ServiceState {
   ANNOUNCED = "announced",
 }
 
+/**
+ * @internal
+ */
 export interface ServiceRecords {
   ptr: PTRRecord; // this is the main type ptr record
   subtypePTRs?: PTRRecord[];
@@ -108,6 +122,9 @@ export interface ServiceRecords {
   nsec: NSECRecord;
 }
 
+/**
+ * Events thrown by a CiaoService
+ */
 export const enum ServiceEvent {
   /**
    * Event is called when the Prober identifies that the name for the service is already used
@@ -116,9 +133,21 @@ export const enum ServiceEvent {
    * in order for the name to be persisted.
    */
   NAME_CHANGED = "name-change",
+  /**
+   * Event is called when the Prober identifies that the hostname for the service is already used
+   * and thus resolve the name conflict by adjusting the hostname (e.g. adding '(2)' to the hostname).
+   * The name change must be persisted. As the hostname is an optional parameter, it is derived
+   * from the service name if not supplied.
+   * If you supply a custom hostname (not automatically derived from the service name) you must
+   * hook up a listener to this event in order for the hostname to be persisted.
+   */
   HOSTNAME_CHANGED = "hostname-change",
 }
 
+/**
+ * Events thrown by a CiaoService, internal use only!
+ * @internal
+ */
 export const enum InternalServiceEvent {
   PUBLISH = "publish",
   UNPUBLISH = "unpublish",
@@ -127,8 +156,17 @@ export const enum InternalServiceEvent {
   RECORD_UPDATE_ON_INTERFACE = "records-update-interface",
 }
 
+/**
+ * @internal
+ */
 export type PublishCallback = (error?: Error) => void;
+/**
+ * @internal
+ */
 export type UnpublishCallback = (error?: Error) => void;
+/**
+ * @internal
+ */
 export type RecordsUpdateCallback = (error?: Error | null) => void;
 
 export declare interface CiaoService {
@@ -136,23 +174,74 @@ export declare interface CiaoService {
   on(event: "name-change", listener: (name: string) => void): this;
   on(event: "hostname-change", listener: (hostname: string) => void): this;
 
+  /**
+   * @internal
+   */
   on(event: InternalServiceEvent.PUBLISH, listener: (callback: PublishCallback) => void): this;
+  /**
+   * @internal
+   */
   on(event: InternalServiceEvent.UNPUBLISH, listener: (callback: UnpublishCallback) => void): this;
+  /**
+   * @internal
+   */
   on(event: InternalServiceEvent.REPUBLISH, listener: (callback: PublishCallback) => void): this;
+  /**
+   * @internal
+   */
   on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: ResourceRecord[], callback?: (error?: Error | null) => void) => void): this;
+  /**
+   * @internal
+   */
   on(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, listener: (name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback) => void): this;
 
+  /**
+   * @internal
+   */
   emit(event: ServiceEvent.NAME_CHANGED, name: string): boolean;
+  /**
+   * @internal
+   */
   emit(event: ServiceEvent.HOSTNAME_CHANGED, hostname: string): boolean;
 
+  /**
+   * @internal
+   */
   emit(event: InternalServiceEvent.PUBLISH, callback: PublishCallback): boolean;
+  /**
+   * @internal
+   */
   emit(event: InternalServiceEvent.UNPUBLISH, callback: UnpublishCallback): boolean;
+  /**
+   * @internal
+   */
   emit(event: InternalServiceEvent.REPUBLISH, callback?: PublishCallback): boolean;
+  /**
+   * @internal
+   */
   emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback: (error?: Error | null) => void): boolean;
+  /**
+   * @internal
+   */
   emit(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): boolean;
 
 }
 
+/**
+ * The CiaoService class represents a service which can be advertised on the network.
+ *
+ * A service is identified by it's fully qualified domain name (FQDN), which consist of
+ * the service name, the service type, the protocol and the service domain (.local by default).
+ *
+ * The service defines a hostname and a port where the advertised service can be reached.
+ *
+ * Additionally a TXT record can be published, which can contain information (in form of key-value pairs),
+ * which might be useful to a querier.
+ *
+ * A CiaoService class is always bound to a {@link Responder} and can be created using the
+ * {@link Responder.createService} method in the Responder class.
+ * Once the instance is created, {@link advertise} can be called to announce the service on the network.
+ */
 export class CiaoService extends EventEmitter {
 
   private readonly networkManager: NetworkManager;
@@ -168,13 +257,23 @@ export class CiaoService extends EventEmitter {
   private readonly subTypePTRs?: string[];
 
   private hostname: string; // formatted hostname
-  readonly port: number;
+  private readonly port: number;
 
   private txt?: Buffer[];
 
-  serviceState = ServiceState.UNANNOUNCED; // this field is entirely controlled by the Responder class
+  /**
+   * this field is entirely controlled by the Responder class
+   * @internal use by the Responder to set the current service state
+   */
+  serviceState = ServiceState.UNANNOUNCED;
   private serviceRecords: ServiceRecords;
 
+  /**
+   * Constructs a new service. Please use {@link Responder.createService} to create new service.
+   * When calling the constructor a callee must listen to certain events in order to provide
+   * correct functionality.
+   * @internal used by the Responder instance to create a new service
+   */
   constructor(networkManager: NetworkManager, options: ServiceOptions) {
     super();
     assert(networkManager, "networkManager is required");
@@ -224,6 +323,17 @@ export class CiaoService extends EventEmitter {
     this.serviceRecords = this.rebuildServiceRecords(); // build the initial set of records
   }
 
+  /**
+   * This method start the advertising process of the service:
+   *  - The service name (and hostname) will be probed unique on all interfaces (as defined in RFC 6762 8.1).
+   *  - Once probed unique the service will be announced (as defined in RFC 6762 8.3).
+   *
+   *  The returned promise resolves once the last announcement packet was successfully sent on all network interfaces.
+   *  The promise might be rejected caused by one of the following reasons:
+   *    - A probe query could not be sent successfully
+   *    - Prober could not find a unique service name while trying for a minute (timeout)
+   *    - One of the announcement packets could not be sent successfully
+   */
   public advertise(): Promise<void> {
     debug("[%s] Going to advertise service...", this.name);
 
@@ -235,6 +345,11 @@ export class CiaoService extends EventEmitter {
     });
   }
 
+  /**
+   * This method will remove the advertisement for the service on all connected network interfaces.
+   * If the service is still in the Probing state, probing will simply be cancelled.
+   *
+   */
   public end(): Promise<void> {
     debug("[%s] Service is saying goodbye", this.name);
     return new Promise((resolve, reject) => {
@@ -242,25 +357,39 @@ export class CiaoService extends EventEmitter {
     });
   }
 
+  /**
+   * @returns The fully qualified domain name of the service, used to identify the service.
+   */
   public getFQDN(): string {
     return this.fqdn;
   }
 
+  /**
+   * @returns The service type pointer.
+   */
   public getTypePTR(): string {
     return this.typePTR;
   }
 
+  /**
+   * @returns Array of subtype pointers (undefined if no subtypes are specified).
+   */
   public getSubtypePTRs(): string[] | undefined {
     return this.subTypePTRs;
   }
 
+  /**
+   * @returns The current hostname of the service.
+   */
   public getHostname(): string {
     return this.hostname;
   }
 
   /**
-   * Sets or updates the txt of the service
-   * @param txt - the new txt record
+   * Sets or updates the txt of the service.
+   *
+   * @param {ServiceTxt} txt - The updated txt record.
+   * @returns Promise which resolves once the updated record was send out to the network.
    */
   public updateTxt(txt: ServiceTxt): Promise<void> {
     assert(txt, "txt cannot be undefined");
@@ -358,6 +487,7 @@ export class CiaoService extends EventEmitter {
    * This method is called by the Prober when encountering a conflict on the network.
    * It advices the service to change its name, like incrementing a number appended to the name.
    * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
+   * @internal must only be called by the {@link Prober}
    */
   incrementName(nameCheckOnly?: boolean): void {
     if (this.serviceState !== ServiceState.UNANNOUNCED) {
@@ -427,6 +557,10 @@ export class CiaoService extends EventEmitter {
     }
   }
 
+  /**
+   * @internal called by the Prober once finished with probing to signal a (or more)
+   *   name change(s) happened {@see incrementName}.
+   */
   informAboutNameUpdates(): void {
     // we trust the prober that this function is only called when the name was actually changed
 
@@ -455,6 +589,9 @@ export class CiaoService extends EventEmitter {
     return fqdn;
   }
 
+  /**
+   * @internal called once the service data/state is updated and the records should be updated with the new data
+   */
   rebuildServiceRecords(): ServiceRecords {
     debug("[%s] Rebuilding service records...", this.name);
 
@@ -502,41 +639,68 @@ export class CiaoService extends EventEmitter {
     };
   }
 
+  /**
+   * @internal used to get a copy of the main PTR record
+   */
   ptrRecord(): PTRRecord {
     return this.serviceRecords.ptr.clone();
   }
 
+  /**
+   * @internal used to get a copy of the array of sub-type PTR records
+   */
   subtypePtrRecords(): PTRRecord[] {
     return this.serviceRecords.subtypePTRs? ResourceRecord.clone(this.serviceRecords.subtypePTRs): [];
   }
 
+  /**
+   * @internal used to get a copy of the meta-query PTR record
+   */
   metaQueryPtrRecord(): PTRRecord {
     return this.serviceRecords.metaQueryPtr.clone();
   }
 
+  /**
+   * @internal used to get a copy of the SRV record
+   */
   srvRecord(): SRVRecord {
     return this.serviceRecords.srv.clone();
   }
 
+  /**
+   * @internal used to get a copy of the TXT record
+   */
   txtRecord(): TXTRecord {
     return this.serviceRecords.txt.clone();
   }
 
+  /**
+   * @internal used to get a copy of the A record
+   */
   aRecord(id: InterfaceName): ARecord | undefined {
     const record = this.serviceRecords.a[id];
     return record? record.clone(): undefined;
   }
 
+  /**
+   * @internal used to get a copy of the AAAA record for the link-local ipv6 address
+   */
   aaaaRecord(id: InterfaceName): AAAARecord | undefined {
     const record = this.serviceRecords.aaaa[id];
     return record? record.clone(): undefined;
   }
 
+  /**
+   * @internal used to get a copy of the AAAA record for the routable ipv6 address
+   */
   aaaaRoutableRecord(id: InterfaceName): AAAARecord | undefined {
     const record = this.serviceRecords.aaaaR[id];
     return record? record.clone(): undefined;
   }
 
+  /**
+   * @internal used to get a copy of the A and AAAA records
+   */
   allAddressRecords(): (ARecord | AAAARecord)[] {
     const records: (ARecord | AAAARecord)[] = [];
 
@@ -590,6 +754,10 @@ export class CiaoService extends EventEmitter {
   }
   */
 
+
+  /**
+   * @internal used to get a copy of the NSEC record
+   */
   nsecRecord(): NSECRecord {
     return this.serviceRecords.nsec.clone();
   }

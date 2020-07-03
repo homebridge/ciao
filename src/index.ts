@@ -1,11 +1,10 @@
 import "./coder/records/index";
-import {Responder} from "./Responder";
-import {MDNSServerOptions} from "./MDNSServer";
+import { MDNSServerOptions } from "./MDNSServer";
+import { Responder } from "./Responder";
 
 export * from "./CiaoService";
-export * from "./MDNSServer";
 export * from "./Responder";
-export * from "./NetworkManager";
+export { MDNSServerOptions } from "./MDNSServer";
 
 /**
  * Defines the transport protocol of a service.
@@ -19,13 +18,15 @@ export const enum Protocol {
   UDP = "udp",
 }
 
-
-export const enum IPFamily {
-  IPv4 = "IPv4",
-  IPv6 = "IPv6",
-}
-
-
+/**
+ * This method is used to get a responder for the provided (optional) set of options.
+ *
+ * Ciao tries to create as few Responder instances as possible.
+ * Thus, it will share the same Responder instance for the same set of options.
+ *
+ * @param options - If specified, the options will be passed to the underlying mdns server.
+ * @returns A Responder instance for the given options. Might be shared with others using the same options.
+ */
 export function getResponder(options?: MDNSServerOptions): Responder {
   return Responder.getResponder(options);
 }

@@ -11,8 +11,7 @@ import {
   PacketType,
   RCode,
 } from "./coder/DNSPacket";
-import { IPFamily } from "./index";
-import { InterfaceName, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -24,8 +23,17 @@ export interface EndpointInfo {
 
 export type SendCallback = (error?: Error | null) => void;
 
-// eslint-disable-next-line
+/**
+ * Defines the options passed to the underlying mdns server.
+ */
 export interface MDNSServerOptions {
+  /**
+   * If specified, the mdns server will only listen on the specified interfaces (allowlist).
+   * It can be supplied as a string (representing a single interface) or as an array of strings
+   * to define multiple interfaces.
+   * The interface can be defined by specifying the interface name (like 'en0') or
+   * by specifying an ip address.
+   */
   interface?: string | string[];
 }
 

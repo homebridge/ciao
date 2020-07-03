@@ -267,8 +267,17 @@ class QueryResponse implements DNSResponseDefinition {
 
 }
 
+/**
+ * A Responder instance represents a running MDNSServer and a set of advertised services.
+ *
+ * It will handle any service related operations, like advertising, sending goodbye packets or sending record updates.
+ * It handles answering questions arriving on the multicast address.
+ */
 export class Responder implements PacketHandler {
 
+  /**
+   * @internal
+   */
   public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
 
   private static readonly INSTANCES: Map<string, Responder> = new Map();
@@ -277,6 +286,7 @@ export class Responder implements PacketHandler {
   private promiseChain: Promise<void>;
 
   private refCount = 1;
+  private optionsString: string = "";
   private bound = false;
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
@@ -294,6 +304,11 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
+  /**
+   * Refer to {@link getResponder} in the index file
+   *
+   * @internal should not be used directly. Please use the getResponder method defined in index file.
+   */
   public static getResponder(options?: MDNSServerOptions): Responder {
     const optionsString = options? JSON.stringify(options): "";
 
@@ -304,6 +319,7 @@ export class Responder implements PacketHandler {
     } else {
       const responder = new Responder(options);
       this.INSTANCES.set(optionsString, responder);
+      responder.optionsString = optionsString;
       return responder;
     }
   }
@@ -313,6 +329,12 @@ export class Responder implements PacketHandler {
     this.promiseChain = this.start();
   }
 
+  /**
+   * Creates a new CiaoService instance and links it to this Responder instance.
+   *
+   * @param {ServiceOptions} options - Defines all information about the service which should be created.
+   * @returns The newly created {@link CiaoService} instance can be used to advertise and manage the created service.
+   */
   public createService(options: ServiceOptions): CiaoService {
     const service = new CiaoService(this.server.getNetworkManager(), options);
 
@@ -329,12 +351,20 @@ export class Responder implements PacketHandler {
    * This method should be called when you want to unpublish all service exposed by this Responder.
    * This method SHOULD be called before the node application exists, so any host on the
    * network is informed of the shutdown of this machine.
+   * Calling the shutdown method is mandatory for a clean termination (sending goodbye packets).
+   *
+   * The shutdown method must only be called ONCE.
+   *
+   * @returns The Promise resolves once all goodbye packets were sent
+   * (or immediately if any other users have a reference to this Responder instance).
    */
   public shutdown(): Promise<void> {
     this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
     if (this.refCount > 0) {
       return Promise.resolve();
     }
+
+    Responder.INSTANCES.delete(this.optionsString);
 
     debug("Shutting down Responder...");
 
@@ -584,6 +614,9 @@ export class Responder implements PacketHandler {
     });
   }
 
+  /**
+   * @internal method called by the MDNSServer when an incoming query needs ot be handled
+   */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
 
@@ -680,6 +713,9 @@ export class Responder implements PacketHandler {
     }
   }
 
+  /**
+   * @internal method called by the MDNSServer when an incoming response needs ot be handled
+   */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
     // any questions in a response must be ignored RFC 6762 6.

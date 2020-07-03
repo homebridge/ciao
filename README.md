@@ -25,13 +25,11 @@ as it can't recieve unicast responses).
 npm install --save @homebridge/ciao
 ```
 
-## Usage
+## Example
 
-```js
+```ts
 const ciao = require("@homebridge/ciao");
 
-// getResponder() returns a new responder instance. Ciao tries to share as many responders as possible
-// Ciao will create for any distinct set of options exactly one responder.
 const responder = ciao.getResponder();
 
 // create a service defining a web server running on port 3000
@@ -65,6 +63,8 @@ service.end().then(() => {
 
 ## Documentation 
 
+The full documentation can be found [here](https://github.com/homebridge/ciao/tree/master/docs/globals.html).
+
 ### MTU
 
 As of [RFC 6762 17. Multicast DNS Message Size](https://tools.ietf.org/html/rfc6762#section-17) DNS packets must avoid
@@ -72,3 +72,37 @@ IP Fragmentation and ensure that all sent packets are smaller than the Maximum T
 the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
 ciao can't reliable detect modifications made to this default MTU size. Thus, if you know, that the MTU
 differs on your machine, you can set the true MTU in bytes using the `CIAO_MTU` environment variable. 
+
+### Notice on native mDNS responders
+
+As described in [RFC 6762 15.](https://tools.ietf.org/html/rfc6762#section-15):
+_"It is possible to have more than one Multicast DNS responder and/or
+querier implementation coexist on the same machine, but there are some known issues."_
+
+The RFC lists three possible issues:
+ * [15.1.](https://tools.ietf.org/html/rfc6762#section-15.1) **Receiving Unicast Responses:**  
+    As multiple sockets (from multiple responders) are bound to the port 5353, only one can receive unicast responses.
+    Unicast responses is a way to reduce traffic on the multicast address, as answers to a particular question can be
+    sent directly to the querier. As ciao does not hold the primary socket on port 5353, it can't receive unicast responses
+    and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are 
+    sent on multicast and thus increase the load on the network.  
+    This currently isn't really a problem, as the only time we send queries is in the probing step before we 
+    advertise a new service (Future query functionality is much more affected).
+ * [15.2.](https://tools.ietf.org/html/rfc6762#section-15.2) **Multipacket Known-Answer lists:**  
+    When the known-answer list of a query is too large to fit into a single dns packet, a querier can split those
+    records into multiple packets (and setting the truncation flag).
+    A responder will then reassemble those packets, which are identified by their originating ip address.  
+    Thus, known-answer lists could be messed up when two queriers are sending at the same time.
+    Again ciao currently only sends queries when probing, so the probability of this happening is pretty low. 
+ * [15.3.](https://tools.ietf.org/html/rfc6762#section-15.3) **Efficiency:*  
+    The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
+    It doesn't improve the situation that this is running using an interpreted language.  
+    So yes, it's probably not very efficient. 
+ 
+As the RFC also states in [15.4](https://tools.ietf.org/html/rfc6762#section-15.4), it is recommended to use 
+a single mDNS implementation where possible. It is recommended to use the [mdns](https://www.npmjs.com/package/mdns)
+library where possible, as the library is pretty much a binding for existing mDNS implementations running on your
+system (like `mDNSResponder` on macOS or `avahi` on most linux based systems).  
+The one downside with the `mdns` library is that running it on Windows is not really straight forward.
+Generally we experienced with `homebridge` that many users run into problems when trying to install `mdns`.
+Thus `bonjour-hap` and then `ciao` was created to provide a much easier to set up system.

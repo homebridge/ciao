@@ -13,8 +13,11 @@
     "build": "npm run clean && tsc",
     "test": "jest",
     "test-coverage": "jest --coverage",
+    "docs": "typedoc src/index.ts",
     "prepublishOnly": "npm run build",
-    "postpublish": "npm run clean"
+    "postpublish": "npm run clean",
+    "preversion": "npm run lint",
+    "version": "npm run docs && git add docs"
   },
   "keywords": [
     "ciao",
@@ -55,6 +58,7 @@
     "@types/jest": "^26.0.3",
     "typescript": "^3.9.5",
     "ts-node": "^8.10.2",
+    "typedoc": "next",
     "rimraf": "^3.0.2",
     "eslint": "^7.3.1",
     "@typescript-eslint/parser": "^3.4.0",

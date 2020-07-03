@@ -117,6 +117,7 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
 }
 
 export function formatHostname(hostname: string, domain = "local"): string {
+  assert(!hostname.endsWith("."), "hostname must not end with the root label!");
   const tld = "." + domain;
   return (!hostname.endsWith(tld)? hostname + tld: hostname) + ".";
 }

@@ -212,7 +212,6 @@ export class CiaoService extends EventEmitter {
       }));
     }
 
-    // TODO formatHostname does not handle incommming "hostname.local." format
     this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;

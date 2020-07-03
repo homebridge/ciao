@@ -65,7 +65,7 @@ service.end().then(() => {
 
 ## Documentation 
 
-The full documentation can be found [here](https://github.com/homebridge/ciao/tree/master/docs/globals.html).
+The full documentation can be found [here](https://developers.homebridge.io/ciao/globals.html).
 
 ### API overview
 

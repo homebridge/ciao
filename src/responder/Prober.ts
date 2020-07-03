@@ -1,13 +1,13 @@
 import assert from "assert";
 import createDebug from "debug";
-import { CiaoService, ServiceState } from "./CiaoService";
-import { DNSPacket, QType } from "./coder/DNSPacket";
-import { Question } from "./coder/Question";
-import { ResourceRecord } from "./coder/ResourceRecord";
-import { MDNSServer } from "./MDNSServer";
-import dnsEqual from "./util/dns-equal";
-import * as tiebreaking from "./util/tiebreaking";
-import { rrComparator, TiebreakingResult } from "./util/tiebreaking";
+import { CiaoService, ServiceState } from "../CiaoService";
+import { DNSPacket, QType } from "../coder/DNSPacket";
+import { Question } from "../coder/Question";
+import { ResourceRecord } from "../coder/ResourceRecord";
+import { MDNSServer } from "../MDNSServer";
+import dnsEqual from "../util/dns-equal";
+import * as tiebreaking from "../util/tiebreaking";
+import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
 import Timeout = NodeJS.Timeout;
 
 const PROBE_INTERVAL = 250; // 250ms as defined in RFC 6762 8.1.

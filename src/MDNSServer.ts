@@ -106,7 +106,7 @@ export class MDNSServer {
   }
 
   public getInterfaceNames(): IterableIterator<InterfaceName> {
-    return this.sockets.keys();
+    return this.networkManager.getInterfaceMap().keys();
   }
 
   public getNetworkCount(): number {
@@ -306,7 +306,6 @@ export class MDNSServer {
         assert(interfaceAddress, "Interface address cannot be undefined!");
 
         socket.addMembership(multicastAddress, interfaceAddress!);
-        // TODO can a ipv4 be added on a dual-stack udp6 socket? if that's the case, ipv6 support would be a quick add
 
         socket.setMulticastInterface(interfaceAddress!);
 
@@ -349,6 +348,8 @@ export class MDNSServer {
       port: rinfo.port,
       interface: name,
     };
+
+    // TODO source address check? RFC 6762 11.
 
     if (packet.type === PacketType.QUERY) {
       this.handler.handleQuery(packet, endpoint);

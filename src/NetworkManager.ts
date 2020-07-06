@@ -312,7 +312,7 @@ export class NetworkManager extends EventEmitter {
   }
 
   private static validNetworkInterfaceName(name: InterfaceName): boolean {
-    // TODO are these all the available names?
+    // TODO are these all the available names? ip -j -pretty route (linux)
     return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
       || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
   }

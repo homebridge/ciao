@@ -13,8 +13,9 @@ import { DNSPacket, dnsTypeToString, QClass, QType, RType } from "./coder/DNSPac
 import { Question } from "./coder/Question";
 import { PTRRecord } from "./coder/records/PTRRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
-import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler, SendCallback } from "./MDNSServer";
+import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler } from "./MDNSServer";
 import { InterfaceName } from "./NetworkManager";
+import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
@@ -150,7 +151,7 @@ export class Responder implements PacketHandler {
     }
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
-    return this.promiseChain = this.promiseChain // we synchronize all ongoing announcements here
+    return this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => this.probe(service))
       .then(() => {
         this.announce(service).then(() => {
@@ -168,13 +169,26 @@ export class Responder implements PacketHandler {
 
           this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
           callback();
-        }, reason => callback(reason));
-      }, reason => callback(reason));
+        }, reason => {
+          // handle announce error
+          if (reason === Announcer.CANCEL_REASON) {
+            callback();
+          } else {
+            callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
+          }
+        });
+      }, reason => {
+        // handle probe error
+        if (reason === Prober.CANCEL_REASON) {
+          callback();
+        } else {
+          callback(new Error("Failed probing for " + service.getFQDN() +": " + reason));
+        }
+      });
   }
 
   private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
-    // TODO handle PROBING, handle ANNOUNCING/PROBED
-    if (service.serviceState !== ServiceState.ANNOUNCED) {
+    if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
@@ -193,7 +207,12 @@ export class Responder implements PacketHandler {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    if (service.serviceState === ServiceState.ANNOUNCED) {
+    if (service.serviceState === ServiceState.ANNOUNCED || service.serviceState === ServiceState.ANNOUNCING) {
+      if (service.serviceState === ServiceState.ANNOUNCING) {
+        assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
+        service.currentAnnouncer!.cancel();
+      }
+
       debug("[%s] Removing service from the network", service.getFQDN());
       this.clearService(service);
       service.serviceState = ServiceState.UNANNOUNCED;
@@ -203,8 +222,6 @@ export class Responder implements PacketHandler {
         promise = promise.then(() => callback(), reason => callback(reason));
       }
       return promise;
-    } else if (service.serviceState === ServiceState.ANNOUNCING) {
-      // TODO cancel additional announcment steps
     } else if (service.serviceState === ServiceState.PROBING) {
       debug("[%s] Canceling probing", service.getFQDN());
       if (this.currentProber && this.currentProber.getService() === service) {
@@ -276,7 +293,7 @@ export class Responder implements PacketHandler {
       }, reason => {
         service.serviceState = ServiceState.UNANNOUNCED;
         this.currentProber = undefined;
-        throw new Error("Failed probing for " + service.getFQDN() +": " + reason);
+        return Promise.reject(reason); // forward reason
       });
   }
 
@@ -284,59 +301,30 @@ export class Responder implements PacketHandler {
     if (service.serviceState !== ServiceState.PROBED) {
       throw new Error("Cannot announce service which was not probed unique. Received " + service.serviceState + " for service " + service.getFQDN());
     }
+    assert(service.currentAnnouncer === undefined, "Service " + service.getFQDN() + " is already announcing!");
 
-    debug("[%s] Announcing service", service.getFQDN());
+    service.serviceState = ServiceState.ANNOUNCING;
 
-    // could happen that the txt record was updated while probing.
-    // just to be sure to announce all the latest data, we will rebuild the services.
-    service.rebuildServiceRecords();
+    const announcer = new Announcer(this.server, service, {
+      repetitions: 3,
+    });
+    service.currentAnnouncer = announcer;
 
-    const records: ResourceRecord[] = [
-      service.ptrRecord(), ...service.subtypePtrRecords(),
-      service.srvRecord(), service.txtRecord(),
-      // A and AAAA records are added below when sending. Which records get added depends on the network the announcement happens for
-    ];
-
-    if (this.announcedServices.size === 0) {
-      records.push(service.metaQueryPtrRecord());
-    }
-
-    return new Promise((resolve, reject) => {
-      // minimum required is to send two unsolicited responses, one second apart
-      // we could announce up to 8 times in total (time between messages must increase by two every message)
-      service.serviceState = ServiceState.ANNOUNCING;
-
-      this.sendResponseAddingAddressRecords(service, records, false, error => {
-        if (error) {
-          service.serviceState = ServiceState.UNANNOUNCED;
-          reject(error);
-          return;
-        }
-
-        setTimeout(() => {
-          // TODO fix race condition when canceling the announcement. See unpublishService method
-
-          this.sendResponseAddingAddressRecords(service, records, false, error => {
-            if (error) {
-              service.serviceState = ServiceState.UNANNOUNCED;
-              reject(error);
-            } else {
-              service.serviceState = ServiceState.ANNOUNCED;
-              resolve();
-            }
-          });
-        }, 1000).unref();
-      });
+    return announcer.announce().then(() => {
+      service.serviceState = ServiceState.ANNOUNCED;
+      service.currentAnnouncer = undefined;
+    }, reason => {
+      service.serviceState = ServiceState.UNANNOUNCED;
+      service.currentAnnouncer = undefined;
+      return Promise.reject(reason); // forward reason
     });
   }
 
   private handleServiceRecordUpdate(service: CiaoService, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
     // when updating we just repeat the announce step
-    if (service.serviceState !== ServiceState.ANNOUNCED) {
+    if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
-
-    // TODO when in state ANNOUNCING, add to the queue
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
@@ -345,27 +333,34 @@ export class Responder implements PacketHandler {
 
   private handleServiceRecordUpdateOnInterface(service: CiaoService, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
     // when updating we just repeat the announce step
-    if (service.serviceState !== ServiceState.ANNOUNCED) {
+    if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
-
-    // TODO when in state ANNOUNCING, add to the queue
 
     debug("[%s] Updating %d record(s) for given service on interface %s!", service.getFQDN(), records.length, name);
 
     this.server.sendResponse({ answers: records }, name, callback);
   }
 
-  private goodbye(service: CiaoService, recordOverride?: ResourceRecord[]): Promise<void> {
-    const records: ResourceRecord[] = recordOverride || [
-      service.ptrRecord(), ...service.subtypePtrRecords(),
-      service.srvRecord(), service.txtRecord(),
-    ];
+  private goodbye(service: CiaoService): Promise<void> {
+    assert(service.currentAnnouncer === undefined, "Service " + service.getFQDN() + " is already announcing!");
 
-    records.forEach(answer => answer.ttl = 0); // setting ttl to zero to indicate "goodbye"
+    service.serviceState = ServiceState.ANNOUNCING;
 
-    return new Promise((resolve, reject) => {
-      this.sendResponseAddingAddressRecords(service, records, true, error => error? reject(error): resolve());
+    const announcer = new Announcer(this.server, service, {
+      repetitions: 1,
+      goodbye: true,
+    });
+    service.currentAnnouncer = announcer;
+
+    return announcer.announce().then(() => {
+      service.serviceState = ServiceState.UNANNOUNCED;
+      service.currentAnnouncer = undefined;
+    }, reason => {
+      // just assume unannounced. we won't be answering anymore, so the record will be flushed from cache sometime.
+      service.serviceState = ServiceState.UNANNOUNCED;
+      service.currentAnnouncer = undefined;
+      return Promise.reject(reason);
     });
   }
 
@@ -412,6 +407,8 @@ export class Responder implements PacketHandler {
     const multicastResponse = new QueryResponse();
     const unicastResponse = new QueryResponse();
     const knownAnswers = packet.answers;
+
+    // TODO coder library expects a definition for every unit of answers and packets should be combined later
 
     // define knownAnswers so the addAnswer/addAdditional method can check if records need to be added or not
     // known answer suppression according to RFC 6762 7.1.
@@ -676,73 +673,6 @@ export class Responder implements PacketHandler {
       return addedAny;
     } else {
       assert.fail("Illegal argument!");
-    }
-  }
-
-  private sendResponseAddingAddressRecords(service: CiaoService, records: ResourceRecord[], goodbye: boolean, callback?: SendCallback): void {
-    let iterations = this.server.getNetworkCount();
-    const encounteredErrors: Error[] = [];
-
-    for (const name of this.server.getInterfaceNames()) {
-      const answer: ResourceRecord[] = records.concat([]);
-
-      const aRecord = service.aRecord(name);
-      const aaaaRecord = service.aaaaRecord(name);
-      const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
-      //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
-      const nsecRecord = service.nsecRecord();
-
-      if (aRecord) {
-        if (goodbye) {
-          aRecord.ttl = 0;
-        }
-        answer.push(aRecord);
-      }
-
-      if (aaaaRecord) {
-        if (goodbye) {
-          aaaaRecord.ttl = 0;
-        }
-        answer.push(aaaaRecord);
-      }
-      if (aaaaRoutableRecord) {
-        if (goodbye) {
-          aaaaRoutableRecord.ttl = 0;
-        }
-        answer.push(aaaaRoutableRecord);
-      }
-
-      /*
-      for (const reversMapping of reversMappings) {
-        if (goodbye) {
-          reversMapping.ttl = 0;
-        }
-        answer.push(reversMapping);
-      }
-      */
-
-      if (goodbye) {
-        nsecRecord.ttl = 0;
-      }
-      answer.push(nsecRecord);
-
-      if (!callback) {
-        this.server.sendResponse({ answers: answer }, name);
-      } else {
-        this.server.sendResponse({ answers: answer }, name, error => {
-          if (error) {
-            encounteredErrors.push(error);
-          }
-
-          if (--iterations <= 0) {
-            if (encounteredErrors.length > 0) {
-              callback(new Error("Socket errors: " + encounteredErrors.map(error => error.stack).join(";")));
-            } else {
-              callback();
-            }
-          }
-        });
-      }
     }
   }
 

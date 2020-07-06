@@ -22,6 +22,9 @@ const debug = createDebug("ciao:Prober");
  */
 export class Prober {
 
+  public static readonly CANCEL_REASON = "cancelled";
+  public static readonly TIMEOUT_REASON = "timeout";
+
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
 
@@ -56,7 +59,7 @@ export class Prober {
    *
    * @returns a promise which returns when the service is considered unique on the network
    */
-  public async probe(): Promise<void> {
+  public probe(): Promise<void> {
     /*
      * Probing is basically the following process: We send three "probe" queries to check
      * if the desired service name is already on the network.
@@ -80,6 +83,12 @@ export class Prober {
   }
 
   public cancel(): void {
+    this.clear();
+
+    this.promiseReject!(Prober.CANCEL_REASON);
+  }
+
+  private clear(): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -96,7 +105,7 @@ export class Prober {
    */
   private endProbing(success: boolean): void {
     // reset all values to default (so the Prober can be reused if it wasn't successful)
-    this.cancel();
+    this.clear();
 
     if (success) {
       debug("Probing for '%s' finished successfully", this.service.getFQDN());
@@ -140,7 +149,7 @@ export class Prober {
     if (timeSinceProbingStart > 60000) { // max probing time is 1 minute
       debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.getFQDN());
       this.endProbing(false);
-      this.promiseReject!("timeout");
+      this.promiseReject!(Prober.TIMEOUT_REASON);
       return;
     }
 
@@ -165,7 +174,7 @@ export class Prober {
       }
 
       if (this.service.serviceState !== ServiceState.PROBING) {
-        debug("Service '%s' is not longer in Probing state. Stopping.", this.service.getFQDN());
+        debug("Service '%s' is no longer in probing state. Stopping.", this.service.getFQDN());
         return;
       }
 

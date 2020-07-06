@@ -11,6 +11,7 @@ import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { Protocol, Responder } from "./index";
 import { InterfaceName, IPAddress, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import { Announcer } from "./responder/Announcer";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 
@@ -266,6 +267,13 @@ export class CiaoService extends EventEmitter {
    * @internal use by the Responder to set the current service state
    */
   serviceState = ServiceState.UNANNOUNCED;
+  /**
+   * If service is in state {@link ServiceState.ANNOUNCING} the {@link Announcer} responsible for the
+   * service will be linked here. This is need to cancel announcing when for example the service
+   * should be terminated and we sill aren't fully announced yet.
+   * @internal is controlled by the {@link Responder} instance
+   */
+  currentAnnouncer?: Announcer;
   private serviceRecords: ServiceRecords;
 
   /**
@@ -398,7 +406,17 @@ export class CiaoService extends EventEmitter {
     debug("[%s] Updating txt record...", this.name);
 
     return new Promise((resolve, reject) => {
-      if (this.serviceState === ServiceState.ANNOUNCED) {
+      if (this.serviceState === ServiceState.ANNOUNCING) {
+        this.rebuildServiceRecords();
+
+        if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
+          // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
+          // result in updated records on the next announcement. Otherwise we still need to announce the updated records
+          this.currentAnnouncer!.awaitAnnouncement().then(() => {
+            this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
+          });
+        }
+      } else if (this.serviceState === ServiceState.ANNOUNCED) {
         this.rebuildServiceRecords();
         this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
       } else {
@@ -420,6 +438,18 @@ export class CiaoService extends EventEmitter {
 
   private handleNetworkInterfaceUpdate(networkUpdate: NetworkUpdate): void {
     if (this.serviceState !== ServiceState.ANNOUNCED) {
+      if (this.serviceState === ServiceState.ANNOUNCING) {
+        this.rebuildServiceRecords();
+
+        if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
+          // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
+          // result in updated records on the next announcement. Otherwise we still need to announce the updated records
+          this.currentAnnouncer!.awaitAnnouncement().then(() => {
+            this.handleNetworkInterfaceUpdate(networkUpdate);
+          });
+        }
+      }
+
       return; // service records are rebuilt short before the announce step
     }
 
@@ -471,6 +501,8 @@ export class CiaoService extends EventEmitter {
       // as we don't know if we still own uniqueness for our service name on the new network.
       // To make things easy and keep the SAME name on all networks, we probe on ALL interfaces.
 
+      // in this moment the new socket won't be bound. Though probing steps are delayed,
+      // thus, when sending the first request, the socket will be bound and we don't need to wait here
       this.emit(InternalServiceEvent.REPUBLISH, error => {
         if (error) {
           console.log("FATAL Error occurred trying to reannounce service! We can't recover from this!");

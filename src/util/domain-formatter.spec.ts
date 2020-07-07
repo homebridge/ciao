@@ -195,6 +195,9 @@ describe("domain-formatter", () => {
     it("should calc netAddress for ipv4", () => {
       expect(getNetAddress("192.168.1.129", "255.255.255.0")).toBe("192.168.1.0");
       expect(getNetAddress("192.168.1.129", "0.0.0.255")).toBe("0.0.0.129");
+
+      expect(getNetAddress("192.168.1.141", "255.255.255.0")).toBe("192.168.1.0");
+      expect(getNetAddress("192.168.1.189", "255.255.255.0")).toBe("192.168.1.0");
     });
 
     it("should calc netAddress for ipv6", () => {

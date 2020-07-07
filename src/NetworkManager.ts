@@ -64,6 +64,7 @@ export interface NetworkManagerOptions {
 export const enum InterfaceSelection {
   PREDICTABLE_NETWORK_INTERFACE_NAMES, // plain name matching on non windows platforms
   DEFAULT_NETWORK, // getting the default interface and then matching all interfaces in the same subnet (to accommodate for WiFi+Ethernet for example)
+  DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE = 2,
 }
 
 export const enum NetworkManagerEvent {
@@ -94,7 +95,7 @@ export class NetworkManager extends EventEmitter {
   constructor(options?: NetworkManagerOptions) {
     super();
 
-    this.selectionType = (options && options.interfaceSelection) || InterfaceSelection.DEFAULT_NETWORK;
+    this.selectionType = (options && options.interfaceSelection) || InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE;
     if (options && options.interface) {
       if (typeof options.interface === "string" && net.isIP(options.interface)) {
         const interfaceName = NetworkManager.resolveInterface(options.interface);
@@ -271,8 +272,9 @@ export class NetworkManager extends EventEmitter {
     let selectionType = this.selectionType;
 
     let defaultNetworkInterfaces: InterfaceName[] | undefined = undefined;
-    if (selectionType === InterfaceSelection.DEFAULT_NETWORK) {
-      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces();
+    if (selectionType === InterfaceSelection.DEFAULT_NETWORK
+      || selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
+      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces(selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE);
 
       if (defaultNetworkInterfaces.length === 0) {
         selectionType = InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES;
@@ -283,7 +285,8 @@ export class NetworkManager extends EventEmitter {
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES) {
+      if (selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES
+        || selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
         if (!NetworkManager.matchPredictableNetworkInterfaceNames(name)) {
           return;
         }
@@ -379,9 +382,9 @@ export class NetworkManager extends EventEmitter {
       || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
   }
 
-  private static async getDefaultNetworkInterfaces(): Promise<InterfaceName[]> {
+  private static async getDefaultNetworkInterfaces(includeGloballyRoutable: boolean): Promise<InterfaceName[]> {
     // this method was derived from the systeminformation library (https://github.com/sebhildebrandt/systeminformation/blob/master/lib/network.js)
-    // the library is incensed under the MIT license and Copyright (c) 2014-2020 Sebastian Hildebrandt
+    // the library is licensed under the MIT license and Copyright (c) 2014-2020 Sebastian Hildebrandt
 
     let interfaceNamePromise;
     switch (os.platform()) {
@@ -412,44 +415,54 @@ export class NetworkManager extends EventEmitter {
     const networkInterfaces = os.networkInterfaces();
     const networkInterface: NetworkInterfaceInfo[] = networkInterfaces[interfaceName];
 
-    const netaddress = this.getNetAddresses(networkInterface);
+    const net4address = this.getIpv4NetAddresses(networkInterface);
 
-    const result: InterfaceName[] = [];
+    const result: InterfaceName[] = [interfaceName];
     // calculate all network interfaces which are in the same subnet
     for (const [name, networkInterface] of Object.entries(networkInterfaces)) {
-      const netaddress0 = this.getNetAddresses(networkInterface);
+      if (name === interfaceName) {
+        continue;
+      }
+      const net4address0 = this.getIpv4NetAddresses(networkInterface);
 
-      if (netaddress.ipv4Netaddress && netaddress.ipv4Netaddress === netaddress0.ipv4Netaddress) {
+      if (net4address && net4address === net4address0) {
         result.push(name);
-      } else if (netaddress.ipv6Netaddress && netaddress.ipv6Netaddress === netaddress0.ipv6Netaddress) {
+      } else if (includeGloballyRoutable && this.hasGloballyRoutableIpv6Address(networkInterface)) {
+        // when the interface has a globally unique (aka globally routable) ipv6 address,
+        // it is a good indicator that this is indeed a valid network interface
         result.push(name);
       }
+
     }
 
     return result;
   }
 
-  private static getNetAddresses(infos: NetworkInterfaceInfo[]): { ipv4Netaddress?: string, ipv6Netaddress?: string } {
+  private static getIpv4NetAddresses(infos: NetworkInterfaceInfo[]): IPv4Address | undefined {
     let ipv4Netaddress;
-    let ipv6Netaddress;
     for (const info of infos) {
-      if (!ipv4Netaddress) {
-        if (info.family === "IPv4") {
+      if (info.family === "IPv4") {
+        if (!ipv4Netaddress) {
           ipv4Netaddress = getNetAddress(info.address, info.netmask);
+          break;
         }
-      } else if (!ipv6Netaddress) {
-        if (info.family === "IPv6") {
-          ipv6Netaddress = getNetAddress(info.address, info.netmask);
-        }
-      } else {
+      }
+    }
+
+    return ipv4Netaddress;
+  }
+
+  private static hasGloballyRoutableIpv6Address(infos: NetworkInterfaceInfo[]): boolean {
+    let hasAddress = false;
+
+    for (const info of infos) {
+      if (info.family === "IPv6" && info.scopeid === 0) {
+        hasAddress = true;
         break;
       }
     }
 
-    return {
-      ipv4Netaddress: ipv4Netaddress,
-      ipv6Netaddress: ipv6Netaddress,
-    };
+    return hasAddress;
   }
 
   private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;

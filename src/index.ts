@@ -1,3 +1,18 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const version: string = require("../package.json").version;
+if (version.includes("beta")) {
+  const debug = process.env.DEBUG;
+  if (!debug || !debug.includes("ciao")) {
+    if (!debug) {
+      process.env.DEBUG = "ciao:*";
+    } else {
+      process.env.DEBUG = debug + ",ciao:*";
+    }
+  }
+}
+
+console.log(process.env.DEBUG);
+
 import "./coder/records/index";
 import { MDNSServerOptions } from "./MDNSServer";
 import { Responder } from "./Responder";

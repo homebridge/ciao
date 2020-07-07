@@ -414,6 +414,8 @@ export class NetworkManager extends EventEmitter {
 
     const networkInterfaces = os.networkInterfaces();
     const networkInterface: NetworkInterfaceInfo[] = networkInterfaces[interfaceName];
+    // TODO iface it not always defined, shortly after bootup it may happen that the os returns the default interface,
+    // TODO but doesn't have an ip yet. Or generally the default iface might not be available
 
     const net4address = this.getIpv4NetAddresses(networkInterface);
 
@@ -468,7 +470,8 @@ export class NetworkManager extends EventEmitter {
   private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;
   private static getWinDefaultNetworkInterface(): Promise<InterfaceName> {
     return new Promise((resolve, reject) => {
-      childProcess.exec("netstat -r", (error, stdout) => {
+      const command = "netstat -r";
+      childProcess.exec(command, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -539,12 +542,17 @@ export class NetworkManager extends EventEmitter {
           reject(error);
           return;
         }
+
         let interfaceName = stdout.split(os.EOL)[0];
         if (interfaceName.indexOf(":") > -1) {
           interfaceName = interfaceName.split(":")[1].trim();
         }
 
-        resolve(interfaceName);
+        if (interfaceName) {
+          resolve(interfaceName);
+        } else {
+          reject(new Error("not found"));
+        }
       });
     });
   }

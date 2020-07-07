@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>@homebridge/ciao - v1.0.0-beta.25</title>
+	<title>@homebridge/ciao - v1.0.0-beta.26</title>
 	<meta name="description" content="">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="stylesheet" href="assets/css/main.css">
@@ -22,7 +22,7 @@
 						<li class="state loading">Preparing search index...</li>
 						<li class="state failure">The search index is not available</li>
 					</ul>
-					<a href="index.html" class="title">@homebridge/ciao - v1.0.0-beta.25</a>
+					<a href="index.html" class="title">@homebridge/ciao - v1.0.0-beta.26</a>
 				</div>
 				<div class="table-cell" id="tsd-widgets">
 					<div id="tsd-filter">
@@ -52,7 +52,7 @@
 					<a href="globals.html">Globals</a>
 				</li>
 			</ul>
-			<h1>@homebridge/ciao - v1.0.0-beta.25</h1>
+			<h1>@homebridge/ciao - v1.0.0-beta.26</h1>
 		</div>
 	</div>
 </header>
@@ -81,6 +81,7 @@
 				<a href="#installation" id="installation" style="color: inherit; text-decoration: none;">
 					<h2>Installation</h2>
 				</a>
+				<p>Add <code>ciao</code> as a dependency to your project by running the following command:</p>
 				<pre><code><span class="hljs-built_in">npm</span> install --save @homebridge/ciao</code></pre>
 				<a href="#example" id="example" style="color: inherit; text-decoration: none;">
 					<h2>Example</h2>
@@ -119,11 +120,29 @@ service.end().then(<span class="hljs-function"><span class="hljs-params">()</spa
 				<a href="#documentation" id="documentation" style="color: inherit; text-decoration: none;">
 					<h2>Documentation</h2>
 				</a>
-				<p>The full documentation can be found <a href="https://github.com/homebridge/ciao/tree/master/docs/globals.html">here</a>.</p>
+				<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/globals.html">here</a>.</p>
 				<a href="#api-overview" id="api-overview" style="color: inherit; text-decoration: none;">
 					<h3>API overview</h3>
 				</a>
 				<p>This section links to the most important aspects of the documentation as used in the example above.</p>
+				<p>First of all the <a href="https://developers.homebridge.io/ciao/globals.html#getresponder">getResponder</a> function
+					should be used to get a reference to a <a href="https://developers.homebridge.io/ciao/classes/responder.html">Responder</a> object.
+					The function takes some optional <a href="https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html">options</a>
+				to configure the underlying mdns server.</p>
+				<p>The <a href="https://developers.homebridge.io/ciao/classes/responder.html#createservice">createService</a> method of the <code>Responder</code>
+					object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a>
+					supplying the desired <a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html">configuration</a>
+				as the first parameter.</p>
+				<p>The <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise">advertise</a> method can now be called
+					on the <code>service</code> object to start advertising the service on the network.
+					An application should ideally listen to the <a href="https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed">NAME_CHANGE</a>
+					event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
+					The method <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt">updateTxt</a> can be used
+				to update the contest of the txt exposed by the service.</p>
+				<p>Any application should ideally hook up a listener on events like SIGTERM or SIGINT and call the
+					<a href="https://developers.homebridge.io/ciao/classes/responder.html#shutdown">shutdown</a> method of the responder object.
+					This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
+				on the network get instantly notified of the shutdown.</p>
 				<a href="#mtu" id="mtu" style="color: inherit; text-decoration: none;">
 					<h3>MTU</h3>
 				</a>

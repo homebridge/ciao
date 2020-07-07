@@ -274,7 +274,7 @@ export class CiaoService extends EventEmitter {
    * @internal is controlled by the {@link Responder} instance
    */
   currentAnnouncer?: Announcer;
-  private serviceRecords: ServiceRecords;
+  private serviceRecords?: ServiceRecords;
 
   /**
    * Constructs a new service. Please use {@link Responder.createService} to create new service.
@@ -327,8 +327,6 @@ export class CiaoService extends EventEmitter {
 
     // checks if hostname or name are already numbered and adjusts the numbers if necessary
     this.incrementName(true); // must be done before the rebuildServiceRecords call
-
-    this.serviceRecords = this.rebuildServiceRecords(); // build the initial set of records
   }
 
   /**
@@ -624,7 +622,7 @@ export class CiaoService extends EventEmitter {
   /**
    * @internal called once the service data/state is updated and the records should be updated with the new data
    */
-  rebuildServiceRecords(): ServiceRecords {
+  rebuildServiceRecords(): void {
     debug("[%s] Rebuilding service records...", this.name);
 
     const aRecordMap: Record<InterfaceName, ARecord> = {};
@@ -657,7 +655,7 @@ export class CiaoService extends EventEmitter {
       }
     }
 
-    return this.serviceRecords = {
+    this.serviceRecords = {
       ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
       metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
@@ -675,42 +673,42 @@ export class CiaoService extends EventEmitter {
    * @internal used to get a copy of the main PTR record
    */
   ptrRecord(): PTRRecord {
-    return this.serviceRecords.ptr.clone();
+    return this.serviceRecords!.ptr.clone();
   }
 
   /**
    * @internal used to get a copy of the array of sub-type PTR records
    */
   subtypePtrRecords(): PTRRecord[] {
-    return this.serviceRecords.subtypePTRs? ResourceRecord.clone(this.serviceRecords.subtypePTRs): [];
+    return this.serviceRecords!.subtypePTRs? ResourceRecord.clone(this.serviceRecords!.subtypePTRs): [];
   }
 
   /**
    * @internal used to get a copy of the meta-query PTR record
    */
   metaQueryPtrRecord(): PTRRecord {
-    return this.serviceRecords.metaQueryPtr.clone();
+    return this.serviceRecords!.metaQueryPtr.clone();
   }
 
   /**
    * @internal used to get a copy of the SRV record
    */
   srvRecord(): SRVRecord {
-    return this.serviceRecords.srv.clone();
+    return this.serviceRecords!.srv.clone();
   }
 
   /**
    * @internal used to get a copy of the TXT record
    */
   txtRecord(): TXTRecord {
-    return this.serviceRecords.txt.clone();
+    return this.serviceRecords!.txt.clone();
   }
 
   /**
    * @internal used to get a copy of the A record
    */
   aRecord(id: InterfaceName): ARecord | undefined {
-    const record = this.serviceRecords.a[id];
+    const record = this.serviceRecords!.a[id];
     return record? record.clone(): undefined;
   }
 
@@ -718,7 +716,7 @@ export class CiaoService extends EventEmitter {
    * @internal used to get a copy of the AAAA record for the link-local ipv6 address
    */
   aaaaRecord(id: InterfaceName): AAAARecord | undefined {
-    const record = this.serviceRecords.aaaa[id];
+    const record = this.serviceRecords!.aaaa[id];
     return record? record.clone(): undefined;
   }
 
@@ -726,7 +724,7 @@ export class CiaoService extends EventEmitter {
    * @internal used to get a copy of the AAAA record for the routable ipv6 address
    */
   aaaaRoutableRecord(id: InterfaceName): AAAARecord | undefined {
-    const record = this.serviceRecords.aaaaR[id];
+    const record = this.serviceRecords!.aaaaR[id];
     return record? record.clone(): undefined;
   }
 
@@ -736,17 +734,24 @@ export class CiaoService extends EventEmitter {
   allAddressRecords(): (ARecord | AAAARecord)[] {
     const records: (ARecord | AAAARecord)[] = [];
 
-    Object.values(this.serviceRecords.a).forEach(record => {
+    Object.values(this.serviceRecords!.a).forEach(record => {
       records.push(record.clone());
     });
-    Object.values(this.serviceRecords.aaaa).forEach(record => {
+    Object.values(this.serviceRecords!.aaaa).forEach(record => {
       records.push(record.clone());
     });
-    Object.values(this.serviceRecords.aaaaR).forEach(record => {
+    Object.values(this.serviceRecords!.aaaaR).forEach(record => {
       records.push(record.clone());
     });
 
     return records;
+  }
+
+  /**
+   * @internal used to get a copy of the NSEC record
+   */
+  nsecRecord(): NSECRecord {
+    return this.serviceRecords!.nsec.clone();
   }
 
   /*
@@ -785,13 +790,5 @@ export class CiaoService extends EventEmitter {
     return ResourceRecord.clone(Object.values(this.serviceRecords.reverseAddressPTRs));
   }
   */
-
-
-  /**
-   * @internal used to get a copy of the NSEC record
-   */
-  nsecRecord(): NSECRecord {
-    return this.serviceRecords.nsec.clone();
-  }
 
 }

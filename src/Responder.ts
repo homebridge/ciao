@@ -152,6 +152,7 @@ export class Responder implements PacketHandler {
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
     return this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
+      .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
       .then(() => this.probe(service))
       .then(() => {
         this.announce(service).then(() => {

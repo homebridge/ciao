@@ -1,9 +1,11 @@
 import assert from "assert";
+import childProcess from "child_process";
 import createDebug from "debug";
 import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
+import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
@@ -54,8 +56,14 @@ export interface InterfaceChange {
 }
 
 export interface NetworkManagerOptions {
+  interfaceSelection?: InterfaceSelection;
   interface?: string | string[];
   excludeIpv6Only?: boolean;
+}
+
+export const enum InterfaceSelection {
+  PREDICTABLE_NETWORK_INTERFACE_NAMES, // plain name matching on non windows platforms
+  DEFAULT_NETWORK, // getting the default interface and then matching all interfaces in the same subnet (to accommodate for WiFi+Ethernet for example)
 }
 
 export const enum NetworkManagerEvent {
@@ -74,16 +82,19 @@ export class NetworkManager extends EventEmitter {
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
+  private readonly selectionType: InterfaceSelection;
   private readonly restrictedInterfaces?: InterfaceName[];
   private readonly excludeIpv6Only: boolean;
 
-  private readonly currentInterfaces: Map<InterfaceName, NetworkInterface>;
+  private currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
+  private initPromise?: Promise<void>;
 
   private currentTimer?: Timeout;
 
   constructor(options?: NetworkManagerOptions) {
     super();
 
+    this.selectionType = (options && options.interfaceSelection) || InterfaceSelection.DEFAULT_NETWORK;
     if (options && options.interface) {
       if (typeof options.interface === "string" && net.isIP(options.interface)) {
         const interfaceName = NetworkManager.resolveInterface(options.interface);
@@ -100,20 +111,33 @@ export class NetworkManager extends EventEmitter {
     }
     this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
 
-    this.currentInterfaces = this.getCurrentNetworkInterfaces();
-
-    const interfaceNames: InterfaceName[] = [];
-    for (const name of this.currentInterfaces.keys()) {
-      interfaceNames.push(name);
-    }
-
     if (options) {
-      debug("Created NetworkManager (initial networks [%s]; options: %s)", interfaceNames.join(", "), JSON.stringify(options));
-    } else {
-      debug("Created NetworkManager (initial networks [%s])", interfaceNames.join(", "));
+      debug("Created NetworkManager with options: %s", JSON.stringify(options));
     }
 
-    this.scheduleNextJob();
+    this.initPromise = new Promise(resolve => {
+      // below call takes about 20-30ms
+      this.getCurrentNetworkInterfaces().then(map => {
+        this.currentInterfaces = map;
+
+        const interfaceNames: InterfaceName[] = [];
+        for (const name of this.currentInterfaces.keys()) {
+          interfaceNames.push(name);
+        }
+        debug("Initial networks [%s]", interfaceNames.join(", "));
+
+        this.initPromise = undefined;
+        resolve();
+
+        this.scheduleNextJob();
+      });
+    });
+  }
+
+  public async waitForInit(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise;
+    }
   }
 
   public shutdown(): void {
@@ -124,10 +148,16 @@ export class NetworkManager extends EventEmitter {
   }
 
   public getInterfaceMap(): Map<InterfaceName, NetworkInterface> {
+    if (this.initPromise) {
+      assert.fail("Not yet initialized!");
+    }
     return this.currentInterfaces;
   }
 
   public getInterface(name: InterfaceName): NetworkInterface | undefined {
+    if (this.initPromise) {
+      assert.fail("Not yet initialized!");
+    }
     return this.currentInterfaces.get(name);
   }
 
@@ -136,10 +166,10 @@ export class NetworkManager extends EventEmitter {
     timer.unref(); // this timer won't prevent shutdown
   }
 
-  private checkForNewInterfaces(): void {
+  private async checkForNewInterfaces(): Promise<void> {
     debug("Checking for new networks...");
 
-    const latestInterfaces = this.getCurrentNetworkInterfaces();
+    const latestInterfaces = await this.getCurrentNetworkInterfaces();
 
     let added: NetworkInterface[] | undefined = undefined;
     let removed: NetworkInterface[] | undefined = undefined;
@@ -237,12 +267,30 @@ export class NetworkManager extends EventEmitter {
     this.scheduleNextJob();
   }
 
-  private getCurrentNetworkInterfaces(): Map<InterfaceName, NetworkInterface> {
+  private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
+    let selectionType = this.selectionType;
+
+    let defaultNetworkInterfaces: InterfaceName[] | undefined = undefined;
+    if (selectionType === InterfaceSelection.DEFAULT_NETWORK) {
+      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces();
+
+      if (defaultNetworkInterfaces.length === 0) {
+        selectionType = InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES;
+        debug("Couldn't detect default network, falling back to predictable network interface names!");
+      }
+    }
+
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (!NetworkManager.validNetworkInterfaceName(name)) {
-        return;
+      if (selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES) {
+        if (!NetworkManager.matchPredictableNetworkInterfaceNames(name)) {
+          return;
+        }
+      } else if (selectionType === InterfaceSelection.DEFAULT_NETWORK) {
+        if (!defaultNetworkInterfaces!.includes(name)) {
+          return;
+        }
       }
 
       if (this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
@@ -311,12 +359,6 @@ export class NetworkManager extends EventEmitter {
     return interfaces;
   }
 
-  private static validNetworkInterfaceName(name: InterfaceName): boolean {
-    // TODO are these all the available names? ip -j -pretty route (linux)
-    return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
-      || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
-  }
-
   public static resolveInterface(address: IPAddress): InterfaceName | undefined {
     let interfaceName: InterfaceName | undefined;
 
@@ -330,6 +372,168 @@ export class NetworkManager extends EventEmitter {
     }
 
     return interfaceName;
+  }
+
+  private static matchPredictableNetworkInterfaceNames(name: InterfaceName): boolean {
+    return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
+      || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
+  }
+
+  private static async getDefaultNetworkInterfaces(): Promise<InterfaceName[]> {
+    // this method was derived from the systeminformation library (https://github.com/sebhildebrandt/systeminformation/blob/master/lib/network.js)
+    // the library is incensed under the MIT license and Copyright (c) 2014-2020 Sebastian Hildebrandt
+
+    let interfaceNamePromise;
+    switch (os.platform()) {
+      case "win32":
+        interfaceNamePromise = this.getWinDefaultNetworkInterface();
+        break;
+      case "linux":
+        interfaceNamePromise = this.getLinuxDefaultNetworkInterface();
+        break;
+      case "darwin":
+      case "openbsd":
+      case "freebsd":
+      case "sunos":
+        interfaceNamePromise = this.getDarwin_BSD_SUNOSDefaultNetworkInterface();
+        break;
+      default:
+        debug("Found unsupported platform %s", os.platform());
+        return Promise.reject(new Error("unsupported platform!"));
+    }
+
+    let interfaceName;
+    try {
+      interfaceName = await interfaceNamePromise;
+    } catch (error) {
+      return [];
+    }
+
+    const networkInterfaces = os.networkInterfaces();
+    const networkInterface: NetworkInterfaceInfo[] = networkInterfaces[interfaceName];
+
+    const netaddress = this.getNetAddresses(networkInterface);
+
+    const result: InterfaceName[] = [];
+    // calculate all network interfaces which are in the same subnet
+    for (const [name, networkInterface] of Object.entries(networkInterfaces)) {
+      const netaddress0 = this.getNetAddresses(networkInterface);
+
+      if (netaddress.ipv4Netaddress && netaddress.ipv4Netaddress === netaddress0.ipv4Netaddress) {
+        result.push(name);
+      } else if (netaddress.ipv6Netaddress && netaddress.ipv6Netaddress === netaddress0.ipv6Netaddress) {
+        result.push(name);
+      }
+    }
+
+    return result;
+  }
+
+  private static getNetAddresses(infos: NetworkInterfaceInfo[]): { ipv4Netaddress?: string, ipv6Netaddress?: string } {
+    let ipv4Netaddress;
+    let ipv6Netaddress;
+    for (const info of infos) {
+      if (!ipv4Netaddress) {
+        if (info.family === "IPv4") {
+          ipv4Netaddress = getNetAddress(info.address, info.netmask);
+        }
+      } else if (!ipv6Netaddress) {
+        if (info.family === "IPv6") {
+          ipv6Netaddress = getNetAddress(info.address, info.netmask);
+        }
+      } else {
+        break;
+      }
+    }
+
+    return {
+      ipv4Netaddress: ipv4Netaddress,
+      ipv6Netaddress: ipv6Netaddress,
+    };
+  }
+
+  private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;
+  private static getWinDefaultNetworkInterface(): Promise<InterfaceName> {
+    return new Promise((resolve, reject) => {
+      childProcess.exec("netstat -r", (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        let defaultIp;
+        const lines = stdout.split(os.EOL);
+        for (const line of lines) {
+          if (line.indexOf("0.0.0.0 0.0.0.0") > -1 && !(this.WIN_CHAR_PATTERN.test(line))) {
+            const parts = line.split(" ");
+            if (parts.length >= 5) {
+              defaultIp = parts[parts.length - 2];
+            }
+          }
+        }
+
+        if (defaultIp) {
+          const interfaceName = this.resolveInterface(defaultIp);
+          if (interfaceName) {
+            resolve(interfaceName);
+            return;
+          }
+        }
+
+        reject(new Error("not found!"));
+      });
+    });
+  }
+
+  private static readonly SPACE_PATTERN = /\s+/;
+  private static getLinuxDefaultNetworkInterface(): Promise<InterfaceName> {
+    return new Promise((resolve, reject) => {
+      const command = "ip route 2> /dev/null | grep default";
+      childProcess.exec(command, (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        let interfaceName;
+        const parts = stdout.split(os.EOL)[0].split(this.SPACE_PATTERN);
+        if (parts[0] === "none" && parts[5]) {
+          interfaceName = parts[5];
+        } else if (parts[4]) {
+          interfaceName = parts[4];
+        }
+
+        if (interfaceName && interfaceName.indexOf(":") > -1) {
+          interfaceName = interfaceName.split(":")[1].trim();
+        }
+
+        if (interfaceName) {
+          resolve(interfaceName);
+        } else {
+          reject(new Error("not found!"));
+        }
+      });
+    });
+  }
+
+  private static getDarwin_BSD_SUNOSDefaultNetworkInterface(): Promise<InterfaceName> {
+    return new Promise((resolve, reject) => {
+      const command = os.platform() === "darwin"
+        ? "route get 0.0.0.0 2>/dev/null | grep interface: | awk '{print $2}'"
+        : "route get 0.0.0.0 | grep interface:";
+      childProcess.exec(command, (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        let interfaceName = stdout.split(os.EOL)[0];
+        if (interfaceName.indexOf(":") > -1) {
+          interfaceName = interfaceName.split(":")[1].trim();
+        }
+
+        resolve(interfaceName);
+      });
+    });
   }
 
 }

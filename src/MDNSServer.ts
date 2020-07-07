@@ -11,7 +11,14 @@ import {
   PacketType,
   RCode,
 } from "./coder/DNSPacket";
-import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import {
+  InterfaceName,
+  InterfaceSelection,
+  IPFamily,
+  NetworkManager,
+  NetworkManagerEvent,
+  NetworkUpdate,
+} from "./NetworkManager";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -85,20 +92,23 @@ export class MDNSServer {
     this.handler = handler;
 
     this.networkManager = new NetworkManager({
+      interfaceSelection: InterfaceSelection.DEFAULT_NETWORK,
       interface: options && options.interface,
       excludeIpv6Only: true,
     });
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
 
-    for (const name of this.networkManager.getInterfaceMap().keys()) {
-      const multicast = this.createDgramSocket(name, true);
+    this.networkManager.waitForInit().then(() => {
+      for (const name of this.networkManager.getInterfaceMap().keys()) {
+        const multicast = this.createDgramSocket(name, true);
 
-      this.sockets.set(name, multicast);
-    }
+        this.sockets.set(name, multicast);
+      }
 
-    if (this.sockets.size === 0) { // misconfigured options
-      throw new Error("Did not bind any sockets!");
-    }
+      if (this.sockets.size === 0) { // misconfigured options
+        throw new Error("Did not bind any sockets!");
+      }
+    });
   }
 
   public getNetworkManager(): NetworkManager {
@@ -119,10 +129,11 @@ export class MDNSServer {
     }
 
     // RFC 6762 15.1. suggest that we probe if we are not the only socket.
-    // though as ciao will probably always be installed besides an existing mdns responder, we just assume that
+    // though as ciao will probably always be installed besides an existing mdns responder, we just assume that without probing
     // As it only affects probe queries, impact isn't that big.
     this.suppressUnicastResponseFlag = true;
 
+    await this.networkManager.waitForInit();
     const promises: Promise<void>[] = [];
     for (const [name, socket] of this.sockets) {
       promises.push(this.bindSocket(socket, name, IPFamily.IPv4));

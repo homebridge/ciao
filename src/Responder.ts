@@ -146,9 +146,25 @@ export class Responder implements PacketHandler {
   }
 
   private advertiseService(service: CiaoService, callback: PublishCallback): Promise<void> {
-    if (service.serviceState !== ServiceState.UNANNOUNCED) {
+    if (service.serviceState === ServiceState.ANNOUNCED) {
       throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.getFQDN());
+    } else if (service.serviceState === ServiceState.PROBING) {
+      return this.promiseChain.then(() => {
+        if (service.currentAnnouncer) {
+          return service.currentAnnouncer.awaitAnnouncement();
+        }
+      });
+    } else if (service.serviceState === ServiceState.ANNOUNCING) {
+      assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
+      if (service.currentAnnouncer!.isSendingGoodbye()) {
+        return service.currentAnnouncer!.awaitAnnouncement().then(() => this.advertiseService(service, callback));
+      } else {
+        return service.currentAnnouncer!.awaitAnnouncement();
+      }
     }
+
+    debug("[%s] Going to advertise service...", service.getFQDN());
+
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
     return this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
@@ -211,7 +227,12 @@ export class Responder implements PacketHandler {
     if (service.serviceState === ServiceState.ANNOUNCED || service.serviceState === ServiceState.ANNOUNCING) {
       if (service.serviceState === ServiceState.ANNOUNCING) {
         assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
+        if (service.currentAnnouncer!.isSendingGoodbye()) {
+          return service.currentAnnouncer!.awaitAnnouncement(); // we are already sending a goodbye
+        }
+
         service.currentAnnouncer!.cancel();
+        service.currentAnnouncer = undefined;
       }
 
       debug("[%s] Removing service from the network", service.getFQDN());

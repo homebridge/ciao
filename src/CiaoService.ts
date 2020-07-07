@@ -341,8 +341,6 @@ export class CiaoService extends EventEmitter {
    *    - One of the announcement packets could not be sent successfully
    */
   public advertise(): Promise<void> {
-    debug("[%s] Going to advertise service...", this.name);
-
     if (this.listeners(ServiceEvent.NAME_CHANGED).length === 0) {
       debug("[%s] WARN: No listeners found for a potential name change on the 'name-change' event!", this.name);
     }
@@ -357,7 +355,6 @@ export class CiaoService extends EventEmitter {
    *
    */
   public end(): Promise<void> {
-    debug("[%s] Service is saying goodbye", this.name);
     return new Promise((resolve, reject) => {
       this.emit(InternalServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
     });

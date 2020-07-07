@@ -101,6 +101,10 @@ export class Announcer {
     await this.promise;
   }
 
+  public isSendingGoodbye(): boolean {
+    return this.goodbye;
+  }
+
   private sendAnnouncement() {
     // minimum required is to send two unsolicited responses, one second apart
     // we could announce up to 8 times in total (time between messages must increase by two every message)

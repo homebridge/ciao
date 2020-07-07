@@ -269,28 +269,21 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
-    let selectionType = this.selectionType;
-
     let defaultNetworkInterfaces: InterfaceName[] | undefined = undefined;
-    if (selectionType === InterfaceSelection.DEFAULT_NETWORK
-      || selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
-      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces(selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE);
-
-      if (defaultNetworkInterfaces.length === 0) {
-        selectionType = InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES;
-        debug("Couldn't detect default network, falling back to predictable network interface names!");
-      }
+    if (this.selectionType === InterfaceSelection.DEFAULT_NETWORK
+      || this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
+      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces(this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE);
     }
 
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES
-        || selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
+      if (this.selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES
+        || this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
         if (!NetworkManager.matchPredictableNetworkInterfaceNames(name)) {
           return;
         }
-      } else if (selectionType === InterfaceSelection.DEFAULT_NETWORK) {
+      } else if (this.selectionType === InterfaceSelection.DEFAULT_NETWORK) {
         if (!defaultNetworkInterfaces!.includes(name)) {
           return;
         }

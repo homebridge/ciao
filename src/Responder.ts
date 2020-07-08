@@ -172,27 +172,10 @@ export class Responder implements PacketHandler {
       .then(() => this.probe(service))
       .then(() => {
         this.announce(service).then(() => {
-          const serviceFQDN = service.getFQDN();
-          const typePTR = service.getTypePTR();
-          const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
-
-          this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-          this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
-          if (subtypePTRs) {
-            for (const ptr of subtypePTRs) {
-              this.addPTR(dnsLowerCase(ptr), serviceFQDN);
-            }
-          }
-
-          this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
           callback();
         }, reason => {
           // handle announce error
-          if (reason === Announcer.CANCEL_REASON) {
-            callback();
-          } else {
-            callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
-          }
+          callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
         });
       }, reason => {
         // handle probe error
@@ -219,7 +202,7 @@ export class Responder implements PacketHandler {
     return this.advertiseService(service, callback);
   }
 
-  private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
+  private async unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
     if (service.serviceState === ServiceState.UNANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -231,8 +214,7 @@ export class Responder implements PacketHandler {
           return service.currentAnnouncer!.awaitAnnouncement(); // we are already sending a goodbye
         }
 
-        service.currentAnnouncer!.cancel();
-        service.currentAnnouncer = undefined;
+        await service.currentAnnouncer!.cancel();
       }
 
       debug("[%s] Removing service from the network", service.getFQDN());
@@ -254,7 +236,7 @@ export class Responder implements PacketHandler {
       service.serviceState = ServiceState.UNANNOUNCED;
     }
 
-    return Promise.resolve();
+    callback && callback();
   }
 
   private clearService(service: CiaoService): void {
@@ -332,13 +314,32 @@ export class Responder implements PacketHandler {
     });
     service.currentAnnouncer = announcer;
 
+    const serviceFQDN = service.getFQDN();
+    const typePTR = service.getTypePTR();
+    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+
+    this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
+    if (subtypePTRs) {
+      for (const ptr of subtypePTRs) {
+        this.addPTR(dnsLowerCase(ptr), serviceFQDN);
+      }
+    }
+
+    this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
+
     return announcer.announce().then(() => {
       service.serviceState = ServiceState.ANNOUNCED;
       service.currentAnnouncer = undefined;
     }, reason => {
       service.serviceState = ServiceState.UNANNOUNCED;
       service.currentAnnouncer = undefined;
-      return Promise.reject(reason); // forward reason
+
+      this.clearService(service);
+
+      if (reason !== Announcer.CANCEL_REASON) {
+        return Promise.reject(reason); // forward reason if it is not a cancellation
+      }
     });
   }
 

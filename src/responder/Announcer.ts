@@ -70,9 +70,11 @@ export class Announcer {
   public announce(): Promise<void> {
     debug("[%s] Sending %s for service", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
 
-    // could happen that the txt record was updated while probing.
-    // just to be sure to announce all the latest data, we will rebuild the services.
-    this.service.rebuildServiceRecords();
+    if (!this.goodbye) {
+      // could happen that the txt record was updated while probing.
+      // just to be sure to announce all the latest data, we will rebuild the services.
+      this.service.rebuildServiceRecords();
+    }
 
     return (this.promise = new Promise((resolve, reject) => {
       this.promiseResolve = resolve;
@@ -83,7 +85,7 @@ export class Announcer {
     }));
   }
 
-  public cancel(): void {
+  public async cancel(): Promise<void> {
     debug("Canceling %s for '%s'", this.goodbye? "goodbye": "announcement", this.service.getFQDN());
     if (this.timer) {
       clearTimeout(this.timer);
@@ -91,6 +93,14 @@ export class Announcer {
     }
 
     this.promiseReject!(Announcer.CANCEL_REASON);
+
+    // the promise handlers are not called instantly, thus we give the opportunity to wait for the
+    // program originally doing the announcement to clean up
+    return this.awaitAnnouncement().catch(reason => {
+      if (reason !== Announcer.CANCEL_REASON) {
+        return Promise.reject(reason);
+      }
+    });
   }
 
   public hasSentLastAnnouncement(): boolean {

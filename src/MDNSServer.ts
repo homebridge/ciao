@@ -396,11 +396,13 @@ export class MDNSServer {
         } else if (change.outdatedIpv4 && change.updatedIpv4) {
           try {
             socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
-            socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
-
-            // TODO check if that is maybe made automatically
           } catch (error) {
             debug("Thrown expected error when dropping outdated address membership: " + error.message);
+          }
+          try {
+            socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
+          } catch (error) {
+            debug("Thrown expected error when adding new address membership: " + error.message);
           }
 
           socket!.setMulticastInterface(change.updatedIpv4);

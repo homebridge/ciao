@@ -137,6 +137,7 @@ export class Prober {
         this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
         ...this.service.allAddressRecords(), //...this.service.allReverseAddressMappings(),
       ].sort(rrComparator); // we sort them for the tiebreaking algorithm
+      this.records.forEach(record => record.flushFlag = false);
     }
 
     if (this.sentQueries >= 3) {
@@ -147,6 +148,10 @@ export class Prober {
 
     const timeSinceProbingStart = new Date().getTime() - this.startTime!;
     if (timeSinceProbingStart > 60000) { // max probing time is 1 minute
+      // TODO Denials are sent both with and without the cache-flush bit set; the device must pick a new name for both types of denials.
+      //  After the fifteenth try, the device must correctly limit its probing rate to no more than one try per second.
+      //  The official spec says ”once per minute”, but for Bonjour conformance testing purposes, we’re willing to be a little more lenient.
+      //  However, it is a failure if the interval between probes (after the first fifteen) is ever less than 800 milliseconds.
       debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.getFQDN());
       this.endProbing(false);
       this.promiseReject!(Prober.TIMEOUT_REASON);

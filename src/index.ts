@@ -11,8 +11,6 @@ if (version.includes("beta")) {
   }
 }
 
-console.log(process.env.DEBUG);
-
 import "./coder/records/index";
 import { MDNSServerOptions } from "./MDNSServer";
 import { Responder } from "./Responder";

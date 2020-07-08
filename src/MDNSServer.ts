@@ -11,14 +11,7 @@ import {
   PacketType,
   RCode,
 } from "./coder/DNSPacket";
-import {
-  InterfaceName,
-  InterfaceSelection,
-  IPFamily,
-  NetworkManager,
-  NetworkManagerEvent,
-  NetworkUpdate,
-} from "./NetworkManager";
+import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -92,7 +85,6 @@ export class MDNSServer {
     this.handler = handler;
 
     this.networkManager = new NetworkManager({
-      interfaceSelection: InterfaceSelection.DEFAULT_NETWORK,
       interface: options && options.interface,
       excludeIpv6Only: true,
     });
@@ -103,10 +95,6 @@ export class MDNSServer {
         const multicast = this.createDgramSocket(name, true);
 
         this.sockets.set(name, multicast);
-      }
-
-      if (this.sockets.size === 0) { // misconfigured options
-        throw new Error("Did not bind any sockets!");
       }
     });
   }

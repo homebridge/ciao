@@ -24,11 +24,12 @@ export const enum IPFamily {
 
 export interface NetworkInterface {
   name: InterfaceName;
+  loopback: boolean;
   mac: MacAddress;
 
   // one of ipv4 or ipv6 will be present, most of the time even both
   ipv4?: IPv4Address;
-  ipv4Netmask?: IPv4Address;
+  ipv4Netaddress?: IPv4Address;
   ipv6?: IPv6Address; // link-local ipv6
   ipv6Netmask?: IPv6Address;
 
@@ -56,15 +57,8 @@ export interface InterfaceChange {
 }
 
 export interface NetworkManagerOptions {
-  interfaceSelection?: InterfaceSelection;
   interface?: string | string[];
   excludeIpv6Only?: boolean;
-}
-
-export const enum InterfaceSelection {
-  PREDICTABLE_NETWORK_INTERFACE_NAMES, // plain name matching on non windows platforms
-  DEFAULT_NETWORK, // getting the default interface and then matching all interfaces in the same subnet (to accommodate for WiFi+Ethernet for example)
-  DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE = 2,
 }
 
 export const enum NetworkManagerEvent {
@@ -79,11 +73,21 @@ export declare interface NetworkManager {
 
 }
 
+/**
+ * The NetworkManager maintains a representation of the network interfaces define on the host system.
+ * It periodically checks for updated network information.
+ *
+ * The NetworkManager makes the following decision when checking for interfaces:
+ * * First of all it gathers the default network interface of the system (by checking the routing table of the os)
+ * * The following interfaces are going to be tracked:
+ *   * The loopback interface
+ *   * All interfaces which match the subnet of the default interface
+ *   * All interfaces which contain a globally unique (aka globally routable) ipv6 address
+ */
 export class NetworkManager extends EventEmitter {
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
-  private readonly selectionType: InterfaceSelection;
   private readonly restrictedInterfaces?: InterfaceName[];
   private readonly excludeIpv6Only: boolean;
 
@@ -95,7 +99,6 @@ export class NetworkManager extends EventEmitter {
   constructor(options?: NetworkManagerOptions) {
     super();
 
-    this.selectionType = (options && options.interfaceSelection) || InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE;
     if (options && options.interface) {
       if (typeof options.interface === "string" && net.isIP(options.interface)) {
         const interfaceName = NetworkManager.resolveInterface(options.interface);
@@ -168,7 +171,7 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async checkForNewInterfaces(): Promise<void> {
-    debug("Checking for new networks...");
+    debug("Checking for new networks..."); // TODO remove on stable
 
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
 
@@ -269,29 +272,11 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
-    let defaultNetworkInterfaces: InterfaceName[] | undefined = undefined;
-    if (this.selectionType === InterfaceSelection.DEFAULT_NETWORK
-      || this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
-      defaultNetworkInterfaces = await NetworkManager.getDefaultNetworkInterfaces(this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE);
-    }
+    const defaultIp4Netaddress: IPv4Address | undefined = await NetworkManager.getDefaultIpv4Subnet();
 
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
     Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
-      if (this.selectionType === InterfaceSelection.PREDICTABLE_NETWORK_INTERFACE_NAMES
-        || this.selectionType === InterfaceSelection.DEFAULT_NETWORK_AND_GLOBALLY_ROUTABLE) {
-        if (!NetworkManager.matchPredictableNetworkInterfaceNames(name)) {
-          return;
-        }
-      } else if (this.selectionType === InterfaceSelection.DEFAULT_NETWORK) {
-        if (!defaultNetworkInterfaces!.includes(name)) {
-          return;
-        }
-      }
-
-      if (this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
-        return;
-      }
 
       let ipv4Info: NetworkInterfaceInfo | undefined = undefined;
       let ipv6Info: NetworkInterfaceInfo | undefined = undefined;
@@ -301,7 +286,6 @@ export class NetworkManager extends EventEmitter {
       for (const info of infoArray) {
         if (info.internal) {
           internal = true;
-          break;
         }
 
         if (info.family === "IPv4" && !ipv4Info) {
@@ -319,8 +303,10 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      if (internal) {
-        return; // we will not explicitly add the loopback interface
+      if (!internal && this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
+        // we first need to to loop through the infos to check if it's the loopback interface (internal=true)
+        // we always add the loopback iface even when interfaces are restricted
+        return;
       }
 
       assert(ipv4Info || ipv6Info, "Could not find valid addresses for interface '" + name + "'");
@@ -331,12 +317,13 @@ export class NetworkManager extends EventEmitter {
 
       const networkInterface: NetworkInterface = {
         name: name,
+        loopback: internal,
         mac: (ipv4Info?.mac || ipv6Info?.mac)!,
       };
 
       if (ipv4Info) {
         networkInterface.ipv4 = ipv4Info.address;
-        networkInterface.ipv4Netmask = ipv4Info.netmask;
+        networkInterface.ipv4Netaddress = getNetAddress(ipv4Info.address, ipv4Info.netmask);
       }
 
       if (ipv6Info) {
@@ -349,7 +336,9 @@ export class NetworkManager extends EventEmitter {
         networkInterface.routableIpv6Netmask = routableIpv6Info.netmask;
       }
 
-      interfaces.set(name, networkInterface);
+      if (networkInterface.routableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
+        interfaces.set(name, networkInterface);
+      }
     });
 
     return interfaces;
@@ -370,12 +359,7 @@ export class NetworkManager extends EventEmitter {
     return interfaceName;
   }
 
-  private static matchPredictableNetworkInterfaceNames(name: InterfaceName): boolean {
-    return os.platform() === "win32" // windows has some weird interface naming, just pass everything for now
-      || name.startsWith("en") || name.startsWith("eth") || name.startsWith("wlan") || name.startsWith("wl");
-  }
-
-  private static async getDefaultNetworkInterfaces(includeGloballyRoutable: boolean): Promise<InterfaceName[]> {
+  private static async getDefaultIpv4Subnet(): Promise<IPv4Address | undefined> {
     // this method was derived from the systeminformation library (https://github.com/sebhildebrandt/systeminformation/blob/master/lib/network.js)
     // the library is licensed under the MIT license and Copyright (c) 2014-2020 Sebastian Hildebrandt
 
@@ -402,62 +386,28 @@ export class NetworkManager extends EventEmitter {
     try {
       interfaceName = await interfaceNamePromise;
     } catch (error) {
-      return [];
+      debug("Could not check hosts routing table for default network interface: " + error.message);
+      return undefined;
     }
 
-    const networkInterfaces = os.networkInterfaces();
-    const networkInterface: NetworkInterfaceInfo[] = networkInterfaces[interfaceName];
-    // TODO iface it not always defined, shortly after bootup it may happen that the os returns the default interface,
-    // TODO but doesn't have an ip yet. Or generally the default iface might not be available
-
-    const net4address = this.getIpv4NetAddresses(networkInterface);
-
-    const result: InterfaceName[] = [interfaceName];
-    // calculate all network interfaces which are in the same subnet
-    for (const [name, networkInterface] of Object.entries(networkInterfaces)) {
-      if (name === interfaceName) {
-        continue;
-      }
-      const net4address0 = this.getIpv4NetAddresses(networkInterface);
-
-      if (net4address && net4address === net4address0) {
-        result.push(name);
-      } else if (includeGloballyRoutable && this.hasGloballyRoutableIpv6Address(networkInterface)) {
-        // when the interface has a globally unique (aka globally routable) ipv6 address,
-        // it is a good indicator that this is indeed a valid network interface
-        result.push(name);
-      }
-
+    const infos: NetworkInterfaceInfo[] = os.networkInterfaces()[interfaceName];
+    if (!infos) {
+      debug("The network interface advertised as the default interface could not be found by the os module!");
+      return undefined;
     }
 
-    return result;
-  }
-
-  private static getIpv4NetAddresses(infos: NetworkInterfaceInfo[]): IPv4Address | undefined {
-    let ipv4Netaddress;
+    let netaddress: IPv4Address | undefined = undefined;
     for (const info of infos) {
       if (info.family === "IPv4") {
-        if (!ipv4Netaddress) {
-          ipv4Netaddress = getNetAddress(info.address, info.netmask);
-          break;
-        }
+        netaddress = getNetAddress(info.address, info.netmask);
       }
     }
 
-    return ipv4Netaddress;
-  }
-
-  private static hasGloballyRoutableIpv6Address(infos: NetworkInterfaceInfo[]): boolean {
-    let hasAddress = false;
-
-    for (const info of infos) {
-      if (info.family === "IPv6" && info.scopeid === 0) {
-        hasAddress = true;
-        break;
-      }
+    if (!netaddress) {
+      debug("The network interface advertised as the default interface didn't have any ipv4 address records!");
     }
 
-    return hasAddress;
+    return netaddress;
   }
 
   private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;

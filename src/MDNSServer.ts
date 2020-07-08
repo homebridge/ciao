@@ -148,6 +148,9 @@ export class MDNSServer {
 
   public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, callback?: SendCallback): void {
     const packets = DNSPacket.createDNSQueryPackets(query, MDNSServer.MTU, IPFamily.IPv4);
+    if (packets.length > 1) {
+      debug("Query broadcast is split into %d packets!", packets.length);
+    }
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {
@@ -165,6 +168,9 @@ export class MDNSServer {
 
   public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
     const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
+    if (packets.length > 1) {
+      debug("Response broadcast is split into %d packets!", packets.length);
+    }
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {
@@ -184,6 +190,9 @@ export class MDNSServer {
   public sendResponse(response: DNSResponseDefinition, interfaceName: InterfaceName, callback?: SendCallback): void;
   public sendResponse(response: DNSResponseDefinition, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
     const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
+    if (packets.length > 1) {
+      debug("Response is split into %d packets!", packets.length);
+    }
 
     const promises: Promise<void>[] = [];
     for (const packet of packets) {

@@ -390,7 +390,7 @@ export class Responder implements PacketHandler {
    * @internal method called by the MDNSServer when an incoming query needs ot be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
-    const endpointId = endpoint.address + ":" + endpoint.port; // used to match truncated queries
+    const endpointId = endpoint.address + ":" + endpoint.port + ":" + endpoint.interface; // used to match truncated queries
 
     const previousQuery = this.truncatedQueries[endpointId];
     if (previousQuery) {
@@ -414,6 +414,8 @@ export class Responder implements PacketHandler {
       }
     } else if (packet.flags.truncation) {
       // RFC 6763 18.5 truncate flag indicates that additional known-answer records follow shortly
+      debug("Received truncated query from " + JSON.stringify(endpoint) + " waiting for more to come!");
+
       const truncatedQuery = new TruncatedQuery(packet);
       this.truncatedQueries[endpointId] = truncatedQuery;
       truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
@@ -423,6 +425,7 @@ export class Responder implements PacketHandler {
         delete this.truncatedQueries[endpointId];
       });
 
+      return; // wait for the next query
     }
 
     // responses must not include questions RFC 6762 6.

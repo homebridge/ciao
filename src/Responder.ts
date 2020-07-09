@@ -492,10 +492,10 @@ export class Responder implements PacketHandler {
 
     // TODO randomly delay the response to avoid collisions (even for unicast responses)
     if (unicastResponse.hasAnswers()) {
+      this.server.sendResponse(unicastResponse, endpoint);
       debug("Sending response via unicast to " + JSON.stringify(endpoint) + " with ["
         + unicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
         + unicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
-      this.server.sendResponse(unicastResponse, endpoint);
     }
     if (multicastResponse.hasAnswers()) {
       // TODO To protect the network against excessive packet flooding due to
@@ -505,10 +505,10 @@ export class Responder implements PacketHandler {
       //    since the last time that record was multicast on that particular
       //    interface.
 
+      this.server.sendResponse(multicastResponse, endpoint.interface);
       debug("Sending response via multicast on network " + endpoint.interface + " with ["
         + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
         + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
-      this.server.sendResponse(multicastResponse, endpoint.interface);
     }
   }
 

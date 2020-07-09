@@ -29,6 +29,7 @@ export interface NetworkInterface {
 
   // one of ipv4 or ipv6 will be present, most of the time even both
   ipv4?: IPv4Address;
+  ip4Netmask?: IPv4Address;
   ipv4Netaddress?: IPv4Address;
   ipv6?: IPv6Address; // link-local ipv6
   ipv6Netmask?: IPv6Address;
@@ -317,6 +318,7 @@ export class NetworkManager extends EventEmitter {
 
       if (ipv4Info) {
         networkInterface.ipv4 = ipv4Info.address;
+        networkInterface.ip4Netmask = ipv4Info.netmask;
         networkInterface.ipv4Netaddress = getNetAddress(ipv4Info.address, ipv4Info.netmask);
       }
 

@@ -12,6 +12,7 @@ import {
   RCode,
 } from "./coder/DNSPacket";
 import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import { getNetAddress } from "./util/domain-formatter";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -332,8 +333,20 @@ export class MDNSServer {
       return;
     }
 
+    const networkInterface = this.networkManager.getInterface(name);
+    if (!networkInterface) {
+      debug("Received packet on non existing network interface: %s!", name);
+      return;
+    }
+    const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
+    if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
+      debug("Dropping packet on %s coming from %s as subnet doesn't match!", name, rinfo.address);
+      return;
+    }
+
     let packet: DNSPacket;
     try {
+      // TODO parse packet on the fly, a lot of RESPONSE packets will never be used
       packet = DNSPacket.decode(buffer);
     } catch (error) {
       debug("Received malformed packet from %s: %s", JSON.stringify(rinfo), error.message);
@@ -356,8 +369,6 @@ export class MDNSServer {
       port: rinfo.port,
       interface: name,
     };
-
-    // TODO source address check? RFC 6762 11.
 
     if (packet.type === PacketType.QUERY) {
       this.handler.handleQuery(packet, endpoint);

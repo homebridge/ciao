@@ -163,7 +163,7 @@ export class Responder implements PacketHandler {
       if (service.currentAnnouncer!.isSendingGoodbye()) {
         return service.currentAnnouncer!.awaitAnnouncement().then(() => this.advertiseService(service, callback));
       } else {
-        return service.currentAnnouncer!.awaitAnnouncement(); // TODO cancel, we need to probe again
+        return service.currentAnnouncer!.cancel().then(() => this.advertiseService(service, callback));
       }
     }
 
@@ -193,7 +193,7 @@ export class Responder implements PacketHandler {
   }
 
   private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
-    if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
+    if (service.serviceState !== ServiceState.ANNOUNCED && service.serviceState !== ServiceState.ANNOUNCING) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
@@ -207,7 +207,7 @@ export class Responder implements PacketHandler {
     return this.advertiseService(service, callback);
   }
 
-  private async unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
+  private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
     if (service.serviceState === ServiceState.UNANNOUNCED) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -219,7 +219,10 @@ export class Responder implements PacketHandler {
           return service.currentAnnouncer!.awaitAnnouncement(); // we are already sending a goodbye
         }
 
-        await service.currentAnnouncer!.cancel();
+        return service.currentAnnouncer!.cancel().then(() => {
+          service.serviceState = ServiceState.ANNOUNCED; // unpublishService requires announced state
+          return this.unpublishService(service, callback);
+        });
       }
 
       debug("[%s] Removing service from the network", service.getFQDN());
@@ -242,6 +245,7 @@ export class Responder implements PacketHandler {
     }
 
     callback && callback();
+    return Promise.resolve();
   }
 
   private clearService(service: CiaoService): void {
@@ -531,6 +535,7 @@ export class Responder implements PacketHandler {
       if (conflictingRecord) {
         debug("[%s] Detected conflicting record %s with name %s on the network",
           service.getFQDN(), dnsTypeToString(conflictingRecord.type), conflictingRecord.name);
+        // noinspection JSIgnoredPromiseFromCall
         this.republishService(service, error => {
           if (error) {
             console.log("FATAL Error occurred trying to resolve conflict for service " + service.getFQDN() + "! We can't recover from this!");

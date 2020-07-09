@@ -18,7 +18,7 @@ import { formatReverseAddressPTRName } from "./util/domain-formatter";
 const debug = createDebug("ciao:CiaoService");
 
 const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
-const numberedHostnamePattern = /^(.*)-\((\d+)\)(\.\w{2,})$/; // matches a hostname like "My-Computer-(2).local."
+const numberedHostnamePattern = /^(.*)-\((\d+)\)(\.\w{2,}.)$/; // matches a hostname like "My-Computer-(2).local."
 
 /**
  * This enum defines some commonly used service types.
@@ -574,7 +574,8 @@ export class CiaoService extends EventEmitter {
 
       assert(hostnameNumber, `Failed to extract hostname number from ${this.hostname}. Resulted in ${hostnameNumber}`);
     } else {
-      const lastDot = this.hostname.lastIndexOf(".");
+      // we need to substring, to not match the root label "."
+      const lastDot = this.hostname.substring(0, this.hostname.length - 1).lastIndexOf(".");
 
       hostnameBase = this.hostname.slice(0, lastDot);
       hostnameTLD = this.hostname.slice(lastDot);

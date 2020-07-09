@@ -272,7 +272,7 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
-    const defaultIp4Netaddress: IPv4Address | undefined = await NetworkManager.getDefaultIpv4Subnet();
+    const defaultIp4Netaddress: IPv4Address | undefined = !this.restrictedInterfaces? await NetworkManager.getDefaultIpv4Subnet(): undefined;
 
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
 
@@ -303,12 +303,6 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      if (!internal && this.restrictedInterfaces && !this.restrictedInterfaces.includes(name)) {
-        // we first need to to loop through the infos to check if it's the loopback interface (internal=true)
-        // we always add the loopback iface even when interfaces are restricted
-        return;
-      }
-
       assert(ipv4Info || ipv6Info, "Could not find valid addresses for interface '" + name + "'");
 
       if (this.excludeIpv6Only && !ipv4Info) {
@@ -336,7 +330,14 @@ export class NetworkManager extends EventEmitter {
         networkInterface.routableIpv6Netmask = routableIpv6Info.netmask;
       }
 
-      if (networkInterface.routableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
+      if (internal) {
+        // we always add the loopback iface even when interfaces are restricted
+        interfaces.set(name, networkInterface);
+      } else if (this.restrictedInterfaces) {
+        if (this.restrictedInterfaces.includes(name)) {
+          interfaces.set(name, networkInterface);
+        }
+      } else if (networkInterface.routableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
         interfaces.set(name, networkInterface);
       }
     });

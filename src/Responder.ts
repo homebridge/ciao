@@ -197,6 +197,15 @@ export class Responder implements PacketHandler {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
+    if (service.serviceState === ServiceState.ANNOUNCING) {
+      assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
+      if (service.currentAnnouncer!.isSendingGoodbye()) {
+        return service.currentAnnouncer!.awaitAnnouncement().then(() => this.republishService(service, callback));
+      } else {
+        return service.currentAnnouncer!.cancel().then(() => this.republishService(service, callback));
+      }
+    }
+
     debug("[%s] Readvertising service...", service.getFQDN());
 
     // first of all remove it from our advertisedService Map and remove all of the maintained PTRs
@@ -533,8 +542,6 @@ export class Responder implements PacketHandler {
       }
 
       if (conflictingRecord) {
-        debug("[%s] Detected conflicting record %s with name %s on the network",
-          service.getFQDN(), dnsTypeToString(conflictingRecord.type), conflictingRecord.name);
         // noinspection JSIgnoredPromiseFromCall
         this.republishService(service, error => {
           if (error) {

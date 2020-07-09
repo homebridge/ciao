@@ -31,6 +31,7 @@ export class Prober {
   private records: ResourceRecord[] = [];
 
   private timer?: Timeout;
+  private timerId = 0;
   private currentInterval: number = PROBE_INTERVAL;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,7 +76,7 @@ export class Prober {
       this.promiseResolve = resolve;
       this.promiseReject = reject;
 
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), Math.random() * PROBE_INTERVAL);
+      this.timer = setTimeout(this.sendProbeRequest.bind(this, ++this.timerId), Math.random() * PROBE_INTERVAL);
       this.timer.unref();
     });
   }
@@ -115,7 +116,11 @@ export class Prober {
     }
   }
 
-  private sendProbeRequest(): void {
+  private sendProbeRequest(timerId: number): void {
+    if (timerId !== this.timerId) {
+      return;
+    }
+
     if (this.sentQueriesForCurrentTry === 0) { // this is the first query sent, init some stuff
       // RFC 6762 8.2. When a host is probing for a group of related records with the same
       //    name (e.g., the SRV and TXT record describing a DNS-SD service), only
@@ -177,7 +182,7 @@ export class Prober {
       this.sentQueriesForCurrentTry++;
       this.sentQueries++;
 
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), this.currentInterval);
+      this.timer = setTimeout(this.sendProbeRequest.bind(this, ++this.timerId), this.currentInterval);
       this.timer.unref();
     });
   }
@@ -210,9 +215,7 @@ export class Prober {
 
       this.serviceEncounteredNameChange = true;
 
-      this.endProbing(false); // cancel the current probing
-
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
+      this.timer = setTimeout(this.sendProbeRequest.bind(this, ++this.timerId), 1000);
       this.timer.unref();
     }
   }
@@ -271,7 +274,7 @@ export class Prober {
 
       // wait 1 second and probe again (this is to guard against stale probe packets)
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
+      this.timer = setTimeout(this.sendProbeRequest.bind(this, ++this.timerId), 1000);
       this.timer.unref();
     } else {
       //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());

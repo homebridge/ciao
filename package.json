@@ -19,7 +19,9 @@
     "preversion": "npm run lint",
     "version": "npm run docs && git add docs"
   },
-  "bin": {},
+  "bin": {
+    "ciao-bcs": "lib/bonjour-conformance-testing.js"
+  },
   "keywords": [
     "ciao",
     "rfc-6762",

@@ -11,6 +11,7 @@ import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
 import Timeout = NodeJS.Timeout;
 
 const PROBE_INTERVAL = 250; // 250ms as defined in RFC 6762 8.1.
+const LIMITED_PROBE_INTERVAL = 1000;
 const debug = createDebug("ciao:Prober");
 
 /**
@@ -23,22 +24,21 @@ const debug = createDebug("ciao:Prober");
 export class Prober {
 
   public static readonly CANCEL_REASON = "cancelled";
-  public static readonly TIMEOUT_REASON = "timeout";
 
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
 
   private records: ResourceRecord[] = [];
 
-  private startTime?: number;
-  private serviceEncounteredNameChange = false;
-
   private timer?: Timeout;
+  private currentInterval: number = PROBE_INTERVAL;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private promiseReject?: (reason?: any) => void;
 
+  private serviceEncounteredNameChange = false;
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent
+  private sentQueriesForCurrentTry = 0;
   private sentQueries = 0;
 
   constructor(server: MDNSServer, service: CiaoService) {
@@ -71,8 +71,6 @@ export class Prober {
 
     debug("Starting to probe for '%s'...", this.service.getFQDN());
 
-    this.startTime = new Date().getTime(); // save the time we started at. After a minute without success we must give up.
-
     return new Promise((resolve, reject) => {
       this.promiseResolve = resolve;
       this.promiseReject = reject;
@@ -96,7 +94,7 @@ export class Prober {
 
     // reset all values to default (so the Prober can be reused if it wasn't successful)
     this.sentFirstProbeQuery = false;
-    this.sentQueries = 0;
+    this.sentQueriesForCurrentTry = 0;
   }
 
   /**
@@ -118,7 +116,7 @@ export class Prober {
   }
 
   private sendProbeRequest(): void {
-    if (this.sentQueries === 0) { // this is the first query sent, init some stuff
+    if (this.sentQueriesForCurrentTry === 0) { // this is the first query sent, init some stuff
       // RFC 6762 8.2. When a host is probing for a group of related records with the same
       //    name (e.g., the SRV and TXT record describing a DNS-SD service), only
       //    a single question need be placed in the Question Section, since query
@@ -140,45 +138,17 @@ export class Prober {
       this.records.forEach(record => record.flushFlag = false);
     }
 
-    if (this.sentQueries >= 3) {
+    if (this.sentQueriesForCurrentTry >= 3) {
       // we sent three requests and it seems like we weren't canceled, so we have a success right here
       this.endProbing(true);
       return;
     }
 
-    const timeSinceProbingStart = new Date().getTime() - this.startTime!;
-    if (timeSinceProbingStart > 60000) { // max probing time is 1 minute
-      // TODO this timout only applies to probing happening after conflict resolution?
-
-      // TODO Denials are sent both with and without the cache-flush bit set; the device must pick a new name for both types of denials.
-      //  After the fifteenth try, the device must correctly limit its probing rate to no more than one try per second.
-      //  The official spec says ”once per minute”, but for Bonjour conformance testing purposes, we’re willing to be a little more lenient.
-      //  However, it is a failure if the interval between probes (after the first fifteen) is ever less than 800 milliseconds.
-
-      // TODO If fifteen conflicts occur within any ten-second period, then the
-      //    host MUST wait at least five seconds before each successive
-      //    additional probe attempt.  This is to help ensure that, in the event
-      //    of software bugs or other unanticipated problems, errant hosts do not
-      //    flood the network with a continuous stream of multicast traffic.  For
-      //    very simple devices, a valid way to comply with this requirement is
-      //    to always wait five seconds after any failed probe attempt before
-      //    trying again.
-
-      // TODO only for conflict resoltuion: After one minute of probing, if the Multicast DNS responder has
-      //          been unable to find any unused name, it should log an error
-      //          message to inform the user or operator of this fact.  This
-      //          situation should never occur in normal operation.  The only
-      //          situations that would cause this to happen would be either a
-      //          deliberate denial-of-service attack, or some kind of very
-      //          obscure hardware or software bug that acts like a deliberate
-      //          denial-of-service attack.
-      debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.getFQDN());
-      this.endProbing(false);
-      this.promiseReject!(Prober.TIMEOUT_REASON);
-      return;
+    if (this.sentQueries >= 15) {
+      this.currentInterval = LIMITED_PROBE_INTERVAL;
     }
 
-    debug("Sending prober query number %d for '%s'...", this.sentQueries + 1, this.service.getFQDN());
+    debug("Sending prober query number %d for '%s'...", this.sentQueriesForCurrentTry + 1, this.service.getFQDN());
 
     assert(this.records.length > 0, "Tried sending probing request for zero record length!");
 
@@ -204,9 +174,10 @@ export class Prober {
       }
 
       this.sentFirstProbeQuery = true;
+      this.sentQueriesForCurrentTry++;
       this.sentQueries++;
 
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), PROBE_INTERVAL);
+      this.timer = setTimeout(this.sendProbeRequest.bind(this), this.currentInterval);
       this.timer.unref();
     });
   }
@@ -239,7 +210,10 @@ export class Prober {
 
       this.serviceEncounteredNameChange = true;
 
-      this.sendProbeRequest(); // start probing again with the new name
+      this.endProbing(false); // cancel the current probing
+
+      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
+      this.timer.unref();
     }
   }
 

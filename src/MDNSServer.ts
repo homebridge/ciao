@@ -340,7 +340,9 @@ export class MDNSServer {
     }
     const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
     if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
-      debug("Dropping packet on %s coming from %s as subnet doesn't match!", name, rinfo.address);
+      // This isn't a problem on macOS (it seems like to respect the desired interface we supply for our membership)
+      // On Linux based system such filtering seems to not happen :thinking: we just get any traffic and it's like
+      // we are just bound to 0.0.0.0
       return;
     }
 

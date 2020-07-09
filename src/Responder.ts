@@ -11,7 +11,11 @@ import {
 } from "./CiaoService";
 import { DNSPacket, dnsTypeToString, QClass, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
+import { AAAARecord } from "./coder/records/AAAARecord";
+import { ARecord } from "./coder/records/ARecord";
 import { PTRRecord } from "./coder/records/PTRRecord";
+import { SRVRecord } from "./coder/records/SRVRecord";
+import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler } from "./MDNSServer";
 import { InterfaceName } from "./NetworkManager";
@@ -505,8 +509,44 @@ export class Responder implements PacketHandler {
       this.currentProber.handleResponse(packet);
     }
 
-    // TODO conflict resolution if we detect a response with shares name, rrtype and rrclass but rdata is DIFFERENT!
-    //  A conflict occurs when a Multicast DNS responder has a unique record
+    for (const service of this.announcedServices.values()) {
+      let conflictingRecord: ResourceRecord | undefined = undefined;
+
+      for (const record of packet.answers) {
+        if (Responder.hasConflict(service, record)) {
+          conflictingRecord = record;
+          break;
+        }
+      }
+
+      if (!conflictingRecord) {
+        for (const record of packet.additionals) {
+          if (Responder.hasConflict(service, record)) {
+            conflictingRecord = record;
+            break;
+          }
+        }
+      }
+
+      if (conflictingRecord) {
+        debug("[%s] Detected conflicting record %s with name %s on the network",
+          service.getFQDN(), dnsTypeToString(conflictingRecord.type), conflictingRecord.name);
+        this.republishService(service, error => {
+          if (error) {
+            console.log("FATAL Error occurred trying to resolve conflict for service " + service.getFQDN() + "! We can't recover from this!");
+            console.log(error.stack);
+            process.exit(1); // we have a service which should be announced, though we failed to reannounce.
+            // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
+            // for situations where it makes sense
+          }
+        });
+      }
+    }
+  }
+
+  private static hasConflict(service: CiaoService, record: ResourceRecord): boolean {
+    // RFC 6762 9. Conflict Resolution:
+    //    A conflict occurs when a Multicast DNS responder has a unique record
     //    for which it is currently authoritative, and it receives a Multicast
     //    DNS response message containing a record with the same name, rrtype
     //    and rrclass, but inconsistent rdata.  What may be considered
@@ -515,19 +555,75 @@ export class Responder implements PacketHandler {
     //    originate from different hosts.  This is to permit use of proxies and
     //    other fault-tolerance mechanisms that may cause more than one
     //    responder to be capable of issuing identical answers on the network.
-    //    -------
+    //
     //    A common example of a resource record type that is intended to be
     //    unique, not shared between hosts, is the address record that maps a
     //    host's name to its IP address.  Should a host witness another host
     //    announce an address record with the same name but a different IP
     //    address, then that is considered inconsistent, and that address
     //    record is considered to be in conflict.
-    //    --------
+    //
     //    Whenever a Multicast DNS responder receives any Multicast DNS
     //    response (solicited or otherwise) containing a conflicting resource
     //    record in any of the Resource Record Sections, the Multicast DNS
     //    responder MUST immediately reset its conflicted unique record to
     //    probing state, and go through the startup steps described above in
+    //    Section 8, "Probing and Announcing on Startup".  The protocol used in
+    //    the Probing phase will determine a winner and a loser, and the loser
+    //    MUST cease using the name, and reconfigure.
+
+    const recordName = dnsLowerCase(record.name);
+
+    if (recordName === dnsLowerCase(service.getFQDN())) {
+      if (record.type === RType.SRV) {
+        const srvRecord = record as SRVRecord;
+        if (dnsLowerCase(srvRecord.hostname) !== dnsLowerCase(service.getHostname())) {
+          debug("[%s] Noticed conflicting record on the network. SRV with hostname: %s", service.getFQDN(), srvRecord.hostname);
+          return true;
+        } else if (srvRecord.port !== service.getPort()) {
+          debug("[%s] Noticed conflicting record on the network. SRV with port: %s", service.getFQDN(), srvRecord.port);
+          return true;
+        }
+      } else if (record.type === RType.TXT) {
+        const txtRecord = record as TXTRecord;
+        const txt = service.getTXT();
+
+        if (txt.length !== txtRecord.txt.length) { // length differs, can't be the same data
+          debug("[%s] Noticed conflicting record on the network. TXT with differing data: %s", service.getFQDN());
+          return true;
+        }
+
+        for (let i = 0; i < txt.length; i++) {
+          const buffer0 = txt[i];
+          const buffer1 = txtRecord.txt[i];
+
+          if (buffer0.length !== buffer1.length || buffer0.toString("hex") !== buffer1.toString("hex")) {
+            debug("[%s] Noticed conflicting record on the network. TXT with differing data: %s", service.getFQDN());
+            return true;
+          }
+        }
+      }
+    } else if (recordName === dnsLowerCase(service.getHostname())) {
+      if (record.type === RType.A) {
+        const aRecord = record as ARecord;
+
+        if (!service.hasAddress(aRecord.ipAddress)) {
+          // if the service doesn't expose the listed address we have a conflict
+          debug("[%s] Noticed conflicting record on the network. A with ip address: %s", service.getFQDN(), aRecord.ipAddress);
+          return true;
+        }
+      } else if (record.type === RType.AAAA) {
+        const aaaaRecord = record as AAAARecord;
+
+        if (!service.hasAddress(aaaaRecord.ipAddress)) {
+          // if the service doesn't expose the listed address we have a conflict
+          debug("[%s] Noticed conflicting record on the network. AAAA with ip address: %s", service.getFQDN(), aaaaRecord.ipAddress);
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   private answerQuestion(question: Question, endpoint: EndpointInfo, response: QueryResponse): void {

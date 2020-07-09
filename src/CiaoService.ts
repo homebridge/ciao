@@ -260,7 +260,7 @@ export class CiaoService extends EventEmitter {
   private hostname: string; // formatted hostname
   private readonly port: number;
 
-  private txt?: Buffer[];
+  private txt: Buffer[];
 
   /**
    * this field is entirely controlled by the Responder class
@@ -322,9 +322,7 @@ export class CiaoService extends EventEmitter {
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;
 
-    if (options.txt) {
-      this.txt = CiaoService.txtBuffersFromRecord(options.txt);
-    }
+    this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
 
     // checks if hostname or name are already numbered and adjusts the numbers if necessary
     this.incrementName(true); // must be done before the rebuildServiceRecords call
@@ -387,6 +385,21 @@ export class CiaoService extends EventEmitter {
    */
   public getHostname(): string {
     return this.hostname;
+  }
+
+  /**
+   * @returns The port the service is advertising for.
+   */
+  public getPort(): number {
+    return this.port;
+  }
+
+  /**
+   * @returns The current TXT of the service represented as Buffer array.
+   * @internal There is not need for this to be public API
+   */
+  public getTXT(): Buffer[] {
+    return this.txt;
   }
 
   /**
@@ -524,7 +537,7 @@ export class CiaoService extends EventEmitter {
       // thus, when sending the first request, the socket will be bound and we don't need to wait here
       this.emit(InternalServiceEvent.REPUBLISH, error => {
         if (error) {
-          console.log("FATAL Error occurred trying to reannounce service! We can't recover from this!");
+          console.log("FATAL Error occurred trying to reannounce service " + this.fqdn + "! We can't recover from this!");
           console.log(error.stack);
           process.exit(1); // we have a service which should be announced, though we failed to reannounce.
           // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
@@ -682,7 +695,7 @@ export class CiaoService extends EventEmitter {
       subtypePTRs: subtypePTRs, // possibly undefined
       metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
       srv: new SRVRecord(this.fqdn, this.hostname, this.port, true),
-      txt: new TXTRecord(this.fqdn, this.txt || [], true),
+      txt: new TXTRecord(this.fqdn, this.txt, true),
       a: aRecordMap,
       aaaa: aaaaRecordMap,
       aaaaR: aaaaRoutableRecordMap,
@@ -776,6 +789,13 @@ export class CiaoService extends EventEmitter {
     return this.serviceRecords!.nsec.clone();
   }
 
+  /**
+   * @param address - The IP address to check.
+   * @internal used to check if given address is exposed by this service
+   */
+  hasAddress(address: IPAddress): boolean {
+    return !!this.serviceRecords!.reverseAddressPTRs[address];
+  }
   /*
   reverseAddressMapping(address: string): PTRRecord | undefined {
     const record = this.serviceRecords.reverseAddressPTRs[address];

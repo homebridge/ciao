@@ -33,7 +33,7 @@ const service = responder.createService({
 server.on("listening", () => {
   service.advertise().then(() => {
     rl.question("What should the service name be changed to? [N to close]: ", answer => {
-      if (answer.toLowerCase() === "n") {
+      if (!answer || answer.toLowerCase() === "n") {
         rl.close();
       } else {
         service.updateName(answer);

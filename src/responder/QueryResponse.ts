@@ -109,7 +109,7 @@ export class QueryResponse implements DNSResponseDefinition {
       if (knownAnswer.aboutEqual(record)) {
         // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
         // so only if the ttl is more than half than the original ttl we consider it a valid known answer
-        if (knownAnswer.ttl >= record.ttl / 2) {
+        if (knownAnswer.ttl > record.ttl / 2) {
           return true;
         }
       }

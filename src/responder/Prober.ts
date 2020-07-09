@@ -148,10 +148,30 @@ export class Prober {
 
     const timeSinceProbingStart = new Date().getTime() - this.startTime!;
     if (timeSinceProbingStart > 60000) { // max probing time is 1 minute
+      // TODO this timout only applies to probing happening after conflict resolution?
+
       // TODO Denials are sent both with and without the cache-flush bit set; the device must pick a new name for both types of denials.
       //  After the fifteenth try, the device must correctly limit its probing rate to no more than one try per second.
       //  The official spec says ”once per minute”, but for Bonjour conformance testing purposes, we’re willing to be a little more lenient.
       //  However, it is a failure if the interval between probes (after the first fifteen) is ever less than 800 milliseconds.
+
+      // TODO If fifteen conflicts occur within any ten-second period, then the
+      //    host MUST wait at least five seconds before each successive
+      //    additional probe attempt.  This is to help ensure that, in the event
+      //    of software bugs or other unanticipated problems, errant hosts do not
+      //    flood the network with a continuous stream of multicast traffic.  For
+      //    very simple devices, a valid way to comply with this requirement is
+      //    to always wait five seconds after any failed probe attempt before
+      //    trying again.
+
+      // TODO only for conflict resoltuion: After one minute of probing, if the Multicast DNS responder has
+      //          been unable to find any unused name, it should log an error
+      //          message to inform the user or operator of this fact.  This
+      //          situation should never occur in normal operation.  The only
+      //          situations that would cause this to happen would be either a
+      //          deliberate denial-of-service attack, or some kind of very
+      //          obscure hardware or software bug that acts like a deliberate
+      //          denial-of-service attack.
       debug("Probing for '%s' took longer than 1 minute. Giving up...", this.service.getFQDN());
       this.endProbing(false);
       this.promiseReject!(Prober.TIMEOUT_REASON);

@@ -81,6 +81,7 @@ export class Announcer {
       this.promiseReject = reject;
 
       this.timer = setTimeout(this.sendAnnouncement.bind(this), 0);
+      // TODO next announcement time
       this.timer.unref();
     }));
   }
@@ -160,6 +161,8 @@ export class Announcer {
         this.timer.unref();
 
         this.nextInterval *= this.announceIntervalIncreaseFactor;
+        // TODO save next announcement TIME, when we have record updates which occur while announcing
+        //  we can check if it is appropriate to maybe send an updated record in between
       }
     });
   }

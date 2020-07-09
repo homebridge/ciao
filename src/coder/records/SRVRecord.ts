@@ -32,7 +32,7 @@ export class SRVRecord extends ResourceRecord {
     }
     this.port = port;
 
-    // prioirty and weight are not supported to encode or read
+    // priority and weight are not supported to encode or read
     this.priority = 0;
     this.weight = 0;
   }

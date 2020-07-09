@@ -159,7 +159,7 @@ export class Responder implements PacketHandler {
       if (service.currentAnnouncer!.isSendingGoodbye()) {
         return service.currentAnnouncer!.awaitAnnouncement().then(() => this.advertiseService(service, callback));
       } else {
-        return service.currentAnnouncer!.awaitAnnouncement();
+        return service.currentAnnouncer!.awaitAnnouncement(); // TODO cancel, we need to probe again
       }
     }
 
@@ -172,7 +172,8 @@ export class Responder implements PacketHandler {
       .then(() => this.probe(service))
       .then(() => {
         this.announce(service).then(() => {
-          callback();
+          callback(); // TODO callback immediately? if probe queries where successfully,
+          //              we will probably not encounter any errors (expect maybe SOCKETS CLOSED on NETWORK CHANGe)
         }, reason => {
           // handle announce error
           callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
@@ -494,7 +495,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @internal method called by the MDNSServer when an incoming response needs ot be handled
+   * @internal method called by the MDNSServer when an incoming response needs to be handled
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
@@ -505,13 +506,28 @@ export class Responder implements PacketHandler {
     }
 
     // TODO conflict resolution if we detect a response with shares name, rrtype and rrclass but rdata is DIFFERENT!
-    //  if identical: If the TTL of B's resource record given in the message is less
-    //         than half the true TTL from A's point of view, then A MUST mark
-    //         its record to be announced via multicast.  Queriers receiving
-    //         the record from B would use the TTL given by B and, hence, may
-    //         delete the record sooner than A expects.  By sending its own
-    //         multicast response correcting the TTL, A ensures that the record
-    //         will be retained for the desired time.
+    //  A conflict occurs when a Multicast DNS responder has a unique record
+    //    for which it is currently authoritative, and it receives a Multicast
+    //    DNS response message containing a record with the same name, rrtype
+    //    and rrclass, but inconsistent rdata.  What may be considered
+    //    inconsistent is context sensitive, except that resource records with
+    //    identical rdata are never considered inconsistent, even if they
+    //    originate from different hosts.  This is to permit use of proxies and
+    //    other fault-tolerance mechanisms that may cause more than one
+    //    responder to be capable of issuing identical answers on the network.
+    //    -------
+    //    A common example of a resource record type that is intended to be
+    //    unique, not shared between hosts, is the address record that maps a
+    //    host's name to its IP address.  Should a host witness another host
+    //    announce an address record with the same name but a different IP
+    //    address, then that is considered inconsistent, and that address
+    //    record is considered to be in conflict.
+    //    --------
+    //    Whenever a Multicast DNS responder receives any Multicast DNS
+    //    response (solicited or otherwise) containing a conflicting resource
+    //    record in any of the Resource Record Sections, the Multicast DNS
+    //    responder MUST immediately reset its conflicted unique record to
+    //    probing state, and go through the startup steps described above in
   }
 
   private answerQuestion(question: Question, endpoint: EndpointInfo, response: QueryResponse): void {
@@ -599,9 +615,10 @@ export class Responder implements PacketHandler {
       }
     } else if (questionName === dnsLowerCase(service.getFQDN())) {
       if (askingAny) {
-        const added = response.addAnswer(service.srvRecord(), service.txtRecord());
+        const addedSrv = response.addAnswer(service.srvRecord());
+        response.addAnswer(service.txtRecord());
 
-        if (added) {
+        if (addedSrv) {
           // RFC 6763 12.2: include additionals: a, aaaa
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);

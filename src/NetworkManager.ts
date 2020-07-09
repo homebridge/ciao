@@ -455,19 +455,22 @@ export class NetworkManager extends EventEmitter {
           return;
         }
 
-        let interfaceName;
         const parts = stdout.split(os.EOL)[0].split(this.SPACE_PATTERN);
-        if (parts[0] === "none" && parts[5]) {
-          interfaceName = parts[5];
-        } else if (parts[4]) {
-          interfaceName = parts[4];
+
+        let i = 0;
+        for (; i < parts.length; i++) {
+          if (parts[i] === "dev") {
+            // the next index marks the interface name
+            break;
+          }
         }
 
-        if (interfaceName && interfaceName.indexOf(":") > -1) {
-          interfaceName = interfaceName.split(":")[1].trim();
-        }
+        if (i + 1 < parts.length) {
+          let interfaceName = parts[i + 1];
+          if (interfaceName.indexOf(":") !== -1) {
+            interfaceName = interfaceName.split(":")[1].trim();
+          }
 
-        if (interfaceName) {
           resolve(interfaceName);
         } else {
           reject(new Error("not found!"));

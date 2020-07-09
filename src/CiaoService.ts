@@ -290,6 +290,7 @@ export class CiaoService extends EventEmitter {
     assert(options.type, "service options parameter 'type' is required");
     assert(options.port, "service options parameter 'port' is required");
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
+    // TODO port should be changeable after service creation (it's often only known, when the socket is bound sometime in the future)
 
     this.networkManager = networkManager;
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkInterfaceUpdate.bind(this));
@@ -418,6 +419,29 @@ export class CiaoService extends EventEmitter {
         resolve();
       }
     });
+  }
+
+  /**
+   * This method updates the name of the service.
+   * @param name - The new service name.
+   * @internal Currently not public API and only used for bonjour conformance testing.
+   */
+  public updateName(name: string): Promise<void> {
+    if (this.serviceState === ServiceState.UNANNOUNCED) {
+      this.name = name;
+      this.fqdn = this.formatFQDN();
+      // TODO update hostname if options didn't specify one? (do we even want to support this?)
+      return Promise.resolve();
+    } else {
+      return this.end() // send goodbye packets for the current name
+        .then(() => {
+          this.name = name;
+          this.fqdn = this.formatFQDN();
+
+          // service records are going to be rebuilt on the advertise step
+          return this.advertise();
+        });
+    }
   }
 
   private static txtBuffersFromRecord(txt: ServiceTxt): Buffer[] {

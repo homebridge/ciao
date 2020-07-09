@@ -87,7 +87,7 @@ export class Announcer {
   }
 
   public async cancel(): Promise<void> {
-    debug("Canceling %s for '%s'", this.goodbye? "goodbye": "announcement", this.service.getFQDN());
+    debug("[%s] Canceling %s", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -120,7 +120,7 @@ export class Announcer {
     // minimum required is to send two unsolicited responses, one second apart
     // we could announce up to 8 times in total (time between messages must increase by two every message)
 
-    debug("Sending %s number %d for '%s'", this.goodbye? "goodbye": "announcement", this.sentAnnouncements + 1, this.service.getFQDN());
+    debug("[%s] Sending %s number %d", this.service.getFQDN(), this.goodbye? "goodbye": "announcement", this.sentAnnouncements + 1);
 
     // we rebuild every time,
     const records = [
@@ -143,13 +143,13 @@ export class Announcer {
 
     Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, false, error => {
       if (error) {
-        debug("Failed to send %s request for '%s'. Encountered error: " + error.stack, this.goodbye? "goodbye": "announcement", this.service.getFQDN());
+        debug("[%s] Failed to send %s request. Encountered error: " + error.stack, this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
         this.promiseReject!(error);
         return;
       }
 
       if (this.service.serviceState !== ServiceState.ANNOUNCING) {
-        debug("Service '%s' is no longer in announcing state. Stopping. (Received %s)", this.service.getFQDN(), this.service.serviceState);
+        debug("[%s] Service is no longer in announcing state. Stopping. (Received %s)", this.service.getFQDN(), this.service.serviceState);
         return;
       }
 

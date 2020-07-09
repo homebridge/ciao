@@ -1,6 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const version: string = require("../package.json").version;
-if (version.includes("beta")) {
+if (version.includes("beta") || process.env.BCT) { // enable debug output if beta version or running bonjour conformance testing
   const debug = process.env.DEBUG;
   if (!debug || !debug.includes("ciao")) {
     if (!debug) {

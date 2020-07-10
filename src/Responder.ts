@@ -651,26 +651,29 @@ export class Responder implements PacketHandler {
       return;
     }
 
-    switch (question.type) {
-      case QType.PTR: {
-        const loweredQuestionName = dnsLowerCase(question.name);
-        const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
+    if (question.type === QType.PTR || question.type === QType.ANY) {
+      const loweredQuestionName = dnsLowerCase(question.name);
+      const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
 
-        if (destinations) {
-          for (const data of destinations) {
-            // check if the PTR is pointing towards a service, like in questions for PTR '_hap._tcp.local'
-            const service = this.announcedServices.get(dnsLowerCase(data));
+      if (destinations) {
+        // if it's a pointer name, we handle it here
+        for (const data of destinations) {
+          // check if the PTR is pointing towards a service, like in questions for PTR '_hap._tcp.local'
+          // if that's the case, let the question be answered by the service itself
+          const service = this.announcedServices.get(dnsLowerCase(data));
 
-            if (service) {
-              // call the method so additionals get added properly
-              Responder.answerServiceQuestion(service, question, endpoint, response);
-            } else {
-              // it's probably question for PTR '_services._dns-sd._udp.local'
-              // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
-              response.addAnswer(new PTRRecord(question.name, data));
-            }
+          if (service) {
+            // call the method for original question, so additionals get added properly
+            Responder.answerServiceQuestion(service, question, endpoint, response);
+          } else {
+            // it's probably question for PTR '_services._dns-sd._udp.local'
+            // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
+            response.addAnswer(new PTRRecord(question.name, data));
           }
-        } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
+        }
+
+        return; // if we got in this if body it was a pointer name and we handled it correctly
+      } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
           const address = ipAddressFromReversAddressName(loweredQuestionName);
 
           for (const service of this.announcedServices.values()) {
@@ -683,13 +686,10 @@ export class Responder implements PacketHandler {
         We won't actually respond to reverse address queries.
         This typically confuses responders like avahi, which then over and over try to increment the hostname.
         */
-        break;
-      }
-      default:
-        for (const service of this.announcedServices.values()) {
-          Responder.answerServiceQuestion(service, question, endpoint, response);
-        }
-        break;
+    }
+
+    for (const service of this.announcedServices.values()) {
+      Responder.answerServiceQuestion(service, question, endpoint, response);
     }
   }
 
@@ -714,7 +714,7 @@ export class Responder implements PacketHandler {
         const added = response.addAnswer(service.ptrRecord());
 
         if (added) {
-          // only add additionals if answer is not supressed by the known answer section
+          // only add additionals if answer is not suppressed by the known answer section
 
           // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
           response.addAdditional(service.srvRecord(), service.txtRecord());

@@ -651,7 +651,7 @@ export class Responder implements PacketHandler {
       return;
     }
 
-    if (question.type === QType.PTR || question.type === QType.ANY) {
+    if (question.type === QType.PTR || question.type === QType.ANY || question.type === QType.CNAME) {
       const loweredQuestionName = dnsLowerCase(question.name);
       const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
 

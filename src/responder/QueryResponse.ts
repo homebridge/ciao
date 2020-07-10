@@ -22,16 +22,16 @@ export class QueryResponse implements DNSResponseDefinition {
     let addedAny = false;
 
     for (const record of records) {
+      if (this.isKnownAnswer(record)) {
+        // record is a known answer to the querier
+        continue;
+      }
+
       const overwritten = QueryResponse.replaceExistingRecord(this.answers, record);
+      addedAny = true;
 
       if (!overwritten) {
-        // check if the record to be added is not a known answer
-        if (!this.isKnownAnswer(record)) {
-          this.answers.push(record);
-          addedAny = true;
-        }
-      } else {
-        addedAny = true;
+        this.answers.push(record);
       }
 
       QueryResponse.removeAboutSameRecord(this.additionals, record);
@@ -44,17 +44,19 @@ export class QueryResponse implements DNSResponseDefinition {
     let addedAny = false;
 
     for (const record of records) {
+      if (this.isKnownAnswer(record)) {
+        // check if the additional record is a known answer, otherwise there is no need to send it
+        continue;
+      }
+
       const overwrittenAnswer = QueryResponse.replaceExistingRecord(this.answers, record);
 
       // if it is already in the answer section, don't include it in additionals
       if (!overwrittenAnswer) {
         const overwrittenAdditional = QueryResponse.replaceExistingRecord(this.additionals, record);
         if (!overwrittenAdditional) {
-          // check if the additional record is a known answer, otherwise there is no need to send it
-          if (!this.isKnownAnswer(record)) {
-            this.additionals.push(record);
-            addedAny = true;
-          }
+          this.additionals.push(record);
+          addedAny = true;
         } else {
           addedAny = true;
         }
@@ -143,21 +145,17 @@ export class QueryResponse implements DNSResponseDefinition {
   }
 
   private static removeAboutSameRecord(records: ResourceRecord[], record: ResourceRecord): void {
-    let i = 0;
-    for (; i < records.length; i++) {
+    for (let i = 0; i < records.length; i++) {
       const record0 = records[i];
 
       if (record0.representsSameData(record)) {
         // A and AAAA records can be duplicate in one packet even though flush flag is set
         if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA)
           || record0.dataEquals(record)) {
+          records.splice(i, 1);
           break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
         }
       }
-    }
-
-    if (i < records.length) {
-      records.splice(i, 1);
     }
   }
 

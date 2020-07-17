@@ -452,6 +452,7 @@ export class Responder implements PacketHandler {
     const multicastResponse = new QueryResponse();
     const unicastResponse = new QueryResponse();
     const knownAnswers = packet.answers;
+    const isProbeQuery = packet.authorities.length > 0;
 
     // TODO coder library expects a definition for every unit of answers and packets should be combined later
 
@@ -476,21 +477,6 @@ export class Responder implements PacketHandler {
       unicastResponse.markLegacyUnicastResponse(packet.id, packet.questions, multicastResponse);
     }
 
-    // TODO duplicate answer suppression 7.4 (especially for the meta query)
-
-    // TODO for query messages containing more than one question, all
-    //    (non-defensive) answers SHOULD be randomly delayed in the range
-    //    20-120 ms, or 400-500 ms if the TC (truncated) bit is set.  This is
-    //    because when a query message contains more than one question, a
-    //    Multicast DNS responder cannot generally be certain that other
-    //    responders will not also be simultaneously generating answers to
-    //    other questions in that query message.  (Answers defending a name, in
-    //    response to a probe for that name, are not subject to this delay rule
-    //    and are still sent immediately.) => I don't think this is needed?
-
-    // TODO instant response for unique records
-
-    // TODO randomly delay the response to avoid collisions (even for unicast responses)
     if (unicastResponse.hasAnswers()) {
       this.server.sendResponse(unicastResponse, endpoint);
       debug("Sending response via unicast to " + JSON.stringify(endpoint) + " with ["
@@ -505,10 +491,28 @@ export class Responder implements PacketHandler {
       //    since the last time that record was multicast on that particular
       //    interface.
 
-      this.server.sendResponse(multicastResponse, endpoint.interface);
-      debug("Sending response via multicast on network " + endpoint.interface + " with ["
-        + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
-        + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+      if ((multicastResponse.containsSharedAnswer() || packet.questions.length > 1) && !isProbeQuery) {
+        // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
+        // This is also the case if there are multiple questions. If multiple questions are asked
+        // we probably could not answer them all (because not all of them were directed to us).
+        // All those conditions are overridden if this is a probe query. To those queries we must respond instantly!
+
+        // TODO duplicate answer suppression 7.4 (especially for the meta query)
+
+        const delay = Math.random() * 100 + 20;
+        const timer = setTimeout(() => {
+          this.server.sendResponse(multicastResponse, endpoint.interface);
+          debug("Sending (delayed " + Math.round(delay) + "ms) response via multicast on network " + endpoint.interface + " with ["
+            + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
+            + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+        }, delay);
+        timer.unref();
+      } else {
+        this.server.sendResponse(multicastResponse, endpoint.interface);
+        debug("Sending response via multicast on network " + endpoint.interface + " with ["
+          + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
+          + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+      }
     }
   }
 

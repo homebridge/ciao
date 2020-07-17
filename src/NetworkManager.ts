@@ -483,6 +483,7 @@ export class NetworkManager extends EventEmitter {
 
   private static getDarwin_BSD_SUNOSDefaultNetworkInterface(): Promise<InterfaceName> {
     return new Promise((resolve, reject) => {
+      // TODO darwin netstat -r -f inet
       const command = os.platform() === "darwin"
         ? "route get 0.0.0.0 2>/dev/null | grep interface: | awk '{print $2}'"
         : "route get 0.0.0.0 | grep interface:";

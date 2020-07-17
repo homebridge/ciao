@@ -13,9 +13,14 @@ export class QueryResponse implements DNSResponseDefinition {
   legacyUnicast?: boolean;
 
   private knownAnswers?: ResourceRecord[];
+  private sharedAnswer = false;
 
   public defineKnownAnswers(records: ResourceRecord[]): void {
     this.knownAnswers = records;
+  }
+
+  public containsSharedAnswer(): boolean {
+    return this.sharedAnswer;
   }
 
   public addAnswer(...records: ResourceRecord[]): boolean {
@@ -31,6 +36,10 @@ export class QueryResponse implements DNSResponseDefinition {
       addedAny = true;
 
       if (!overwritten) {
+        if (!record.flushFlag) {
+          this.sharedAnswer = true;
+        }
+
         this.answers.push(record);
       }
 

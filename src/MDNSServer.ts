@@ -58,7 +58,7 @@ interface SocketError {
  */
 export class MDNSServer {
 
-  public static readonly MTU = process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500;
+  public static readonly MTU = process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500; // TODO log custom MTU
   public static readonly DEFAULT_IP4_HEADER = 20;
   public static readonly DEFAULT_IP6_HEADER = 40;
   public static readonly UDP_HEADER = 8;

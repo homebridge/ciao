@@ -30,15 +30,15 @@ export class CNAMERecord extends ResourceRecord {
     return DNSLabelCoder.getUncompressedNameLength(this.cname);
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
-    super.trackNames(coder);
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
+    super.trackNames(coder, legacyUnicast);
 
     assert(!this.trackedCName, "trackNames can only be called once per DNSLabelCoder!");
     this.trackedCName = coder.trackName(this.cname);
   }
 
-  public finishEncoding(): void {
-    super.finishEncoding();
+  public clearNameTracking(): void {
+    super.clearNameTracking();
     this.trackedCName = undefined;
   }
 

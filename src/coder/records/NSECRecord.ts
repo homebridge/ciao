@@ -52,15 +52,15 @@ export class NSECRecord extends ResourceRecord {
     return DNSLabelCoder.getUncompressedNameLength(this.nextDomainName) + this.getRRTypesBitMapEncodingLength();
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
-    super.trackNames(coder);
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
+    super.trackNames(coder, legacyUnicast);
 
     assert(!this.trackedNextDomainName, "trackNames can only be called once per DNSLabelCoder!");
     this.trackedNextDomainName = coder.trackName(this.nextDomainName);
   }
 
-  public finishEncoding(): void {
-    super.finishEncoding();
+  public clearNameTracking(): void {
+    super.clearNameTracking();
     this.trackedNextDomainName = undefined;
   }
 

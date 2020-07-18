@@ -30,15 +30,15 @@ export class PTRRecord extends ResourceRecord {
     return DNSLabelCoder.getUncompressedNameLength(this.ptrName);
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
-    super.trackNames(coder);
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
+    super.trackNames(coder, legacyUnicast);
 
     assert(!this.trackedPtrName, "trackNames can only be called once per DNSLabelCoder!");
     this.trackedPtrName = coder.trackName(this.ptrName);
   }
 
-  public finishEncoding(): void {
-    super.finishEncoding();
+  public clearNameTracking(): void {
+    super.clearNameTracking();
     this.trackedPtrName = undefined;
   }
 

@@ -14,7 +14,7 @@ describe(DNSPacket, () => {
     const aRecord = new ARecord("example.org", "192.168.0.0");
     aRecord.flushFlag = true;
 
-    runPacketEncodingTest(DNSPacket.createDNSResponsePackets({
+    runPacketEncodingTest(DNSPacket.createDNSResponsePacketsFromRRSet({
       answers: [
         aRecord,
         new AAAARecord("example.org", "::1"),
@@ -26,7 +26,7 @@ describe(DNSPacket, () => {
         new SRVRecord("super secret.service", "example.org", 80),
         new TXTRecord("my txt.local", [Buffer.from("key=value")]),
       ],
-    }, 1500)[0]);
+    }));
   });
 
   it ("should encode queries", () => {
@@ -40,7 +40,7 @@ describe(DNSPacket, () => {
       answers: [
         new ARecord("test.local.", "192.168.178.1"),
       ],
-    }, 1500)[0]);
+    })[0]);
 
     runPacketEncodingTest(DNSPacket.createDNSQueryPackets({
       questions: [
@@ -49,6 +49,6 @@ describe(DNSPacket, () => {
       authorities: [
         new ARecord("test.local.", "192.168.178.1"),
       ],
-    }, 1500)[0]);
+    })[0]);
   });
 });

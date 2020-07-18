@@ -62,12 +62,13 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
     return DNSLabelCoder.getUncompressedNameLength(this.name) + 10 + this.getEstimatedRDataEncodingLength();
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
     assert(!this.trackedName, "trackNames can only be called once per DNSLabelCoder!");
     this.trackedName = coder.trackName(this.name);
   }
 
-  public finishEncoding(): void {
+  public clearNameTracking(): void {
     this.trackedName = undefined;
   }
 
@@ -201,8 +202,16 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
     const rClass = buffer.readUInt16BE(offset);
     offset += 2;
-    const clazz = (rClass & this.NOT_FLUSH_MASK) as RClass;
-    const flushFlag = !!(rClass & this.FLUSH_MASK);
+
+    let clazz;
+    let flushFlag = false;
+    if (type !== RType.OPT) {
+      clazz = (rClass & this.NOT_FLUSH_MASK) as RClass;
+      flushFlag = !!(rClass & this.FLUSH_MASK);
+    } else {
+      // OPT class field encodes udpPayloadSize field
+      clazz = rClass;
+    }
 
     const ttl = buffer.readUInt32BE(offset);
     offset += 4;

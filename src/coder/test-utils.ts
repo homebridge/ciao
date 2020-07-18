@@ -2,12 +2,11 @@ import { AssertionError } from "assert";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { DNSPacket } from "./DNSPacket";
 import { Question } from "./Question";
-import { SRVRecord } from "./records/SRVRecord";
 import { ResourceRecord } from "./ResourceRecord";
 
-export function runRecordEncodingTest(record: Question | ResourceRecord): void {
+export function runRecordEncodingTest(record: Question | ResourceRecord, legacyUnicast = false): void {
   const coder = new DNSLabelCoder();
-  record.trackNames(coder);
+  record.trackNames(coder, legacyUnicast);
   coder.computeCompressionPaths();
 
   const length = record.getEncodingLength(coder);
@@ -27,12 +26,9 @@ export function runRecordEncodingTest(record: Question | ResourceRecord): void {
 
   //
   const record2 = decodedRecord.data;
-  if (record instanceof SRVRecord && record2 instanceof SRVRecord) {
-    record2.targetingLegacyUnicastQuerier = record.targetingLegacyUnicastQuerier;
-  }
 
   const coder2 = new DNSLabelCoder();
-  record2.trackNames(coder2);
+  record2.trackNames(coder2, legacyUnicast);
   coder2.computeCompressionPaths();
 
   const length2 = record2.getEncodingLength(coder2);
@@ -44,7 +40,18 @@ export function runRecordEncodingTest(record: Question | ResourceRecord): void {
   expect(written2).toBe(buffer2.length);
 
   expect(buffer2).toEqual(buffer);
-  expect(decodedRecord.data).toEqual(record);
+  expect(record2).toEqual(record);
+
+  if (record2 instanceof ResourceRecord && record instanceof ResourceRecord) {
+    // test the equals method
+    expect(record2.aboutEqual(record)).toBe(true);
+
+    // test the clone method
+    const clone = record.clone();
+    record2.clearNameTracking();
+    expect(clone).toEqual(record2);
+    expect(clone.aboutEqual(record2)).toBe(true);
+  }
 }
 
 const empty = Buffer.allocUnsafe(0);

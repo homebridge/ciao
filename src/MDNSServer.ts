@@ -58,7 +58,6 @@ interface SocketError {
  */
 export class MDNSServer {
 
-  public static readonly MTU = process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500; // TODO log custom MTU
   public static readonly DEFAULT_IP4_HEADER = 20;
   public static readonly DEFAULT_IP6_HEADER = 40;
   public static readonly UDP_HEADER = 8;
@@ -148,7 +147,7 @@ export class MDNSServer {
   }
 
   public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, callback?: SendCallback): void {
-    const packets = DNSPacket.createDNSQueryPackets(query, MDNSServer.MTU, IPFamily.IPv4);
+    const packets = DNSPacket.createDNSQueryPackets(query);
     if (packets.length > 1) {
       debug("Query broadcast is split into %d packets!", packets.length);
     }
@@ -168,17 +167,9 @@ export class MDNSServer {
   }
 
   public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
-    const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
-    if (packets.length > 1) {
-      debug("Response broadcast is split into %d packets!", packets.length);
-    }
+    const packet = DNSPacket.createDNSResponsePacketsFromRRSet(response);
 
-    const promises: Promise<void>[] = [];
-    for (const packet of packets) {
-      promises.push(this.sendOnAllNetworks(packet));
-    }
-
-    Promise.all(promises).then(() => {
+    this.sendOnAllNetworks(packet).then(() => {
       if (callback) {
         callback();
       }
@@ -187,20 +178,10 @@ export class MDNSServer {
     });
   }
 
-  public sendResponse(response: DNSResponseDefinition, endpoint: EndpointInfo, callback?: SendCallback): void;
-  public sendResponse(response: DNSResponseDefinition, interfaceName: InterfaceName, callback?: SendCallback): void;
-  public sendResponse(response: DNSResponseDefinition, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
-    const packets = DNSPacket.createDNSResponsePackets(response, MDNSServer.MTU, IPFamily.IPv4);
-    if (packets.length > 1) {
-      debug("Response is split into %d packets!", packets.length);
-    }
-
-    const promises: Promise<void>[] = [];
-    for (const packet of packets) {
-      promises.push(this.send(packet, endpointOrInterface));
-    }
-
-    Promise.all(promises).then(() => {
+  public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
+  public sendResponse(response: DNSPacket, interfaceName: InterfaceName, callback?: SendCallback): void;
+  public sendResponse(response: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
+    this.send(response, endpointOrInterface).then(() => {
       if (callback) {
         callback();
       }

@@ -9,10 +9,11 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DNSPacket, dnsTypeToString, QClass, QType, RType } from "./coder/DNSPacket";
+import { DNSPacket, QClass, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { ARecord } from "./coder/records/ARecord";
+import { OPTRecord } from "./coder/records/OPTRecord";
 import { PTRRecord } from "./coder/records/PTRRecord";
 import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
@@ -130,7 +131,7 @@ export class Responder implements PacketHandler {
 
     const promises: Promise<void>[] = [];
     for (const service of this.announcedServices.values()) {
-      promises.push(this.unpublishService(service)); // TODO check if we can combine all those unpublish request into one packet (at least less packets)
+      promises.push(this.unpublishService(service));
     }
 
     // eslint-disable-next-line
@@ -174,10 +175,11 @@ export class Responder implements PacketHandler {
     return this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
       .then(() => this.probe(service))
+      // TODO callback immediately, if probe queries where successful,
+      //   we will probably not encounter any errors (expect maybe SOCKETS CLOSED on NETWORK CHANGe)
       .then(() => {
         this.announce(service).then(() => {
-          callback(); // TODO callback immediately? if probe queries where successfully,
-          //              we will probably not encounter any errors (expect maybe SOCKETS CLOSED on NETWORK CHANGe)
+          callback();
         }, reason => {
           // handle announce error
           callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
@@ -381,7 +383,8 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service on interface %s!", service.getFQDN(), records.length, name);
 
-    this.server.sendResponse({ answers: records }, name, callback);
+    const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: records });
+    this.server.sendResponse(packet, name, callback);
   }
 
   private goodbye(service: CiaoService): Promise<void> {
@@ -448,42 +451,81 @@ export class Responder implements PacketHandler {
       return; // wait for the next query
     }
 
-    // responses must not include questions RFC 6762 6.
-    const multicastResponse = new QueryResponse();
-    const unicastResponse = new QueryResponse();
-    const knownAnswers = packet.answers;
-    const isProbeQuery = packet.authorities.length > 0;
+    const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
+    const isProbeQuery = packet.authorities.length > 0
+      && !(packet.authorities.length === 1 && packet.authorities[0].type === RType.OPT);
 
-    // TODO coder library expects a definition for every unit of answers and packets should be combined later
+    let mtuSize: number | undefined = undefined; // mtu supported by the querier (ip and udp headers already subtracted)
+    for (const record of packet.authorities) {
+      if (record.type === RType.OPT) {
+        mtuSize = (record as OPTRecord).udpPayloadSize;
+        debug("Querier sent udp payload size of %d", mtuSize);
+        break;
+      }
+    }
+
+    // responses must not include questions RFC 6762 6.
+    const multicastResponses: QueryResponse[] = [new QueryResponse()];
+    const unicastResponses: QueryResponse[] = [new QueryResponse()];
 
     // define knownAnswers so the addAnswer/addAdditional method can check if records need to be added or not
     // known answer suppression according to RFC 6762 7.1.
-    multicastResponse.defineKnownAnswers(knownAnswers);
-    unicastResponse.defineKnownAnswers(knownAnswers);
+    multicastResponses[0].defineKnownAnswers(packet.answers);
+    unicastResponses[0].defineKnownAnswers(packet.answers);
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
-      this.answerQuestion(question, endpoint, question.unicastResponseFlag? unicastResponse: multicastResponse);
+      const responses = (question.unicastResponseFlag || isUnicastQuerier)? unicastResponses: multicastResponses;
+      responses.push(...this.answerQuestion(question, endpoint, responses[0]));
     });
 
     if (this.currentProber) {
       this.currentProber.handleQuery(packet);
     }
 
-    if (endpoint.port !== MDNSServer.MDNS_PORT) {
+    if (isUnicastQuerier) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
       //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
       //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
-      unicastResponse.markLegacyUnicastResponse(packet.id, packet.questions, multicastResponse);
+      unicastResponses.forEach(response => response.markLegacyUnicastResponse(packet.id, packet.questions));
     }
 
-    if (unicastResponse.hasAnswers()) {
-      this.server.sendResponse(unicastResponse, endpoint);
-      debug("Sending response via unicast to " + JSON.stringify(endpoint) + " with ["
-        + unicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
-        + unicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+    // TODO this note should be placed somewhere else (when we combine delayed multicast packets)
+    // RFC 6762 6.4. Response aggregation:
+    //    When possible, a responder SHOULD, for the sake of network
+    //    efficiency, aggregate as many responses as possible into a single
+    //    Multicast DNS response message.  For example, when a responder has
+    //    several responses it plans to send, each delayed by a different
+    //    interval, then earlier responses SHOULD be delayed by up to an
+    //    additional 500 ms if that will permit them to be aggregated with
+    //    other responses scheduled to go out a little later.
+    QueryResponse.combineResponses(multicastResponses, mtuSize);
+    QueryResponse.combineResponses(unicastResponses, mtuSize);
+
+    if (isUnicastQuerier && unicastResponses.length > 1) {
+      // RFC 6762 18.5. In legacy unicast response messages, the TC bit has the same meaning
+      //    as in conventional Unicast DNS: it means that the response was too
+      //    large to fit in a single packet, so the querier SHOULD reissue its
+      //    query using TCP in order to receive the larger response.
+
+      unicastResponses.splice(1, unicastResponses.length - 1); // discard all other
+      unicastResponses[0].markTruncated();
     }
-    if (multicastResponse.hasAnswers()) {
+
+    for (const unicastResponse of unicastResponses) {
+      if (!unicastResponse.hasAnswers()) {
+        continue;
+      }
+
+      this.server.sendResponse(unicastResponse.asPacket(), endpoint);
+      debug("Sending response via unicast to %s: %s", JSON.stringify(endpoint), unicastResponse.asString());
+    }
+
+    for (const multicastResponse of multicastResponses) {
+      if (!multicastResponse.hasAnswers()) {
+        continue;
+      }
+
       // TODO To protect the network against excessive packet flooding due to
       //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
       //    (except in the one special case of answering probe queries) multicast
@@ -499,19 +541,18 @@ export class Responder implements PacketHandler {
 
         // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
+        // TODO RFC 6762 6.4. Response aggregation:
+
         const delay = Math.random() * 100 + 20;
         const timer = setTimeout(() => {
-          this.server.sendResponse(multicastResponse, endpoint.interface);
-          debug("Sending (delayed " + Math.round(delay) + "ms) response via multicast on network " + endpoint.interface + " with ["
-            + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
-            + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+          this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
+
+          debug("Sending (delayed %dms) response via multicast on network %s: %s", Math.round(delay), endpoint.interface, multicastResponse.asString());
         }, delay);
         timer.unref();
       } else {
-        this.server.sendResponse(multicastResponse, endpoint.interface);
-        debug("Sending response via multicast on network " + endpoint.interface + " with ["
-          + multicastResponse.answers.map(answer => dnsTypeToString(answer.type)).join(",") + "] answers and ["
-          + multicastResponse.additionals.map(answer => dnsTypeToString(answer.type)).join(",") + "] additionals");
+        this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
+        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString());
       }
     }
   }
@@ -643,7 +684,7 @@ export class Responder implements PacketHandler {
     return false;
   }
 
-  private answerQuestion(question: Question, endpoint: EndpointInfo, response: QueryResponse): void {
+  private answerQuestion(question: Question, endpoint: EndpointInfo, mainResponse: QueryResponse): QueryResponse[] {
     // RFC 6762 6: The determination of whether a given record answers a given question
     //    is made using the standard DNS rules: the record name must match the
     //    question name, the record rrtype must match the question qtype unless
@@ -652,8 +693,10 @@ export class Responder implements PacketHandler {
 
     if (question.class !== QClass.IN && question.class !== QClass.ANY) {
       // We just publish answers with IN class. So only IN or ANY questions classes will match
-      return;
+      return [];
     }
+
+    const serviceResponses: QueryResponse[] = [];
 
     if (question.type === QType.PTR || question.type === QType.ANY || question.type === QType.CNAME) {
       const loweredQuestionName = dnsLowerCase(question.name);
@@ -668,22 +711,23 @@ export class Responder implements PacketHandler {
 
           if (service) {
             // call the method for original question, so additionals get added properly
-            Responder.answerServiceQuestion(service, question, endpoint, response);
+            const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
+            serviceResponses.push(response);
           } else {
             // it's probably question for PTR '_services._dns-sd._udp.local'
             // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
-            response.addAnswer(new PTRRecord(question.name, data));
+            mainResponse.addAnswer(new PTRRecord(question.name, data));
           }
         }
 
-        return; // if we got in this if body it was a pointer name and we handled it correctly
+        return serviceResponses; // if we got in this if-body, it was a pointer name and we handled it correctly
       } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
           const address = ipAddressFromReversAddressName(loweredQuestionName);
 
           for (const service of this.announcedServices.values()) {
             const record = service.reverseAddressMapping(address);
             if (record) {
-              response.addAnswer(record);
+              mainResponse.addAnswer(record);
             }
           }
         }
@@ -693,14 +737,22 @@ export class Responder implements PacketHandler {
     }
 
     for (const service of this.announcedServices.values()) {
-      Responder.answerServiceQuestion(service, question, endpoint, response);
+      const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
+      serviceResponses.push(response);
     }
+
+    return serviceResponses;
   }
 
-  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, response: QueryResponse): void {
+  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, mainResponse: QueryResponse): QueryResponse {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
+
+    const response = new QueryResponse();
+    if (mainResponse.knownAnswers) {
+      response.defineKnownAnswers(mainResponse.knownAnswers);
+    }
 
     const questionName = dnsLowerCase(question.name);
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
@@ -797,6 +849,8 @@ export class Responder implements PacketHandler {
         }
       }
     }
+
+    return response;
   }
 
   /**

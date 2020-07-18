@@ -1,5 +1,4 @@
 import assert from "assert";
-import deepEqual from "fast-deep-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
@@ -54,7 +53,18 @@ export class TXTRecord extends ResourceRecord {
   }
 
   public dataEquals(record: TXTRecord): boolean {
-    return deepEqual(this.txt, record.txt);
+    // deepEquals on buffers doesn't really work
+    if (this.txt.length !== record.txt.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this.txt.length; i++) {
+      if (this.txt[i].toString("hex") !== record.txt[i].toString("hex")) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<TXTRecord> {

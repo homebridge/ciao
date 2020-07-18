@@ -1,10 +1,9 @@
 import assert from "assert";
-import "./records";
+import deepEqual from "fast-deep-equal";
 import { MDNSServer } from "../MDNSServer";
-import { IPFamily } from "../NetworkManager";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { Question } from "./Question";
-import { SRVRecord } from "./records/SRVRecord";
+import "./records";
 import { ResourceRecord } from "./ResourceRecord";
 
 export const enum OpCode { // RFC 6895 2.2.
@@ -24,7 +23,7 @@ export const enum RType { // RFC 1035 3.2.2.
   TXT = 16,
   AAAA = 28, // RFC 3596 2.1.
   SRV = 33, // RFC 2782
-  // TODO implement decoding 41 OPT
+  OPT = 41, // RFC 6891
   NSEC = 47, // RFC 4034 4.
   // incomplete list
 }
@@ -36,6 +35,7 @@ export const enum QType { // RFC 1035 3.2.2. 3.2.3.
   TXT = 16,
   AAAA = 28, // RFC 3596 2.1.
   SRV = 33, // RFC 2782
+  // OPT = 41, // RFC 6891
   NSEC = 47, // RFC 4034 4.
   ANY = 255,
   // incomplete list
@@ -124,6 +124,7 @@ export interface PacketFlags {
 
 export interface PacketDefinition {
   id?: number;
+  legacyUnicast?: boolean;
 
   type: PacketType;
   opcode?: OpCode; // default QUERY
@@ -140,7 +141,9 @@ export interface DNSRecord {
 
   getEstimatedEncodingLength(): number;
 
-  trackNames(coder: DNSLabelCoder): void;
+  trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void;
+
+  clearNameTracking(): void;
 
   getEncodingLength(coder: DNSLabelCoder): number;
 
@@ -149,6 +152,12 @@ export interface DNSRecord {
 }
 
 export class DNSPacket {
+
+  public static readonly MTU_IPV4 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
+    - (MDNSServer.DEFAULT_IP4_HEADER + MDNSServer.UDP_HEADER);
+  // noinspection JSUnusedGlobalSymbols
+  public static readonly MTU_IPV6 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
+    - (MDNSServer.DEFAULT_IP6_HEADER + MDNSServer.UDP_HEADER);
 
   private static readonly AUTHORITATIVE_ANSWER_MASK = 0x400;
   private static readonly TRUNCATION_MASK = 0x200;
@@ -161,7 +170,8 @@ export class DNSPacket {
   // 2 bytes ID, 2 bytes flags, 2 bytes question count, 2 bytes answer count, 2 bytes authorities count; 2 bytes additionals count
   private static readonly DNS_PACKET_HEADER_SIZE = 12;
 
-  readonly id: number;
+  id: number;
+  private legacyUnicastEncoding: boolean;
 
   readonly type: PacketType;
   readonly opcode: OpCode;
@@ -174,10 +184,12 @@ export class DNSPacket {
   readonly additionals: ResourceRecord[];
 
   private readonly labelCoder: DNSLabelCoder;
+  private encodingMode = false;
   private estimatedPacketSize = 0; // only set in encoding mode
 
-  private constructor(definition: PacketDefinition, encode = true) {
+  constructor(definition: PacketDefinition) {
     this.id = definition.id || 0;
+    this.legacyUnicastEncoding = definition.legacyUnicast || false;
 
     this.type = definition.type;
     this.opcode = definition.opcode || OpCode.QUERY;
@@ -190,16 +202,9 @@ export class DNSPacket {
     this.additionals = definition.additionals || [];
 
     this.labelCoder = new DNSLabelCoder();
-
-    if (encode) {
-      this.initialNameTracking();
-    }
   }
 
-  public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, mtu: number, ipFamily = IPFamily.IPv4): DNSPacket[] {
-    // subtracting space needed for the ip and udp header
-    mtu -= (ipFamily === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER) + MDNSServer.UDP_HEADER;
-
+  public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, mtu = this.MTU_IPV4): DNSPacket[] {
     const packets: DNSPacket[] = [];
 
     // packet is like the "main" packet
@@ -207,6 +212,7 @@ export class DNSPacket {
       type: PacketType.QUERY,
       questions: definition.questions,
     });
+    packet.initEncodingMode();
     packets.push(packet);
 
     if (packet.getEstimatedEncodingLength() > mtu) {
@@ -217,23 +223,27 @@ export class DNSPacket {
       }
     }
 
+    // related https://en.wikipedia.org/wiki/Knapsack_problem
+
     if (isQuery(definition) && definition.answers) {
-      let i = 0;
       let currentPacket = packet;
+      let i = 0;
+      const answers = definition.answers.concat([]); // concat basically creates a copy of the array
+      // sort the answers ascending on their encoding length; otherwise we would need to check if a packets fits in a previously created packet
+      answers.sort((a, b) => a.getEstimatedEncodingLength() - b.getEstimatedEncodingLength());
 
       // in the loop below, we check if we need to truncate the list of known-answers in the query
 
-      while (i < definition.answers.length) {
-        for (; i < definition.answers.length; i++) {
-          const answer = definition.answers[i];
+      while (i < answers.length) {
+        for (; i < answers.length; i++) {
+          const answer = answers[i];
           const estimatedSize = answer.getEstimatedEncodingLength();
-
-          // TODO we should check if it fits in any of the previous packets
 
           if (packet.getEstimatedEncodingLength() + estimatedSize <= mtu) { // size check on estimated calculations
             currentPacket.addAnswers(answer);
-          } else if (packet.getEncodingLength() + estimatedSize <= mtu) { // size check using message compression
-            // TODO can we somehow count the compressed encoding length of the new packet
+          } else if (packet.getEncodingLength() + estimatedSize <= mtu) { // check if the record may fit when message compression is used.
+            // we may still have a false positive here, as the currently can't compute the REAL encoding for the answer
+            // record, thus we rely on the estimated size
             currentPacket.addAnswers(answer);
           } else {
             if (currentPacket.questions.length === 0 && currentPacket.answers.length === 0) {
@@ -250,9 +260,10 @@ export class DNSPacket {
           }
         }
 
-        if (i < definition.answers.length) { // if there are more records left, we need to truncate the packet again
+        if (i < answers.length) { // if there are more records left, we need to truncate the packet again
           currentPacket.flags.truncation = true; // first of all, mark the previous packet as truncated
           currentPacket = new DNSPacket({ type: PacketType.QUERY });
+          currentPacket.initEncodingMode();
           packets.push(currentPacket);
         }
       }
@@ -261,174 +272,159 @@ export class DNSPacket {
       const compressedLength = packet.getEncodingLength();
 
       if (compressedLength > mtu) {
-        // TODO maybe a warning is enough?
-        assert.fail("Probe query packet exceeds the mtu size (" + compressedLength + ">" + mtu + ")");
+        assert.fail(`Probe query packet exceeds the mtu size (${compressedLength}>${mtu}). Can't split probe queries at the moment!`);
       }
     } // otherwise, the packet consist of only questions
 
     return packets;
   }
 
-  public static createDNSResponsePackets(definition: DNSResponseDefinition, mtu: number, ipFamily = IPFamily.IPv4): DNSPacket[] {
-    // subtracting space needed for the ip and udp header
-    mtu -= (ipFamily === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER) + MDNSServer.UDP_HEADER;
-
-    const packets: DNSPacket[] = [];
-
+  public static createDNSResponsePacketsFromRRSet(definition: DNSResponseDefinition, mtu = this.MTU_IPV4): DNSPacket {
     const packet = new DNSPacket({
+      id: definition.id,
+      legacyUnicast: definition.legacyUnicast,
+
       type: PacketType.RESPONSE,
       flags: { authoritativeAnswer: true }, // RFC 6763 18.4 AA is always set for responses in mdns
       // possible questions sent back to an unicast querier (unicast dns contain only one question, so no size problem here)
       questions: definition.questions,
+      answers: definition.answers,
+      additionals: definition.additionals,
     });
-    packets.push(packet);
+    packet.initEncodingMode();
 
-    // were trying to put as much answers as possible into the packet
-    // we expect that the caller of the method will only call the method for records which relate to the same
-    // service. If records from multiple services should be combined, it is advised to create a response packet
-    // for every service and check if the packets are able to be combined.
-    // TODO add method to check if two DNSPackets can be combined into one
-
-    {
-      // first of all we add as many answers possible, any other answers will be split on the next packet
-
-      let i = 0; // answers index
-      let currentPacket = packet;
-
-      while (i < definition.answers.length) {
-        for (; i < definition.answers.length; i++) {
-          const answer = definition.answers[i];
-          const estimatedSize = answer.getEstimatedEncodingLength();
-
-          if (definition.legacyUnicast && answer instanceof SRVRecord) {
-            // RFC 6762 18.14. In legacy unicast responses generated to answer legacy queries, name
-            //    compression MUST NOT be performed on SRV records. (meaning compression inside the rData)
-            answer.targetingLegacyUnicastQuerier = true;
-          }
-
-          // TODO we should check if it fits in any of the previous packets
-
-          if (packet.getEstimatedEncodingLength() + estimatedSize <= mtu) { // size check on estimated calculations
-            currentPacket.addAnswers(answer);
-          } else if (packet.getEncodingLength() + estimatedSize <= mtu) { // size check using message compression
-            // TODO can we somehow count the compressed encoding length of the new packet
-            currentPacket.addAnswers(answer);
-          } else {
-            if (currentPacket.answers.length === 0 && !definition.legacyUnicast) {
-              // we encountered a record which is to big and can't fit in a mtu sized packet
-
-              // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
-              //    large to fit in a single MTU-sized multicast response packet, a
-              //    Multicast DNS responder SHOULD send the resource record alone, in a
-              //    single IP datagram, using multiple IP fragments.
-              packet.addAnswers(answer);
-            }
-
-            break;
-          }
-        }
-
-        if (i < definition.answers.length) {
-          // RFC 6762 18.5. In multicast response messages, the TC bit MUST be zero on
-          //    transmission, and MUST be ignored on reception.
-
-          currentPacket = new DNSPacket({
-            type: PacketType.RESPONSE,
-            flags: {authoritativeAnswer: true},
-          });
-          packets.push(currentPacket);
-
-          if (definition.legacyUnicast) {
-            // RFC 6762 18.5. In legacy unicast response messages, the TC bit has the same meaning
-            //    as in conventional Unicast DNS: it means that the response was too
-            //    large to fit in a single packet, so the querier SHOULD reissue its
-            //    query using TCP in order to receive the larger response.
-
-            // the rest of the packets simply won't be sent
-            currentPacket.flags.truncation = true;
-            break;
-          }
-        }
-      }
+    if (packet.getEncodingLength() > mtu) {
+      assert.fail("Couldn't construct a dns response packet from a rr set!");
     }
 
-    if (definition.additionals) {
-      // if there is still room we will add all additionals which still have room in the packet
+    return packet;
+  }
 
-      let j = 0; // additionals index
-      const lastPacket = packets[packets.length - 1];
+  public canBeCombinedWith(packet: DNSPacket, mtu = DNSPacket.MTU_IPV4): boolean {
+    // packet header must be identical
+    return this.id === packet.id && this.type === packet.type
+      && this.opcode === packet.opcode && deepEqual(this.flags, packet.flags)
+      && this.rcode === packet.rcode
+      // and the data must fit into a mtu sized packet
+      && this.getEncodingLength() + packet.getEncodingLength() <= mtu;
+  }
 
-      for (; j < definition.additionals.length; j++) {
-        const additional = definition.additionals[j];
-        const estimatedSize = additional.getEstimatedEncodingLength();
+  public combineWith(packet: DNSPacket): void {
+    // below assert would be useful, but current codebase will check this in any case
+    // so we leave it commented out for now
+    // assert(this.canBeCombined(packet), "Tried combining packet which can not be combined!");
 
-        if (definition.legacyUnicast && additional instanceof SRVRecord) {
-          // RFC 6762 18.14. In legacy unicast responses generated to answer legacy queries, name
-          //    compression MUST NOT be performed on SRV records. (meaning compression inside the rData)
-          additional.targetingLegacyUnicastQuerier = true;
-        }
+    this.legacyUnicastEncoding = this.legacyUnicastEncoding || packet.legacyUnicastEncoding;
 
-        // TODO we should check if it fits in any of the previous packets
+    packet.clearNameTracking();
 
-        if (packet.getEstimatedEncodingLength() + estimatedSize <= mtu) { // size check on estimated calculations
-          lastPacket.addAdditionals(additional);
-        } else if (packet.getEncodingLength() + estimatedSize <= mtu) { // size check using message compression
-          // TODO can we somehow count the compressed encoding length of the new packet
-          lastPacket.addAdditionals(additional);
-        } else {
+    this.addQuestions(...packet.questions);
+    this.addAnswers(...packet.answers);
+    this.addAuthorities(...packet.authorities);
+    this.addAdditionals(...packet.additionals);
+  }
+
+  public addQuestions(...questions: Question[]): void {
+    this.addRecords(this.questions, questions);
+  }
+
+  public addAnswers(...answers: ResourceRecord[]): void {
+    this.addRecords(this.answers, answers);
+  }
+
+  public addAuthorities(...authorities: ResourceRecord[]): void {
+    this.addRecords(this.authorities, authorities);
+  }
+
+  public addAdditionals(...additionals: ResourceRecord[]): void {
+    this.addRecords(this.additionals, additionals);
+  }
+
+  private addRecords(recordList: DNSRecord[], added: DNSRecord[]): void {
+    for (const record of added) {
+      if (this.encodingMode) {
+        record.clearNameTracking();
+        record.trackNames(this.labelCoder, this.legacyUnicastEncoding);
+        this.estimatedPacketSize += record.getEstimatedEncodingLength();
+      }
+
+      recordList.push(record);
+    }
+  }
+
+  public replaceExistingAnswer(record: ResourceRecord): boolean {
+    return this.replaceExistingRecord(this.answers, record);
+  }
+
+  public replaceExistingAdditional(record: ResourceRecord): boolean {
+    return this.replaceExistingRecord(this.additionals, record);
+  }
+
+  public removeAboutSameAdditional(record: ResourceRecord): void {
+    this.removeAboutSameRecord(this.additionals, record);
+  }
+
+  private replaceExistingRecord(recordList: ResourceRecord[], record: ResourceRecord): boolean {
+    assert(!this.encodingMode, "Can't replace records when already in encoding mode!");
+
+    let overwrittenSome = false;
+
+    for (let i = 0; i < recordList.length; i++) {
+      const record0 = recordList[i];
+
+      if (record0.representsSameData(record)) {
+        // A and AAAA records can be duplicate in one packet even though flush flag is set
+        if (record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) {
+          recordList[i] = record;
+          overwrittenSome = true;
+          break;
+        } else if (record0.dataEquals(record)) {
+          // flush flag is not set, but it is the same data thus the SAME record
+          record0.ttl = record.ttl;
+          overwrittenSome = true;
           break;
         }
       }
-
-      // the rest of the additionals are ignored, we are not sending packets only consisting of additionals
-      // remember additionals SHOULD be included. The querier should simply send another query if it needs anything.
     }
 
-    return packets;
+    return overwrittenSome;
   }
 
-  private addAnswers(...answers: ResourceRecord[]): void {
-    this.initialNameTracking();
+  private removeAboutSameRecord(recordList: ResourceRecord[], record: ResourceRecord): void {
+    assert(!this.encodingMode, "Can't remove records when already in encoding mode!");
 
-    for (const record of answers) {
-      record.trackNames(this.labelCoder);
-      this.answers.push(record);
+    for (let i = 0; i < recordList.length; i++) {
+      const record0 = recordList[i];
 
-      this.estimatedPacketSize += record.getEstimatedEncodingLength();
-    }
-  }
-
-  private addAuthorities(...authorities: ResourceRecord[]): void {
-    this.initialNameTracking();
-
-    for (const record of authorities) {
-      record.trackNames(this.labelCoder);
-      this.authorities.push(record);
-
-      this.estimatedPacketSize += record.getEstimatedEncodingLength();
+      if (record0.representsSameData(record)) {
+        // A and AAAA records can be duplicate in one packet even though flush flag is set
+        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA)
+          || record0.dataEquals(record)) {
+          recordList.splice(i, 1);
+          break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
+        }
+      }
     }
   }
 
-  private addAdditionals(...additionals: ResourceRecord[]): void {
-    this.initialNameTracking();
-
-    for (const record of additionals) {
-      record.trackNames(this.labelCoder);
-      this.additionals.push(record);
-
-      this.estimatedPacketSize += record.getEstimatedEncodingLength();
-    }
+  public setLegacyUnicastEncoding(legacyUnicastEncoding: boolean): void {
+    assert(!this.encodingMode, "Can't change legacy unicast encoding flag when already in encoding mode!");
+    this.legacyUnicastEncoding = legacyUnicastEncoding;
   }
 
-  private initialNameTracking() {
-    if (this.estimatedPacketSize > 0) {
+  public legacyUnicastEncodingEnabled(): boolean {
+    return this.legacyUnicastEncoding;
+  }
+
+  public initEncodingMode(): void {
+    if (this.encodingMode) {
       return;
     }
 
-    this.questions.forEach(question => question.trackNames(this.labelCoder));
-    this.answers.forEach(record => record.trackNames(this.labelCoder));
-    this.authorities.forEach(record => record.trackNames(this.labelCoder));
-    this.additionals.forEach(record => record.trackNames(this.labelCoder));
+    this.questions.forEach(question => question.trackNames(this.labelCoder, this.legacyUnicastEncoding));
+    this.answers.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
+    this.authorities.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
+    this.additionals.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
 
     this.estimatedPacketSize = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
@@ -436,13 +432,30 @@ export class DNSPacket {
     this.answers.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
     this.authorities.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
     this.additionals.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
+
+    this.encodingMode = true;
+  }
+
+  private clearNameTracking() {
+    this.estimatedPacketSize = 0;
+    this.encodingMode = false;
+
+    this.labelCoder.resetCoder();
+
+    this.questions.forEach(record => record.clearNameTracking());
+    this.answers.forEach(record => record.clearNameTracking());
+    this.authorities.forEach(record => record.clearNameTracking());
+    this.additionals.forEach(record => record.clearNameTracking());
   }
 
   private getEstimatedEncodingLength(): number {
+    assert(this.encodingMode, "Can't calculate estimated encoding length when not in encoding mode!");
     return this.estimatedPacketSize; // returns the upper bound (<=) for the packet length
   }
 
   private getEncodingLength(): number {
+    assert(this.encodingMode, "Can't calculate REAL encoding length when not in encoding mode!");
+
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
     this.labelCoder.computeCompressionPaths(); // ensure we are up to date with all the latest information
@@ -458,7 +471,7 @@ export class DNSPacket {
   }
 
   public encode(): Buffer {
-    this.initialNameTracking();
+    this.initEncodingMode();
 
     const length = this.getEncodingLength();
     const buffer = Buffer.allocUnsafe(length);
@@ -525,12 +538,7 @@ export class DNSPacket {
 
     assert(offset === buffer.length, "Bytes written didn't match the buffer size!");
 
-    this.labelCoder.resetCoder(); // this call will write all pointers used for message compression and clean up the names array
-
-    this.questions.forEach(record => record.finishEncoding());
-    this.answers.forEach(record => record.finishEncoding());
-    this.authorities.forEach(record => record.finishEncoding());
-    this.additionals.forEach(record => record.finishEncoding());
+    this.clearNameTracking();
 
     return buffer;
   }
@@ -623,7 +631,7 @@ export class DNSPacket {
       answers: answers,
       authorities: authorities,
       additionals: additionals,
-    }, false);
+    });
   }
 
 }

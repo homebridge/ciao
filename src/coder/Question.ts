@@ -32,12 +32,13 @@ export class Question implements DNSRecord {
     return DNSLabelCoder.getUncompressedNameLength(this.name) + 4;
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
     assert(!this.trackedName, "trackNames can only be called once per DNSLabelCoder!");
     this.trackedName = coder.trackName(this.name);
   }
 
-  public finishEncoding(): void {
+  public clearNameTracking(): void {
     this.trackedName = undefined;
   }
 

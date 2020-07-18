@@ -3,6 +3,7 @@ import { AAAARecord } from "./records/AAAARecord";
 import { ARecord } from "./records/ARecord";
 import { CNAMERecord } from "./records/CNAMERecord";
 import { NSECRecord } from "./records/NSECRecord";
+import { OPTOption, OPTRecord } from "./records/OPTRecord";
 import { PTRRecord } from "./records/PTRRecord";
 import { SRVRecord } from "./records/SRVRecord";
 import { TXTRecord } from "./records/TXTRecord";
@@ -32,6 +33,15 @@ describe(ResourceRecord, () => {
     runCompressionSanityChecks(new NSECRecord("test.local.", "test.local.", [RType.A]));
   });
 
+  it("should encode OPT", () => {
+    const options: OPTOption[] = [{ code: 1337, data: Buffer.from("hello world")}, { code: 123, data: Buffer.from("456")}];
+
+    runRecordEncodingTest(new OPTRecord(1472));
+    runRecordEncodingTest(new OPTRecord(1472, options));
+    runRecordEncodingTest(new OPTRecord(1472, [], 13, { dnsSecOK: true }));
+    runRecordEncodingTest(new OPTRecord(1472, options, 13, { dnsSecOK: true }, 1));
+  });
+
   it("should encode PTR", () => {
     runRecordEncodingTest(new PTRRecord("test.local.", "test2.local."));
     runRecordEncodingTest(new PTRRecord("sub.test.local.", "test2.local."));
@@ -40,8 +50,7 @@ describe(ResourceRecord, () => {
 
   it("should encode SRV", () => {
     const unicastSRV = new SRVRecord("My Great Service._hap._tcp.local.", "test.local.", 8080);
-    unicastSRV.targetingLegacyUnicastQuerier = true;
-    runRecordEncodingTest(unicastSRV);
+    runRecordEncodingTest(unicastSRV, true);
 
     runRecordEncodingTest(new SRVRecord("My Great Service._hap._tcp.local.", "test.local.", 8080));
     runRecordEncodingTest(new SRVRecord("My Great Service2._hap._tcp.local.", "test2.local", 8081));

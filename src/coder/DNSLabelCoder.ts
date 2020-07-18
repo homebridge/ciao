@@ -40,7 +40,6 @@ export class DNSLabelCoder {
   private static readonly NOT_POINTER_MASK = 0x3FFF;
 
   private buffer?: Buffer;
-  private readonly writtenNames: Name[] = [];
 
   private readonly trackedNames: Name[] = [];
   private computedCompressionPaths = false;
@@ -238,10 +237,6 @@ export class DNSLabelCoder {
   }
 
   public resetCoder(): void {
-    if (!this.buffer) {
-      assert.fail("Illegal state. Buffer not initialized!");
-    }
-
     // reset the label coder
     this.buffer = undefined;
     this.trackedNames.splice(0, this.trackedNames.length);
@@ -287,13 +282,6 @@ export class DNSLabelCoder {
 
   public static getUncompressedNameLength(name: string): number {
     return NonCompressionLabelCoder.INSTANCE.getNameLength(name);
-  }
-
-  private static nameComparator(a: Name, b: Name): number {
-    if (a.fullName.length !== b.fullName.length) {
-      return b.fullName.length - a.fullName.length; // sorting length descending
-    }
-    return a.fullName.localeCompare(b.fullName); // sort by lexicographical order for deterministic results
   }
 
   private static computeLabelSuffixLength(element: Name, candidate: Name): number {

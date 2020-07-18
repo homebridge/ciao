@@ -1,6 +1,7 @@
 import assert from "assert";
 import createDebug from "debug";
 import { CiaoService, ServiceState } from "../CiaoService";
+import { DNSPacket } from "../coder/DNSPacket";
 import { ResourceRecord } from "../coder/ResourceRecord";
 import { MDNSServer, SendCallback } from "../MDNSServer";
 import Timeout = NodeJS.Timeout;
@@ -214,10 +215,11 @@ export class Announcer {
       }
       answer.push(nsecRecord);
 
+      const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: answer });
       if (!callback) {
-        server.sendResponse({ answers: answer }, name);
+        server.sendResponse(packet, name);
       } else {
-        server.sendResponse({ answers: answer }, name, error => {
+        server.sendResponse(packet, name, error => {
           if (error) {
             encounteredErrors.push(error);
           }

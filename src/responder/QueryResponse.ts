@@ -1,22 +1,33 @@
-import { DNSResponseDefinition, RType } from "../coder/DNSPacket";
+import { DNSPacket, dnsTypeToString, PacketType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
 
 export type RecordAddMethod = (...records: ResourceRecord[]) => boolean;
 
-export class QueryResponse implements DNSResponseDefinition {
+export class QueryResponse {
 
-  id?: number;
-  questions?: Question[];
-  answers: ResourceRecord[] = [];
-  additionals: ResourceRecord[] = [];
-  legacyUnicast?: boolean;
+  private readonly dnsPacket: DNSPacket;
 
-  private knownAnswers?: ResourceRecord[];
+  knownAnswers?: ResourceRecord[];
   private sharedAnswer = false;
+
+  constructor() {
+    this.dnsPacket = new DNSPacket({ type: PacketType.RESPONSE });
+  }
 
   public defineKnownAnswers(records: ResourceRecord[]): void {
     this.knownAnswers = records;
+  }
+
+  public asPacket(): DNSPacket {
+    return this.dnsPacket;
+  }
+
+  public asString(): string {
+    const answerString = this.dnsPacket.answers.map(record => dnsTypeToString(record.type)).join(",");
+    const additionalsString = this.dnsPacket.additionals.map(record => dnsTypeToString(record.type)).join(",");
+    const optionsString = this.dnsPacket.legacyUnicastEncodingEnabled()? " (U)": "";
+    return `[${answerString}}] answers and [${additionalsString}] additionals${optionsString}`;
   }
 
   public containsSharedAnswer(): boolean {
@@ -32,7 +43,7 @@ export class QueryResponse implements DNSResponseDefinition {
         continue;
       }
 
-      const overwritten = QueryResponse.replaceExistingRecord(this.answers, record);
+      const overwritten = this.dnsPacket.replaceExistingAnswer(record);
       addedAny = true;
 
       if (!overwritten) {
@@ -40,10 +51,10 @@ export class QueryResponse implements DNSResponseDefinition {
           this.sharedAnswer = true;
         }
 
-        this.answers.push(record);
+        this.dnsPacket.addAnswers(record);
       }
 
-      QueryResponse.removeAboutSameRecord(this.additionals, record);
+      this.dnsPacket.removeAboutSameAdditional(record);
     }
 
     return addedAny;
@@ -58,13 +69,13 @@ export class QueryResponse implements DNSResponseDefinition {
         continue;
       }
 
-      const overwrittenAnswer = QueryResponse.replaceExistingRecord(this.answers, record);
+      const overwrittenAnswer = this.dnsPacket.replaceExistingAnswer(record);
 
       // if it is already in the answer section, don't include it in additionals
       if (!overwrittenAnswer) {
-        const overwrittenAdditional = QueryResponse.replaceExistingRecord(this.additionals, record);
+        const overwrittenAdditional = this.dnsPacket.replaceExistingAdditional(record);
         if (!overwrittenAdditional) {
-          this.additionals.push(record);
+          this.dnsPacket.addAdditionals(record);
           addedAny = true;
         } else {
           addedAny = true;
@@ -77,38 +88,33 @@ export class QueryResponse implements DNSResponseDefinition {
     return addedAny;
   }
 
-  public markLegacyUnicastResponse(id: number, questions: Question[], multicastResponse: QueryResponse): void {
+  public markLegacyUnicastResponse(id: number, questions: Question[]): void {
     // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
     //  * MUSTS: response via unicast, repeat query ID, repeat questions (actually it should just be one), clear cache flush bit
     //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
-    this.addAnswer(...multicastResponse.answers);
-    this.addAdditional(...multicastResponse.additionals);
-    multicastResponse.clear();
+    this.dnsPacket.id = id;
+    this.dnsPacket.addQuestions(...questions);
 
-    this.id = id;
-    this.questions = questions;
-
-    this.answers.forEach(answers => {
+    this.dnsPacket.answers.forEach(answers => {
       answers.flushFlag = false;
       answers.ttl = 10;
     });
-    this.additionals?.forEach(answers => {
+    this.dnsPacket.additionals.forEach(answers => {
       answers.flushFlag = false;
       answers.ttl = 10;
     });
 
-    this.legacyUnicast = true; // legacy unicast also affects the encoder (must not use compression for the SRV record) so we need to tell him
+    this.dnsPacket.setLegacyUnicastEncoding(true); // legacy unicast also affects the encoder (must not use compression for the SRV record) so we need to tell him
+  }
+
+  public markTruncated(): void {
+    this.dnsPacket.flags.truncation = true;
   }
 
   public hasAnswers(): boolean {
     // we may still have additionals, though there is no reason when answers is empty
     // removeKnownAnswer may have removed all answers and only additionals are known.
-    return this.answers.length > 0;
-  }
-
-  private clear(): void {
-    this.answers.splice(0, this.answers.length);
-    this.additionals.splice(0, this.additionals.length);
+    return this.dnsPacket.answers.length > 0;
   }
 
   private isKnownAnswer(record: ResourceRecord): boolean {
@@ -129,41 +135,28 @@ export class QueryResponse implements DNSResponseDefinition {
     return false;
   }
 
-  private static replaceExistingRecord(records: ResourceRecord[], record: ResourceRecord): boolean {
-    let overwrittenSome = false;
+  public static combineResponses(responses: QueryResponse[], mtu?: number): void {
+    for (let i = 0; i < responses.length - 1; i++) {
+      const current = responses[i];
+      const currentPacket = current.dnsPacket;
+      const next = responses[i + 1];
+      const nextPacket = next.dnsPacket;
 
-    for (let i = 0; i < records.length; i++) {
-      const record0 = records[i];
+      currentPacket.initEncodingMode();
+      nextPacket.initEncodingMode();
 
-      if (record0.representsSameData(record)) {
-        // A and AAAA records can be duplicate in one packet even though flush flag is set
-        if (record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) {
-          records[i] = record;
-          overwrittenSome = true;
-          break;
-        } else if (record0.dataEquals(record)) {
-          // flush flag is not set, but it is the same data thus the SAME record
-          record0.ttl = record.ttl;
-          overwrittenSome = true;
-          break;
-        }
-      }
-    }
+      if (currentPacket.canBeCombinedWith(nextPacket, mtu)) {
+        // combine the packet with next one
+        currentPacket.combineWith(nextPacket);
 
-    return overwrittenSome;
-  }
+        // remove next from the array
+        responses.splice(i + 1, 1);
 
-  private static removeAboutSameRecord(records: ResourceRecord[], record: ResourceRecord): void {
-    for (let i = 0; i < records.length; i++) {
-      const record0 = records[i];
+        // we won't combine the known answer section, with current implementation they will always be the same
+        current.sharedAnswer = current.sharedAnswer || next.sharedAnswer;
 
-      if (record0.representsSameData(record)) {
-        // A and AAAA records can be duplicate in one packet even though flush flag is set
-        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA)
-          || record0.dataEquals(record)) {
-          records.splice(i, 1);
-          break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
-        }
+        // decrement i, so we check again if the "current" packet can be combined with the packet after "next"
+        i--;
       }
     }
   }

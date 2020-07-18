@@ -10,8 +10,8 @@ export class SRVRecord extends ResourceRecord {
   private readonly priority: number;
   private readonly weight: number;
 
-  targetingLegacyUnicastQuerier: boolean;
   private trackedHostname?: Name;
+  private targetingLegacyUnicastQuerier?: boolean;
 
   constructor(name: string, hostname: string, port: number, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, hostname: string, port: number)
@@ -22,8 +22,6 @@ export class SRVRecord extends ResourceRecord {
       assert(name.type === RType.SRV);
       super(name);
     }
-
-    this.targetingLegacyUnicastQuerier = false;
 
     if (!hostname.endsWith(".")) {
       this.hostname = hostname + ".";
@@ -41,10 +39,11 @@ export class SRVRecord extends ResourceRecord {
     return 6 + DNSLabelCoder.getUncompressedNameLength(this.hostname);
   }
 
-  public trackNames(coder: DNSLabelCoder): void {
-    super.trackNames(coder);
+  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
+    super.trackNames(coder, legacyUnicast);
 
-    if (this.targetingLegacyUnicastQuerier) {
+    if (legacyUnicast) {
+      this.targetingLegacyUnicastQuerier = true;
       return;
     }
 
@@ -52,9 +51,10 @@ export class SRVRecord extends ResourceRecord {
     this.trackedHostname = coder.trackName(this.hostname);
   }
 
-  public finishEncoding(): void {
-    super.finishEncoding();
+  public clearNameTracking(): void {
+    super.clearNameTracking();
     this.trackedHostname = undefined;
+    this.targetingLegacyUnicastQuerier = undefined;
   }
 
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {

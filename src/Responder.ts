@@ -458,7 +458,6 @@ export class Responder implements PacketHandler {
     for (const record of packet.additionals) {
       if (record.type === RType.OPT) {
         udpPayloadSize = (record as OPTRecord).udpPayloadSize;
-        debug("Querier sent udp payload size of %d", udpPayloadSize);
         break;
       }
     }
@@ -517,7 +516,7 @@ export class Responder implements PacketHandler {
       }
 
       this.server.sendResponse(unicastResponse.asPacket(), endpoint);
-      debug("Sending response via unicast to %s: %s", JSON.stringify(endpoint), unicastResponse.asString());
+      debug("Sending response via unicast to %s: %s", JSON.stringify(endpoint), unicastResponse.asString(udpPayloadSize));
     }
 
     for (const multicastResponse of multicastResponses) {
@@ -546,12 +545,12 @@ export class Responder implements PacketHandler {
         const timer = setTimeout(() => {
           this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
 
-          debug("Sending (delayed %dms) response via multicast on network %s: %s", Math.round(delay), endpoint.interface, multicastResponse.asString());
+          debug("Sending (delayed %dms) response via multicast on network %s: %s", Math.round(delay), endpoint.interface, multicastResponse.asString(udpPayloadSize));
         }, delay);
         timer.unref();
       } else {
         this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString());
+        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
       }
     }
   }

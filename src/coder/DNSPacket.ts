@@ -87,6 +87,7 @@ export interface DecodedData<T> {
 export interface DNSQueryDefinition {
   questions: Question[];
   answers?: ResourceRecord[]; // list of known-answers
+  // TODO additionals section can contain the OPT record
 }
 
 export interface DNSProbeQueryDefinition {

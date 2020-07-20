@@ -452,14 +452,13 @@ export class Responder implements PacketHandler {
     }
 
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
-    const isProbeQuery = packet.authorities.length > 0
-      && !(packet.authorities.length === 1 && packet.authorities[0].type === RType.OPT);
+    const isProbeQuery = packet.authorities.length > 0;
 
-    let mtuSize: number | undefined = undefined; // mtu supported by the querier (ip and udp headers already subtracted)
-    for (const record of packet.authorities) {
+    let udpPayloadSize: number | undefined = undefined; // payload size supported by the querier
+    for (const record of packet.additionals) {
       if (record.type === RType.OPT) {
-        mtuSize = (record as OPTRecord).udpPayloadSize;
-        debug("Querier sent udp payload size of %d", mtuSize);
+        udpPayloadSize = (record as OPTRecord).udpPayloadSize;
+        debug("Querier sent udp payload size of %d", udpPayloadSize);
         break;
       }
     }
@@ -499,8 +498,8 @@ export class Responder implements PacketHandler {
     //    interval, then earlier responses SHOULD be delayed by up to an
     //    additional 500 ms if that will permit them to be aggregated with
     //    other responses scheduled to go out a little later.
-    QueryResponse.combineResponses(multicastResponses, mtuSize);
-    QueryResponse.combineResponses(unicastResponses, mtuSize);
+    QueryResponse.combineResponses(multicastResponses, udpPayloadSize);
+    QueryResponse.combineResponses(unicastResponses, udpPayloadSize);
 
     if (isUnicastQuerier && unicastResponses.length > 1) {
       // RFC 6762 18.5. In legacy unicast response messages, the TC bit has the same meaning

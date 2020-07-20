@@ -135,7 +135,7 @@ export class QueryResponse {
     return false;
   }
 
-  public static combineResponses(responses: QueryResponse[], mtu?: number): void {
+  public static combineResponses(responses: QueryResponse[], udpPayloadSize?: number): void {
     for (let i = 0; i < responses.length - 1; i++) {
       const current = responses[i];
       const currentPacket = current.dnsPacket;
@@ -145,7 +145,7 @@ export class QueryResponse {
       currentPacket.initEncodingMode();
       nextPacket.initEncodingMode();
 
-      if (currentPacket.canBeCombinedWith(nextPacket, mtu)) {
+      if (currentPacket.canBeCombinedWith(nextPacket, udpPayloadSize)) {
         // combine the packet with next one
         currentPacket.combineWith(nextPacket);
 

@@ -153,10 +153,10 @@ export interface DNSRecord {
 
 export class DNSPacket {
 
-  public static readonly MTU_IPV4 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
+  public static readonly UDP_PAYLOAD_SIZE_IPV4 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
     - (MDNSServer.DEFAULT_IP4_HEADER + MDNSServer.UDP_HEADER);
   // noinspection JSUnusedGlobalSymbols
-  public static readonly MTU_IPV6 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
+  public static readonly UDP_PAYLOAD_SIZE_IPV6 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
     - (MDNSServer.DEFAULT_IP6_HEADER + MDNSServer.UDP_HEADER);
 
   private static readonly AUTHORITATIVE_ANSWER_MASK = 0x400;
@@ -204,7 +204,7 @@ export class DNSPacket {
     this.labelCoder = new DNSLabelCoder();
   }
 
-  public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, mtu = this.MTU_IPV4): DNSPacket[] {
+  public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket[] {
     const packets: DNSPacket[] = [];
 
     // packet is like the "main" packet
@@ -215,11 +215,11 @@ export class DNSPacket {
     packet.initEncodingMode();
     packets.push(packet);
 
-    if (packet.getEstimatedEncodingLength() > mtu) {
+    if (packet.getEstimatedEncodingLength() > udpPayloadSize) {
       const compressedLength = packet.getEncodingLength(); // calculating the real length will update the estimated property as well
-      if (compressedLength > mtu) {
-        // if we are still above the MTU we have a problem
-        assert.fail("Cannot send query where already the query section is exceeding the mtu (" + compressedLength + ">" + mtu +")!");
+      if (compressedLength > udpPayloadSize) {
+        // if we are still above the payload size we have a problem
+        assert.fail("Cannot send query where already the query section is exceeding the udpPayloadSize (" + compressedLength + ">" + udpPayloadSize +")!");
       }
     }
 
@@ -239,15 +239,15 @@ export class DNSPacket {
           const answer = answers[i];
           const estimatedSize = answer.getEstimatedEncodingLength();
 
-          if (packet.getEstimatedEncodingLength() + estimatedSize <= mtu) { // size check on estimated calculations
+          if (packet.getEstimatedEncodingLength() + estimatedSize <= udpPayloadSize) { // size check on estimated calculations
             currentPacket.addAnswers(answer);
-          } else if (packet.getEncodingLength() + estimatedSize <= mtu) { // check if the record may fit when message compression is used.
+          } else if (packet.getEncodingLength() + estimatedSize <= udpPayloadSize) { // check if the record may fit when message compression is used.
             // we may still have a false positive here, as the currently can't compute the REAL encoding for the answer
             // record, thus we rely on the estimated size
             currentPacket.addAnswers(answer);
           } else {
             if (currentPacket.questions.length === 0 && currentPacket.answers.length === 0) {
-              // we encountered a record which is to big and can't fit in a mtu sized packet
+              // we encountered a record which is to big and can't fit in a udpPayloadSize sized packet
 
               // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
               //    large to fit in a single MTU-sized multicast response packet, a
@@ -271,15 +271,15 @@ export class DNSPacket {
       packet.addAuthorities(...definition.authorities);
       const compressedLength = packet.getEncodingLength();
 
-      if (compressedLength > mtu) {
-        assert.fail(`Probe query packet exceeds the mtu size (${compressedLength}>${mtu}). Can't split probe queries at the moment!`);
+      if (compressedLength > udpPayloadSize) {
+        assert.fail(`Probe query packet exceeds the mtu size (${compressedLength}>${udpPayloadSize}). Can't split probe queries at the moment!`);
       }
     } // otherwise, the packet consist of only questions
 
     return packets;
   }
 
-  public static createDNSResponsePacketsFromRRSet(definition: DNSResponseDefinition, mtu = this.MTU_IPV4): DNSPacket {
+  public static createDNSResponsePacketsFromRRSet(definition: DNSResponseDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket {
     const packet = new DNSPacket({
       id: definition.id,
       legacyUnicast: definition.legacyUnicast,
@@ -293,20 +293,20 @@ export class DNSPacket {
     });
     packet.initEncodingMode();
 
-    if (packet.getEncodingLength() > mtu) {
-      assert.fail("Couldn't construct a dns response packet from a rr set!");
+    if (packet.getEncodingLength() > udpPayloadSize) {
+      assert.fail("Couldn't construct a dns response packet from a rr set which fits in an udp payload sized packet!");
     }
 
     return packet;
   }
 
-  public canBeCombinedWith(packet: DNSPacket, mtu = DNSPacket.MTU_IPV4): boolean {
+  public canBeCombinedWith(packet: DNSPacket, udpPayloadSize = DNSPacket.UDP_PAYLOAD_SIZE_IPV4): boolean {
     // packet header must be identical
     return this.id === packet.id && this.type === packet.type
       && this.opcode === packet.opcode && deepEqual(this.flags, packet.flags)
       && this.rcode === packet.rcode
-      // and the data must fit into a mtu sized packet
-      && this.getEncodingLength() + packet.getEncodingLength() <= mtu;
+      // and the data must fit into a udpPayloadSize sized packet
+      && this.getEncodingLength() + packet.getEncodingLength() <= udpPayloadSize;
   }
 
   public combineWith(packet: DNSPacket): void {

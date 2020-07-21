@@ -472,6 +472,7 @@ export class DNSPacket {
   }
 
   public encode(): Buffer {
+    this.clearNameTracking(); // TODO remove workaround (addRecord, will result in out of order name compression)
     this.initEncodingMode();
 
     const length = this.getEncodingLength();

@@ -74,6 +74,10 @@ export class Question implements DNSRecord {
     return offset - oldOffset; // written bytes
   }
 
+  public clone(): Question {
+    return new Question(this.name, this.type, this.unicastResponseFlag, this.class);
+  }
+
   public static decode(coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<Question> {
     const oldOffset = offset;
 

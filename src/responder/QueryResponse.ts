@@ -98,12 +98,14 @@ export class QueryResponse {
     return addedAny;
   }
 
-  public markLegacyUnicastResponse(id: number, questions: Question[]): void {
+  public markLegacyUnicastResponse(id: number, questions?: Question[]): void {
     // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
     //  * MUSTS: response via unicast, repeat query ID, repeat questions (actually it should just be one), clear cache flush bit
     //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
     this.dnsPacket.id = id;
-    this.dnsPacket.addQuestions(...questions);
+    if (questions) {
+      this.dnsPacket.addQuestions(...questions);
+    }
 
     this.dnsPacket.answers.forEach(answers => {
       answers.flushFlag = false;

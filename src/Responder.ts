@@ -485,7 +485,13 @@ export class Responder implements PacketHandler {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
       //  * MUSTS: response via unicast, repeat query ID, repeat questions, clear cache flush bit
       //  * SHOULDS: ttls should not be greater than 10s as legacy resolvers don't take part in the cache coherency mechanism
-      unicastResponses.forEach(response => response.markLegacyUnicastResponse(packet.id, packet.questions));
+
+      for (let i = 0; i < unicastResponses.length; i++) {
+        const response = unicastResponses[i];
+        // only add questions to the first packet (will be combined anyways) and we must ensure
+        // each packet stays unique in it's records
+        response.markLegacyUnicastResponse(packet.id, i === 0? packet.questions: undefined);
+      }
     }
 
     // TODO this note should be placed somewhere else (when we combine delayed multicast packets)

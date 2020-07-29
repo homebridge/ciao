@@ -414,6 +414,7 @@ export class NetworkManager extends EventEmitter {
   }
 
   private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;
+  private static readonly WIN_DEFAULT_IP_PATTERN = /0\.0\.0\.0[ ]+0\.0\.0\.0/;
   private static getWinDefaultNetworkInterface(): Promise<InterfaceName> {
     return new Promise((resolve, reject) => {
       const command = "netstat -r";
@@ -426,8 +427,8 @@ export class NetworkManager extends EventEmitter {
         let defaultIp;
         const lines = stdout.split(os.EOL);
         for (const line of lines) {
-          if (line.indexOf("0.0.0.0 0.0.0.0") > -1 && !(this.WIN_CHAR_PATTERN.test(line))) {
-            const parts = line.split(" ");
+          if (this.WIN_DEFAULT_IP_PATTERN.test(line) && !(this.WIN_CHAR_PATTERN.test(line))) {
+            const parts = line.split(/[ ]+/);
             if (parts.length >= 5) {
               defaultIp = parts[parts.length - 2];
             }

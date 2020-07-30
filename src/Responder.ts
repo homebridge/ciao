@@ -172,26 +172,29 @@ export class Responder implements PacketHandler {
 
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
-    return this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
+    this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
-      .then(() => this.probe(service))
-      // TODO callback immediately, if probe queries where successful,
-      //   we will probably not encounter any errors (expect maybe SOCKETS CLOSED on NETWORK CHANGe)
-      .then(() => {
-        this.announce(service).then(() => {
-          callback();
-        }, reason => {
-          // handle announce error
-          callback(new Error("Failed announcing for " + service.getFQDN() + ": " + reason));
+      .then(() => this.probe(service));
+
+    return this.promiseChain.then(() => {
+      // we are not returning the promise returned by announced here, only PROBING is synchronized
+      this.announce(service).catch(reason => {
+        console.log("[" + service.getFQDN() + "] failed announcing with reason: " + reason + ". Trying again!");
+        return this.advertiseService(service, () => {
+          // empty
         });
-      }, reason => {
-        // handle probe error
-        if (reason === Prober.CANCEL_REASON) {
-          callback();
-        } else {
-          callback(new Error("Failed probing for " + service.getFQDN() +": " + reason));
-        }
       });
+
+      callback(); // service is considered announced. After the call to the announce() method the service state is set to ANNOUNCING
+    }, reason => {
+      // handle probe error
+      if (reason === Prober.CANCEL_REASON) {
+        callback();
+      } else {
+        callback(new Error("Failed probing for " + service.getFQDN() +": " + reason));
+        return Promise.reject(reason);
+      }
+    });
   }
 
   private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
@@ -359,7 +362,10 @@ export class Responder implements PacketHandler {
       this.clearService(service);
 
       if (reason !== Announcer.CANCEL_REASON) {
-        return Promise.reject(reason); // forward reason if it is not a cancellation
+        // forward reason if it is not a cancellation.
+        // We do not forward cancel reason. Announcements only get cancelled if we have something "better" to do.
+        // So the race is already handled by us.
+        return Promise.reject(reason);
       }
     });
   }

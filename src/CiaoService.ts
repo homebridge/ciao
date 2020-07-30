@@ -406,17 +406,22 @@ export class CiaoService extends EventEmitter {
    * Sets or updates the txt of the service.
    *
    * @param {ServiceTxt} txt - The updated txt record.
+   * @param {boolean} silent - If set to true no announcement is sent for the updated record.
    * @returns Promise which resolves once the updated record was send out to the network.
    */
-  public updateTxt(txt: ServiceTxt): Promise<void> {
+  public updateTxt(txt: ServiceTxt, silent = false): Promise<void> {
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);
-    debug("[%s] Updating txt record...", this.name);
+    debug("[%s] Updating txt record%s...", this.name, silent? " silently": "");
 
     return new Promise((resolve, reject) => {
       if (this.serviceState === ServiceState.ANNOUNCING) {
         this.rebuildServiceRecords();
+
+        if (silent) {
+          return;
+        }
 
         if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
           // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
@@ -427,6 +432,11 @@ export class CiaoService extends EventEmitter {
         }
       } else if (this.serviceState === ServiceState.ANNOUNCED) {
         this.rebuildServiceRecords();
+
+        if (silent) {
+          return;
+        }
+
         this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
       } else {
         resolve();

@@ -5,7 +5,6 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
-import { ifCond } from "typedoc/dist/lib/output/helpers/if-cond";
 import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 

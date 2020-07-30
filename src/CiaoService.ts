@@ -806,7 +806,7 @@ export class CiaoService extends EventEmitter {
     });
     Object.values(this.serviceRecords!.aaaaULA).forEach(record => {
       records.push(record.clone());
-    })
+    });
 
     return records;
   }

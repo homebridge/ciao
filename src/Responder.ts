@@ -876,6 +876,7 @@ export class Responder implements PacketHandler {
     } else if (type === RType.AAAA) {
       const record = service.aaaaRecord(endpoint.interface);
       const routableRecord = service.aaaaRoutableRecord(endpoint.interface);
+      const ulaRecord = service.aaaaUniqueLocalRecord(endpoint.interface);
 
       let addedAny = false;
       if (record) {
@@ -883,6 +884,10 @@ export class Responder implements PacketHandler {
       }
       if (routableRecord) {
         const added = dest(routableRecord);
+        addedAny = addedAny || added;
+      }
+      if (ulaRecord) {
+        const added = dest(ulaRecord);
         addedAny = addedAny || added;
       }
 

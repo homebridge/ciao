@@ -117,8 +117,9 @@ export interface ServiceRecords {
   srv: SRVRecord;
   txt: TXTRecord;
   a: Record<InterfaceName, ARecord>;
-  aaaa: Record<InterfaceName, AAAARecord>;
+  aaaa: Record<InterfaceName, AAAARecord>; // link-local
   aaaaR: Record<InterfaceName, AAAARecord>; // routable AAAA
+  aaaaULA: Record<InterfaceName, AAAARecord>; // unique local address
   reverseAddressPTRs: Record<IPAddress, PTRRecord>; // indexed by address
   nsec: NSECRecord;
 }
@@ -516,9 +517,9 @@ export class CiaoService extends EventEmitter {
           records.push(new AAAARecord(this.hostname, change.outdatedIpv6, true, 0));
           records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv6), this.hostname, false, 0));
         }
-        if (change.outdatedRoutableIpv6) {
-          records.push(new AAAARecord(this.hostname, change.outdatedRoutableIpv6, true, 0));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedRoutableIpv6), this.hostname, false, 0));
+        if (change.outdatedGloballyRoutableIpv6) {
+          records.push(new AAAARecord(this.hostname, change.outdatedGloballyRoutableIpv6, true, 0));
+          records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedGloballyRoutableIpv6), this.hostname, false, 0));
         }
 
         if (change.updatedIpv4) {
@@ -529,9 +530,9 @@ export class CiaoService extends EventEmitter {
           records.push(new AAAARecord(this.hostname, change.updatedIpv6, true));
           records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv6), this.hostname));
         }
-        if (change.updatedRoutableIpv6) {
-          records.push(new AAAARecord(this.hostname, change.updatedRoutableIpv6, true));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedRoutableIpv6), this.hostname));
+        if (change.updatedGloballyRoutableIpv6) {
+          records.push(new AAAARecord(this.hostname, change.updatedGloballyRoutableIpv6, true));
+          records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedGloballyRoutableIpv6), this.hostname));
         }
 
         this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);
@@ -673,6 +674,7 @@ export class CiaoService extends EventEmitter {
     const aRecordMap: Record<InterfaceName, ARecord> = {};
     const aaaaRecordMap: Record<InterfaceName, AAAARecord> = {};
     const aaaaRoutableRecordMap: Record<InterfaceName, AAAARecord> = {};
+    const aaaaUniqueLocalRecordMap: Record<InterfaceName, AAAARecord> = {};
     const reverseAddressMap: Record<IPAddress, PTRRecord> = {};
     let subtypePTRs: PTRRecord[] | undefined = undefined;
 
@@ -687,9 +689,14 @@ export class CiaoService extends EventEmitter {
         reverseAddressMap[networkInterface.ipv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.ipv6), this.hostname);
       }
 
-      if (networkInterface.routableIpv6) {
-        aaaaRoutableRecordMap[name] = new AAAARecord(this.hostname, networkInterface.routableIpv6, true);
-        reverseAddressMap[networkInterface.routableIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.routableIpv6), this.hostname);
+      if (networkInterface.globallyRoutableIpv6) {
+        aaaaRoutableRecordMap[name] = new AAAARecord(this.hostname, networkInterface.globallyRoutableIpv6, true);
+        reverseAddressMap[networkInterface.globallyRoutableIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.globallyRoutableIpv6), this.hostname);
+      }
+
+      if (networkInterface.uniqueLocalIpv6) {
+        aaaaUniqueLocalRecordMap[name] = new AAAARecord(this.hostname, networkInterface.uniqueLocalIpv6, true);
+        reverseAddressMap[networkInterface.uniqueLocalIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.uniqueLocalIpv6), this.hostname);
       }
     }
 
@@ -709,6 +716,7 @@ export class CiaoService extends EventEmitter {
       a: aRecordMap,
       aaaa: aaaaRecordMap,
       aaaaR: aaaaRoutableRecordMap,
+      aaaaULA: aaaaUniqueLocalRecordMap,
       reverseAddressPTRs: reverseAddressMap,
       nsec: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], true),
     };
@@ -774,6 +782,14 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
+   * @internal used to get a copy of the AAAA fore the unique local ipv6 address
+   */
+  aaaaUniqueLocalRecord(id: InterfaceName): AAAARecord | undefined {
+    const record = this.serviceRecords!.aaaaULA[id];
+    return record? record.clone(): undefined;
+  }
+
+  /**
    * @internal used to get a copy of the A and AAAA records
    */
   allAddressRecords(): (ARecord | AAAARecord)[] {
@@ -788,6 +804,9 @@ export class CiaoService extends EventEmitter {
     Object.values(this.serviceRecords!.aaaaR).forEach(record => {
       records.push(record.clone());
     });
+    Object.values(this.serviceRecords!.aaaaULA).forEach(record => {
+      records.push(record.clone());
+    })
 
     return records;
   }
@@ -828,8 +847,8 @@ export class CiaoService extends EventEmitter {
         records.push(reverseRecord.clone());
       }
     }
-    if (networkInterface.routableIpv6) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.routableIpv6];
+    if (networkInterface.globallyRoutableIpv6) {
+      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.globallyRoutableIpv6];
       if (reverseRecord) {
         records.push(reverseRecord.clone());
       }

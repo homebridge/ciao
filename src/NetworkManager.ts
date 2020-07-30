@@ -5,6 +5,7 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
+import { ifCond } from "typedoc/dist/lib/output/helpers/if-cond";
 import { getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
@@ -31,11 +32,14 @@ export interface NetworkInterface {
   ipv4?: IPv4Address;
   ip4Netmask?: IPv4Address;
   ipv4Netaddress?: IPv4Address;
-  ipv6?: IPv6Address; // link-local ipv6
+  ipv6?: IPv6Address; // link-local ipv6 fe80::/10
   ipv6Netmask?: IPv6Address;
 
-  routableIpv6?: IPv6Address; // first routable ipv6 address
-  routableIpv6Netmask?: IPv6Address;
+  globallyRoutableIpv6?: IPv6Address; // first routable ipv6 address
+  globallyRoutableIpv6Netmask?: IPv6Address;
+
+  uniqueLocalIpv6?: IPv6Address; // fc00::/7 (those are the fd ula addresses; fc prefix isn't really used, used for globally assigned ula)
+  uniqueLocalIpv6Netmask?: IPv6Address;
 }
 
 export interface NetworkUpdate {
@@ -53,8 +57,11 @@ export interface InterfaceChange {
   outdatedIpv6?: IPv6Address;
   updatedIpv6?: IPv6Address;
 
-  outdatedRoutableIpv6?: IPv6Address;
-  updatedRoutableIpv6?: IPv6Address;
+  outdatedGloballyRoutableIpv6?: IPv6Address;
+  updatedGloballyRoutableIpv6?: IPv6Address;
+
+  outdatedUniqueLocalIpv6?: IPv6Address;
+  updatedUniqueLocalIpv6?: IPv6Address;
 }
 
 export interface NetworkManagerOptions {
@@ -208,12 +215,21 @@ export class NetworkManager extends EventEmitter {
             }
           }
 
-          if (currentInterface.routableIpv6 !== networkInterface.routableIpv6) { // check for changed routable ipv6
-            if (currentInterface.routableIpv6) {
-              change.outdatedRoutableIpv6 = currentInterface.routableIpv6;
+          if (currentInterface.globallyRoutableIpv6 !== networkInterface.globallyRoutableIpv6) { // check for changed routable ipv6
+            if (currentInterface.globallyRoutableIpv6) {
+              change.outdatedGloballyRoutableIpv6 = currentInterface.globallyRoutableIpv6;
             }
-            if (networkInterface.routableIpv6) {
-              change.updatedRoutableIpv6 = networkInterface.routableIpv6;
+            if (networkInterface.globallyRoutableIpv6) {
+              change.updatedGloballyRoutableIpv6 = networkInterface.globallyRoutableIpv6;
+            }
+          }
+
+          if (currentInterface.uniqueLocalIpv6 !== networkInterface.uniqueLocalIpv6) { // check for changed ula
+            if (currentInterface.uniqueLocalIpv6) {
+              change.outdatedUniqueLocalIpv6 = currentInterface.uniqueLocalIpv6;
+            }
+            if (networkInterface.uniqueLocalIpv6) {
+              change.updatedUniqueLocalIpv6 = networkInterface.uniqueLocalIpv6;
             }
           }
 
@@ -254,8 +270,11 @@ export class NetworkManager extends EventEmitter {
         if (iface.outdatedIpv6 || iface.updatedIpv6) {
           string += `, ${iface.outdatedIpv6} -> ${iface.updatedIpv6} `;
         }
-        if (iface.outdatedRoutableIpv6 || iface.updatedRoutableIpv6) {
-          string += `, ${iface.outdatedRoutableIpv6} -> ${iface.updatedRoutableIpv6} `;
+        if (iface.outdatedGloballyRoutableIpv6 || iface.updatedGloballyRoutableIpv6) {
+          string += `, ${iface.outdatedGloballyRoutableIpv6} -> ${iface.updatedGloballyRoutableIpv6} `;
+        }
+        if (iface.outdatedUniqueLocalIpv6 || iface.updatedUniqueLocalIpv6) {
+          string += `, ${iface.outdatedUniqueLocalIpv6} -> ${iface.updatedUniqueLocalIpv6} `;
         }
         return string + "}";
       }).join(","): "";
@@ -282,6 +301,7 @@ export class NetworkManager extends EventEmitter {
       let ipv4Info: NetworkInterfaceInfo | undefined = undefined;
       let ipv6Info: NetworkInterfaceInfo | undefined = undefined;
       let routableIpv6Info: NetworkInterfaceInfo | undefined = undefined;
+      let uniqueLocalIpv6Info: NetworkInterfaceInfo | undefined = undefined;
       let internal = false;
 
       for (const info of infoArray) {
@@ -294,12 +314,16 @@ export class NetworkManager extends EventEmitter {
         } else if (info.family === "IPv6") {
           if (info.scopeid && !ipv6Info) { // we only care about non zero scope (aka link-local ipv6)
             ipv6Info = info;
-          } else if (info.scopeid === 0 && !routableIpv6Info) { // global routable ipv6
-            routableIpv6Info = info;
+          } else if (info.scopeid === 0) { // global routable ipv6
+            if ((info.address.startsWith("fc") || info.address.startsWith("fd")) && !uniqueLocalIpv6Info) {
+              uniqueLocalIpv6Info = info;
+            } else if (!routableIpv6Info) {
+              routableIpv6Info = info;
+            }
           }
         }
 
-        if (ipv4Info && ipv6Info && routableIpv6Info) {
+        if (ipv4Info && ipv6Info && routableIpv6Info && uniqueLocalIpv6Info) {
           break;
         }
       }
@@ -328,8 +352,13 @@ export class NetworkManager extends EventEmitter {
       }
 
       if (routableIpv6Info) {
-        networkInterface.routableIpv6 = routableIpv6Info.address;
-        networkInterface.routableIpv6Netmask = routableIpv6Info.netmask;
+        networkInterface.globallyRoutableIpv6 = routableIpv6Info.address;
+        networkInterface.globallyRoutableIpv6Netmask = routableIpv6Info.netmask;
+      }
+
+      if (uniqueLocalIpv6Info) {
+        networkInterface.uniqueLocalIpv6 = uniqueLocalIpv6Info.address;
+        networkInterface.uniqueLocalIpv6Netmask = uniqueLocalIpv6Info.netmask;
       }
 
       if (internal) {
@@ -339,7 +368,7 @@ export class NetworkManager extends EventEmitter {
         if (this.restrictedInterfaces.includes(name)) {
           interfaces.set(name, networkInterface);
         }
-      } else if (networkInterface.routableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
+      } else if (networkInterface.globallyRoutableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
         interfaces.set(name, networkInterface);
       }
     });

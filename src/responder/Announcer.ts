@@ -178,6 +178,7 @@ export class Announcer {
       const aRecord = service.aRecord(name);
       const aaaaRecord = service.aaaaRecord(name);
       const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
+      const aaaaUniqueLocalRecord = service.aaaaUniqueLocalRecord(name);
       //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       const nsecRecord = service.nsecRecord();
 
@@ -199,6 +200,12 @@ export class Announcer {
           aaaaRoutableRecord.ttl = 0;
         }
         answer.push(aaaaRoutableRecord);
+      }
+      if (aaaaUniqueLocalRecord) {
+        if (goodbye) {
+          aaaaUniqueLocalRecord.ttl = 0;
+        }
+        answer.push(aaaaUniqueLocalRecord);
       }
 
       /*

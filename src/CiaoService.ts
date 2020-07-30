@@ -487,6 +487,10 @@ export class CiaoService extends EventEmitter {
 
     // we don't care about removed interfaces. We can't sent goodbye records on a non existing interface
 
+    this.rebuildServiceRecords();
+    // records for a removed interface are now no longer present after the call above
+    // records for a new interface got now built by the call above
+
     if (networkUpdate.changes) {
       // we could optimize this and don't send the announcement of records if we have also added a new interface
       // Though probing will take at least 750 ms and thus sending it out immediately will get the information out faster.
@@ -523,10 +527,6 @@ export class CiaoService extends EventEmitter {
         this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);
       }
     }
-
-    this.rebuildServiceRecords();
-    // records for a removed interface are now no longer present after the call above
-    // records for a new interface got now built by the call above
 
     if (networkUpdate.added) {
       // a new network interface got added. We must return into probing state,

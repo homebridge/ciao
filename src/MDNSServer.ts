@@ -289,6 +289,7 @@ export class MDNSServer {
       socket.once("error", errorHandler);
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
+        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;

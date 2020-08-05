@@ -1,4 +1,4 @@
-import { DNSPacket, dnsTypeToString, PacketType } from "../coder/DNSPacket";
+import { DNSPacket, PacketType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
 

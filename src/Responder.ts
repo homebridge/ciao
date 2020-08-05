@@ -561,7 +561,7 @@ export class Responder implements PacketHandler {
 
         // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
-        this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, udpPayloadSize);
+        this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface);
       }
     }
   }
@@ -693,7 +693,7 @@ export class Responder implements PacketHandler {
     return false;
   }
 
-  private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName, udpPayloadSize?: number): void {
+  private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName): void {
     const response = new QueuedResponse(packet, interfaceName);
     response.calculateRandomDelay();
 
@@ -707,12 +707,13 @@ export class Responder implements PacketHandler {
       for (let j = i + 1; j < this.delayedMulticastResponses.length; j++) {
         const response1 = this.delayedMulticastResponses[j];
 
-        if (response0.delayWouldBeInTimelyManner(response1)) {
+        if (!response0.delayWouldBeInTimelyManner(response1)) {
           // all packets following won't be compatible either
           break;
         }
 
         if (response0.combineWithNextPacketIfPossible(response1)) {
+          // TODO we might have duplicated records (in answers, in additionals and in additionals duplicating records in answers)
           // combine was a success and the packet got delay
 
           // remove the packet from the queue
@@ -740,7 +741,7 @@ export class Responder implements PacketHandler {
 
         this.server.sendResponse(response.getPacket(), interfaceName);
         debug("Sending (delayed %dms) response via multicast on network %s: %s",
-          Math.round(response.getTotalDelay()), interfaceName, response.getPacket().asString(udpPayloadSize));
+          Math.round(response.getTotalDelay()), interfaceName, response.getPacket().asString());
       });
     }
   }

@@ -57,14 +57,13 @@ export class QueuedResponse {
 
   /**
    * Combines this queue response packet with the {@code next} queued response packet if those can be combined.
-   * Packets can be combined if the {@code udpPayloadSize} allows for it AND if the current packet
-   * won't be delayed more than 500 ms from it's time of creation.
+   * Packets can be combined if the udpPayloadSize allows for it AND if the current packet
+   * won't be delayed more than 500 ms from it's time of creation AND the packets get sent on the same interface.
    *
    * @param next - A queued response which is schedule AFTER the current queued response.
-   * @param udpPayloadSize - The desired maximum udp payload size. If not specified the MTU will be used to calculate it.
    * @returns {@code true} will be returned if the queued response was combined with the specified {@code next} response.
    */
-  public combineWithNextPacketIfPossible(next: QueuedResponse, udpPayloadSize?: number): boolean {
+  public combineWithNextPacketIfPossible(next: QueuedResponse): boolean {
     // below check, which is commented out would be necessary, current implementation will check that
     // with function above, thus there is no need to check again.
     /*
@@ -76,8 +75,7 @@ export class QueuedResponse {
       // can't combine packets which get sent via different interfaces
       return false;
     }
-    if (!next.packet.canBeCombinedWith(this.packet, udpPayloadSize)) {
-      console.log("Packets could not be combined because of size!");
+    if (!next.packet.canBeCombinedWith(this.packet)) {
       // packets can't be combined
       return false;
     }

@@ -560,8 +560,32 @@ export class Responder implements PacketHandler {
 
         this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface);
       } else {
-        this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
+        // otherwise the response is sent immediately, if there isn't any packet in the queue
+
+        // so first step is, check if there is a packet in the queue we are about to send out
+        // which can be combined with our current packet without adding a delay > 500ms
+        let sentWithLaterPacket = false;
+
+        for (let i = 0; i < this.delayedMulticastResponses.length; i++) {
+          const delayedResponse = this.delayedMulticastResponses[i];
+
+          if (delayedResponse.getTimeTillSent() > QueuedResponse.MAX_DELAY) {
+            // all packets following won't be compatible either
+            break;
+          }
+
+          if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
+            // TODO we might have duplicated records (in answers, in additionals and in additionals duplicating records in answers)
+            sentWithLaterPacket = true;
+            debug("Multicast response on interface %s containing unique records was combined with response which is sent out later", endpoint.interface);
+            break;
+          }
+        }
+
+        if (!sentWithLaterPacket) {
+          this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
+          debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
+        }
       }
     }
   }
@@ -741,7 +765,7 @@ export class Responder implements PacketHandler {
 
         this.server.sendResponse(response.getPacket(), interfaceName);
         debug("Sending (delayed %dms) response via multicast on network %s: %s",
-          Math.round(response.getTotalDelay()), interfaceName, response.getPacket().asString());
+          Math.round(response.getTimeSinceCreation()), interfaceName, response.getPacket().asString());
       });
     }
   }

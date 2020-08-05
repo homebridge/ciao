@@ -3,11 +3,12 @@
  */
 import { DNSPacket } from "../coder/DNSPacket";
 import { InterfaceName } from "../NetworkManager";
+import { QueryResponse } from "./QueryResponse";
 import Timeout = NodeJS.Timeout;
 
 export class QueuedResponse {
 
-  private static readonly MAX_DELAY = 500; // 500 ms
+  public static readonly MAX_DELAY = 500; // milliseconds
 
   private readonly packet: DNSPacket;
   private readonly interfaceName: InterfaceName;
@@ -36,8 +37,12 @@ export class QueuedResponse {
    *
    * @returns The total delay.
    */
-  public getTotalDelay(): number {
+  public getTimeSinceCreation(): number {
     return new Date().getTime() - this.timeOfCreation;
+  }
+
+  public getTimeTillSent(): number {
+    return Math.max(0, this.estimatedTimeToBeSent - new Date().getTime());
   }
 
   public calculateRandomDelay(): void {
@@ -90,6 +95,19 @@ export class QueuedResponse {
 
     this.delayed = true;
 
+    return true;
+  }
+
+  public combineWithUniqueResponseIfPossible(response: QueryResponse, interfaceName: string): boolean {
+    if (this.interfaceName !== interfaceName) {
+      // can't combine packets which get sent via different interfaces
+      return false;
+    }
+    if (!this.packet.canBeCombinedWith(response.asPacket())) {
+      return false; // packets can't be combined
+    }
+
+    this.packet.combineWith(response.asPacket());
     return true;
   }
 

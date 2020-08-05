@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>@homebridge/ciao - v1.0.0-beta.39</title>
+	<title>@homebridge/ciao - v1.0.0-beta.40</title>
 	<meta name="description" content="">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="stylesheet" href="assets/css/main.css">
@@ -22,7 +22,7 @@
 						<li class="state loading">Preparing search index...</li>
 						<li class="state failure">The search index is not available</li>
 					</ul>
-					<a href="index.html" class="title">@homebridge/ciao - v1.0.0-beta.39</a>
+					<a href="index.html" class="title">@homebridge/ciao - v1.0.0-beta.40</a>
 				</div>
 				<div class="table-cell" id="tsd-widgets">
 					<div id="tsd-filter">
@@ -52,7 +52,7 @@
 					<a href="globals.html">Globals</a>
 				</li>
 			</ul>
-			<h1>@homebridge/ciao - v1.0.0-beta.39</h1>
+			<h1>@homebridge/ciao - v1.0.0-beta.40</h1>
 		</div>
 	</div>
 </header>
@@ -169,7 +169,7 @@ service.end().then(<span class="hljs-function"><span class="hljs-params">()</spa
 						records into multiple packets (and setting the truncation flag).
 						A responder will then reassemble those packets, which are identified by their originating ip address.<br> Thus, known-answer lists could be messed up when two queriers are sending at the same time.
 					Again ciao currently only sends queries when probing, so the probability of this happening is pretty low. </li>
-					<li><a href="https://tools.ietf.org/html/rfc6762#section-15.3">15.3.</a> <em>*Efficiency:</em><br> The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
+					<li><a href="https://tools.ietf.org/html/rfc6762#section-15.3">15.3.</a> <strong>Efficiency:</strong><br> The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
 					It doesn&#39;t improve the situation that this is running using an interpreted language.<br> So yes, it&#39;s probably not very efficient. </li>
 				</ul>
 				<p>As the RFC also states in <a href="https://tools.ietf.org/html/rfc6762#section-15.4">15.4</a>, it is recommended to use

@@ -23,10 +23,16 @@ import { InterfaceName } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
+import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
 import { dnsLowerCase } from "./util/dns-equal";
+import { sortedInsert } from "./util/sorted-array";
 
 const debug = createDebug("ciao:Responder");
+
+const queuedResponseComparator = (a: QueuedResponse, b: QueuedResponse) => {
+  return a.estimatedTimeToBeSent - b.estimatedTimeToBeSent;
+};
 
 /**
  * A Responder instance represents a running MDNSServer and a set of advertised services.
@@ -62,6 +68,7 @@ export class Responder implements PacketHandler {
   private readonly servicePointer: Map<string, string[]> = new Map();
 
   private readonly truncatedQueries: Record<string, TruncatedQuery> = {}; // indexed by <ip>:<port>
+  private readonly delayedMulticastResponses: QueuedResponse[] = [];
 
   private currentProber?: Prober;
 
@@ -551,15 +558,7 @@ export class Responder implements PacketHandler {
 
         // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
-        // TODO RFC 6762 6.4. Response aggregation:
-
-        const delay = Math.random() * 100 + 20;
-        const timer = setTimeout(() => {
-          this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-
-          debug("Sending (delayed %dms) response via multicast on network %s: %s", Math.round(delay), endpoint.interface, multicastResponse.asString(udpPayloadSize));
-        }, delay);
-        timer.unref();
+        this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, udpPayloadSize);
       } else {
         this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
         debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
@@ -692,6 +691,58 @@ export class Responder implements PacketHandler {
     }
 
     return false;
+  }
+
+  private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName, udpPayloadSize?: number): void {
+    const response = new QueuedResponse(packet, interfaceName);
+    response.calculateRandomDelay();
+
+    sortedInsert(this.delayedMulticastResponses, response, queuedResponseComparator);
+
+    // run combine/delay checks
+    for (let i = 0; i < this.delayedMulticastResponses.length; i++) {
+      const response0 = this.delayedMulticastResponses[i];
+
+      // search for any packets sent out after this packet
+      for (let j = i + 1; j < this.delayedMulticastResponses.length; j++) {
+        const response1 = this.delayedMulticastResponses[j];
+
+        if (response0.delayWouldBeInTimelyManner(response1)) {
+          // all packets following won't be compatible either
+          break;
+        }
+
+        if (response0.combineWithNextPacketIfPossible(response1)) {
+          // combine was a success and the packet got delay
+
+          // remove the packet from the queue
+          const index = this.delayedMulticastResponses.indexOf(response0);
+          if (index !== -1) {
+            this.delayedMulticastResponses.splice(index, 1);
+          }
+          i--; // reduce i, as one element got removed from the queue
+
+          break;
+        }
+
+        // otherwise we continue with maybe some packets further ahead
+      }
+    }
+
+    if (!response.delayed) {
+      // only set timer if packet got not delayed
+
+      response.scheduleResponse(() => {
+        const index = this.delayedMulticastResponses.indexOf(response);
+        if (index !== -1) {
+          this.delayedMulticastResponses.splice(index, 1);
+        }
+
+        this.server.sendResponse(response.getPacket(), interfaceName);
+        debug("Sending (delayed %dms) response via multicast on network %s: %s",
+          Math.round(response.getTotalDelay()), interfaceName, response.getPacket().asString(udpPayloadSize));
+      });
+    }
   }
 
   private answerQuestion(question: Question, endpoint: EndpointInfo, mainResponse: QueryResponse): QueryResponse[] {

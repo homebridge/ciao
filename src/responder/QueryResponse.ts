@@ -24,20 +24,7 @@ export class QueryResponse {
   }
 
   public asString(udpPayloadSize?: number): string {
-    const answerString = this.dnsPacket.answers.map(record => dnsTypeToString(record.type)).join(",");
-    const additionalsString = this.dnsPacket.additionals.map(record => dnsTypeToString(record.type)).join(",");
-
-    const optionsStrings: string[] = [];
-    if (this.dnsPacket.legacyUnicastEncodingEnabled()) {
-      optionsStrings.push("U");
-    }
-    if (udpPayloadSize) {
-      optionsStrings.push("UPS: " + udpPayloadSize);
-    }
-
-    const optionsString = optionsStrings.length !== 0? ` (${optionsStrings})`: "";
-
-    return `[${answerString}] answers and [${additionalsString}] additionals${optionsString}`;
+    return this.dnsPacket.asString(udpPayloadSize);
   }
 
   public containsSharedAnswer(): boolean {

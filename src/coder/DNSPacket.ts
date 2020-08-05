@@ -636,4 +636,21 @@ export class DNSPacket {
     });
   }
 
+  public asString(udpPayloadSize?: number): string {
+    const answerString = this.answers.map(record => dnsTypeToString(record.type)).join(",");
+    const additionalsString = this.additionals.map(record => dnsTypeToString(record.type)).join(",");
+
+    const optionsStrings: string[] = [];
+    if (this.legacyUnicastEncodingEnabled()) {
+      optionsStrings.push("U");
+    }
+    if (udpPayloadSize) {
+      optionsStrings.push("UPS: " + udpPayloadSize);
+    }
+
+    const optionsString = optionsStrings.length !== 0? ` (${optionsStrings})`: "";
+
+    return `[${answerString}] answers and [${additionalsString}] additionals${optionsString}`;
+  }
+
 }

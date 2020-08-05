@@ -122,7 +122,7 @@ The RFC lists three possible issues:
     A responder will then reassemble those packets, which are identified by their originating ip address.  
     Thus, known-answer lists could be messed up when two queriers are sending at the same time.
     Again ciao currently only sends queries when probing, so the probability of this happening is pretty low. 
- * [15.3.](https://tools.ietf.org/html/rfc6762#section-15.3) **Efficiency:*  
+ * [15.3.](https://tools.ietf.org/html/rfc6762#section-15.3) **Efficiency:**  
     The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
     It doesn't improve the situation that this is running using an interpreted language.  
     So yes, it's probably not very efficient. 

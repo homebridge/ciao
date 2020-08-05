@@ -550,7 +550,10 @@ export class Responder implements PacketHandler {
       //    since the last time that record was multicast on that particular
       //    interface.
 
-      if ((multicastResponse.containsSharedAnswer() || packet.questions.length > 1) && !isProbeQuery) {
+      if (isProbeQuery) {
+        this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
+        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
+      } else {
         // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
         // This is also the case if there are multiple questions. If multiple questions are asked
         // we probably could not answer them all (because not all of them were directed to us).
@@ -559,9 +562,6 @@ export class Responder implements PacketHandler {
         // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
         this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, udpPayloadSize);
-      } else {
-        this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-        debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
       }
     }
   }

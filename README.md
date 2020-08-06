@@ -17,7 +17,10 @@ aiming to be more robust, more maintainable and RFC compliant.
 It will gain browser functionality in the future to also discover existing services on the local network
 (There is currently no schedule when discover functionality will arrive. 
 A possible querier implementation is limited as explained in [RFC 6762 15.1.](https://tools.ietf.org/html/rfc6762#section-15.1)
-as it can't recieve unicast responses).
+as it can't receive unicast responses).
+
+`ciao` [passes](BCT-Results-CIAO-PI-en0.txt) the [Bonjour Conformance Test](https://developer.apple.com/bonjour/)
+as defined and required by Apple.
 
 ## Installation
 

@@ -178,7 +178,7 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async checkForNewInterfaces(): Promise<void> {
-    debug("Checking for new networks..."); // TODO remove on stable
+    const start = new Date().getTime();
 
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
 
@@ -287,6 +287,7 @@ export class NetworkManager extends EventEmitter {
       });
     }
 
+    debug("Checked for new networks. Took %d ms", new Date().getTime() - start); // TODO remove on stable
     this.scheduleNextJob();
   }
 

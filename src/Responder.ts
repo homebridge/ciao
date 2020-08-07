@@ -426,6 +426,8 @@ export class Responder implements PacketHandler {
    * @internal method called by the MDNSServer when an incoming query needs ot be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
+    const start = new Date().getTime();
+
     const endpointId = endpoint.address + ":" + endpoint.port + ":" + endpoint.interface; // used to match truncated queries
 
     const previousQuery = this.truncatedQueries[endpointId];
@@ -535,13 +537,16 @@ export class Responder implements PacketHandler {
       }
 
       this.server.sendResponse(unicastResponse.asPacket(), endpoint);
-      debug("Sending response via unicast to %s: %s", JSON.stringify(endpoint), unicastResponse.asString(udpPayloadSize));
+      const time = new Date().getTime() - start;
+      debug("Sending response via unicast to %s (took %d ms): %s", JSON.stringify(endpoint), time, unicastResponse.asString(udpPayloadSize));
     }
 
     for (const multicastResponse of multicastResponses) {
       if (!multicastResponse.hasAnswers()) {
         continue;
       }
+
+      const time = new Date().getTime() - start;
 
       // TODO To protect the network against excessive packet flooding due to
       //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
@@ -558,7 +563,7 @@ export class Responder implements PacketHandler {
 
         // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
-        this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface);
+        this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, time);
       } else {
         // otherwise the response is sent immediately, if there isn't any packet in the queue
 
@@ -577,14 +582,14 @@ export class Responder implements PacketHandler {
           if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
             // TODO we might have duplicated records (in answers, in additionals and in additionals duplicating records in answers)
             sentWithLaterPacket = true;
-            debug("Multicast response on interface %s containing unique records was combined with response which is sent out later", endpoint.interface);
+            debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later", endpoint.interface, time);
             break;
           }
         }
 
         if (!sentWithLaterPacket) {
           this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-          debug("Sending response via multicast on network %s: %s", endpoint.interface, multicastResponse.asString(udpPayloadSize));
+          debug("Sending response via multicast on network %s (took %d ms): %s", endpoint.interface, time, multicastResponse.asString(udpPayloadSize));
         }
       }
     }
@@ -717,7 +722,7 @@ export class Responder implements PacketHandler {
     return false;
   }
 
-  private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName): void {
+  private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName, time: number): void {
     const response = new QueuedResponse(packet, interfaceName);
     response.calculateRandomDelay();
 
@@ -764,8 +769,8 @@ export class Responder implements PacketHandler {
         }
 
         this.server.sendResponse(response.getPacket(), interfaceName);
-        debug("Sending (delayed %dms) response via multicast on network %s: %s",
-          Math.round(response.getTimeSinceCreation()), interfaceName, response.getPacket().asString());
+        debug("Sending (delayed %dms) response via multicast on network %s (took %d ms): %s",
+          Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asString());
       });
     }
   }

@@ -102,11 +102,13 @@ export class DNSLabelCoder {
         // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
         // don't change anything unless you fully understand all implications (0, and big comment block below)
         if (suffixLength > longestSuffixLength) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           candidateSharingLongestSuffix = candidate;
           longestSuffixLength = suffixLength;
         }
       }
 
+      /* TODO temporarily disable name compression
       if (candidateSharingLongestSuffix) {
         // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
         // the "atPosition" we are pointing to below. This could result in that we point to a location which
@@ -120,6 +122,7 @@ export class DNSLabelCoder {
           atPosition: candidateSharingLongestSuffix.labels.length - longestSuffixLength - 1,
         };
       }
+      */
     }
   }
 

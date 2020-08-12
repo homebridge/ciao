@@ -154,11 +154,9 @@ export interface DNSRecord {
 
 export class DNSPacket {
 
-  public static readonly UDP_PAYLOAD_SIZE_IPV4 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
-    - (MDNSServer.DEFAULT_IP4_HEADER + MDNSServer.UDP_HEADER);
+  public static readonly UDP_PAYLOAD_SIZE_IPV4 = (process.env.CIAO_UPS? parseInt(process.env.CIAO_UPS): 1440);
   // noinspection JSUnusedGlobalSymbols
-  public static readonly UDP_PAYLOAD_SIZE_IPV6 = (process.env.CIAO_MTU? parseInt(process.env.CIAO_MTU): 1500)
-    - (MDNSServer.DEFAULT_IP6_HEADER + MDNSServer.UDP_HEADER);
+  public static readonly UDP_PAYLOAD_SIZE_IPV6 = (process.env.CIAO_UPS? parseInt(process.env.CIAO_UPS): 1440);
 
   private static readonly AUTHORITATIVE_ANSWER_MASK = 0x400;
   private static readonly TRUNCATION_MASK = 0x200;

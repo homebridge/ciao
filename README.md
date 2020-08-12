@@ -101,8 +101,12 @@ on the network get instantly notified of the shutdown.
 As of [RFC 6762 17. Multicast DNS Message Size](https://tools.ietf.org/html/rfc6762#section-17) DNS packets must avoid
 IP Fragmentation and ensure that all sent packets are smaller than the Maximum Transmission Unit (MTU) defined by
 the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
-ciao can't reliable detect modifications made to this default MTU size. Thus, if you know, that the MTU
-differs on your machine, you can set the true MTU in bytes using the `CIAO_MTU` environment variable. 
+`ciao` can't reliable detect modifications made to this default MTU size.
+Thus , we rely on a hardcoded value, which is `1440` for the **UDP Payload Size** (Remember: the MTU defines the amount
+of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header 
+and the UDP Header. So the amount of bytes we are able to fit into a single UDP packet is smaller).  
+If you know, that the MTU differs on your machine, you can set the true **UDP Payload Size** in bytes
+using the `CIAO_UPS` environment variable. 
 
 ### Notice on native mDNS responders
 

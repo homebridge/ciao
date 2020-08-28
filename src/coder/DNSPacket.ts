@@ -413,10 +413,18 @@ export class DNSPacket {
     const labelCoder = NonCompressionLabelCoder.INSTANCE;
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    this.questions.forEach(question => length += question.getEncodingLength(labelCoder));
-    this.answers.forEach(record => length += record.getEncodingLength(labelCoder));
-    this.authorities.forEach(record => length += record.getEncodingLength(labelCoder));
-    this.additionals.forEach(record => length += record.getEncodingLength(labelCoder));
+    for (const record of this.questions) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.answers) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.authorities) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.additionals) {
+      length += record.getEncodingLength(labelCoder);
+    }
 
     this.estimatedEncodingLength = length;
 
@@ -432,10 +440,18 @@ export class DNSPacket {
 
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    this.questions.forEach(question => length += question.getEncodingLength(labelCoder));
-    this.answers.forEach(record => length += record.getEncodingLength(labelCoder));
-    this.authorities.forEach(record => length += record.getEncodingLength(labelCoder));
-    this.additionals.forEach(record => length += record.getEncodingLength(labelCoder));
+    for (const record of this.questions) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.answers) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.authorities) {
+      length += record.getEncodingLength(labelCoder);
+    }
+    for (const record of this.additionals) {
+      length += record.getEncodingLength(labelCoder);
+    }
 
     this.lengthDirty = false; // reset dirty flag
     this.lastCalculatedLength = length;
@@ -607,7 +623,7 @@ export class DNSPacket {
     });
   }
 
-  public asString(udpPayloadSize?: number): string {
+  public asLoggingString(udpPayloadSize?: number): string {
     const answerString = this.answers.map(record => dnsTypeToString(record.type)).join(",");
     const additionalsString = this.additionals.map(record => dnsTypeToString(record.type)).join(",");
 

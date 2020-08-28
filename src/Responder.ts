@@ -783,7 +783,7 @@ export class Responder implements PacketHandler {
 
         this.server.sendResponse(response.getPacket(), interfaceName);
         debug("Sending (delayed %dms) response via multicast on network %s (took %d ms): %s",
-          Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asString());
+          Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asLoggingString());
       });
     }
   }

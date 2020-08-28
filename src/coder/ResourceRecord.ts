@@ -1,6 +1,6 @@
 import assert from "assert";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
-import { DecodedData, DNSRecord, RClass, RType } from "./DNSPacket";
+import { DecodedData, DNSRecord, dnsTypeToString, RClass, RType } from "./DNSPacket";
 
 export interface RecordRepresentation {
   name: string;
@@ -62,6 +62,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   }
 
   public encode(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
+    const start = new Date().getTime();
     const oldOffset = offset;
 
     const nameLength = coder.encodeName(this.name, offset);
@@ -87,6 +88,8 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
     buffer.writeUInt16BE(dataLength, offset);
     offset += 2 + dataLength;
 
+    const stop = new Date().getTime();
+    console.log("Encoding " + dnsTypeToString(this.type) + " took \t " + (stop - start) + "ms");
     return offset - oldOffset; // written bytes
   }
 

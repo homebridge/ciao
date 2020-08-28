@@ -24,7 +24,7 @@ export class QueryResponse {
   }
 
   public asString(udpPayloadSize?: number): string {
-    return this.dnsPacket.asString(udpPayloadSize);
+    return this.dnsPacket.asLoggingString(udpPayloadSize);
   }
 
   public containsSharedAnswer(): boolean {

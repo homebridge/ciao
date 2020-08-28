@@ -161,9 +161,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
-    });
+    }, MDNSServer.forwardError.bind(undefined, callback));
   }
 
   public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
@@ -173,9 +171,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
-    });
+    }, MDNSServer.forwardError.bind(undefined, callback));
   }
 
   public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
@@ -185,9 +181,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, (error: SocketError) => {
-      callback? callback(error.error): MDNSServer.handleSocketError(error.name, error.error);
-    });
+    }, MDNSServer.forwardError.bind(undefined, callback));
   }
 
   private sendOnAllNetworks(packet: DNSPacket): Promise<void> {
@@ -367,9 +361,34 @@ export class MDNSServer {
     }
   }
 
+  private static forwardError(callback: SendCallback | undefined, error: SocketError): void {
+    if (this.isSilencedSocketError(error.error)) {
+      return;
+    }
+
+    if (callback) {
+      callback(error.error);
+    } else {
+      this.handleSocketError(error.name, error.error);
+    }
+  }
+
+  private static isSilencedSocketError(error: Error): boolean {
+    // silence those errors
+    // they happen when the host is not reachable (EADDRNOTAVAIL for 224.0.0.251 or EHOSTDOWN for any unicast traffic)
+    // caused by yet undetected network changes.
+    // as we listen to 0.0.0.0 and the socket stays valid, this is not a problem
+    return error.name === "EADDRNOTAVAIL" || error.name === "EHOSTDOWN";
+  }
+
   private static handleSocketError(name: InterfaceName, error: Error): void {
+    if (this.isSilencedSocketError(error)) {
+      return;
+    }
+
     console.warn(`Encountered MDNS socket error on socket '${name}' : ${error.message}`);
     console.warn(error.stack);
+    return;
   }
 
   private handleUpdatedNetworkInterfaces(networkUpdate: NetworkUpdate): void {

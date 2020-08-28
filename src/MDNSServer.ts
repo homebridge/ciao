@@ -213,7 +213,10 @@ export class MDNSServer {
   private send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<void> {
     this.checkUnicastResponseFlag(packet);
 
+    const start = new Date().getTime();
     const message = packet.encode();
+    const stop = new Date().getTime();
+    console.log("Encode took " + (stop - start) + "ms");
     this.assertBeforeSend(message, IPFamily.IPv4);
 
     let address: string;

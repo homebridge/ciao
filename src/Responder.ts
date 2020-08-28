@@ -465,6 +465,7 @@ export class Responder implements PacketHandler {
 
       return; // wait for the next query
     }
+    const step1 = new Date().getTime();
 
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
     const isProbeQuery = packet.authorities.length > 0;
@@ -486,15 +487,21 @@ export class Responder implements PacketHandler {
     multicastResponses[0].defineKnownAnswers(packet.answers);
     unicastResponses[0].defineKnownAnswers(packet.answers);
 
+    const step2 = new Date().getTime();
+
     // gather answers for all the questions
     packet.questions.forEach(question => {
       const responses = (question.unicastResponseFlag || isUnicastQuerier)? unicastResponses: multicastResponses;
       responses.push(...this.answerQuestion(question, endpoint, responses[0]));
     });
 
+    const step3 = new Date().getTime();
+
     if (this.currentProber) {
       this.currentProber.handleQuery(packet);
     }
+
+    const step4 = new Date().getTime();
 
     if (isUnicastQuerier) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
@@ -508,6 +515,8 @@ export class Responder implements PacketHandler {
         response.markLegacyUnicastResponse(packet.id, i === 0? packet.questions: undefined);
       }
     }
+
+    const step5 = new Date().getTime();
 
     // TODO this note should be placed somewhere else (when we combine delayed multicast packets)
     // RFC 6762 6.4. Response aggregation:
@@ -530,6 +539,11 @@ export class Responder implements PacketHandler {
       unicastResponses.splice(1, unicastResponses.length - 1); // discard all other
       unicastResponses[0].markTruncated();
     }
+
+    const step6 = new Date().getTime();
+
+    console.log("Truncated queries: \t" + (step1- start) + "ms; Init stuff: \t" + (step2- step1) + "ms; Answers: \t" + (step3-step2) + "ms; " +
+      "Proper: \t" + (step4- step3)+ "ms; unicast queries: \t" + (step5-step4) + "ms; Combine responses: \t" + (step6-step5) +"ms");
 
     for (const unicastResponse of unicastResponses) {
       if (!unicastResponse.hasAnswers()) {

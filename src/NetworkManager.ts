@@ -173,14 +173,17 @@ export class NetworkManager extends EventEmitter {
   }
 
   private scheduleNextJob(): void {
-    const timer = setTimeout(this.checkForNewInterfaces.bind(this), NetworkManager.POLLING_TIME);
-    timer.unref(); // this timer won't prevent shutdown
+    this.currentTimer = setTimeout(this.checkForNewInterfaces.bind(this), NetworkManager.POLLING_TIME);
+    this.currentTimer.unref(); // this timer won't prevent shutdown
   }
 
   private async checkForNewInterfaces(): Promise<void> {
     const start = new Date().getTime();
 
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
+    if (!this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
+      return;
+    }
 
     let added: NetworkInterface[] | undefined = undefined;
     let removed: NetworkInterface[] | undefined = undefined;

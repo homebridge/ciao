@@ -137,6 +137,11 @@ export class OPTRecord extends ResourceRecord {
     return new OPTRecord(this.getRecordRepresentation(), this.options, this.extendedRCode, this.flags, this.ednsVersion);
   }
 
+  protected dataAsString(): string {
+    return `${this.udpPayloadSize} ${this.extendedRCode} ${this.ednsVersion} ${JSON.stringify(this.flags)} [${this.options
+      .map(opt => `${opt.code} ${opt.data.toString("base64")}`).join(",")}]`;
+  }
+
   public dataEquals(record: OPTRecord): boolean {
     return this.udpPayloadSize === record.udpPayloadSize && this.extendedRCode === record.extendedRCode
       && this.ednsVersion === record.ednsVersion

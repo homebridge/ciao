@@ -143,6 +143,8 @@ export interface DNSRecord {
 
   encode(coder: DNSLabelCoder, buffer: Buffer, offset: number): number;
 
+  asString(): string;
+
 }
 
 export class DNSPacket {
@@ -163,7 +165,7 @@ export class DNSPacket {
   private static readonly DNS_PACKET_HEADER_SIZE = 12;
 
   id: number;
-  private legacyUnicastEncoding: boolean; // TODO must somehow be directed to the SRV record
+  private legacyUnicastEncoding: boolean;
 
   readonly type: PacketType;
   readonly opcode: OpCode;

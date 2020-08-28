@@ -110,6 +110,8 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   protected abstract encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number;
 
+  protected abstract dataAsString(): string;
+
   public abstract clone(): ResourceRecord;
 
   /**
@@ -145,6 +147,11 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   public representsSameData(record: ResourceRecord): boolean {
     return this.type === record.type && this.name === record.name && this.class === record.class;
+  }
+
+  public asString(): string {
+    // same as aboutEqual, ttl is not included
+    return `RR ${this.name} ${this.type} ${this.class} ${this.dataAsString()}`;
   }
 
   public static decode(coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<ResourceRecord> {

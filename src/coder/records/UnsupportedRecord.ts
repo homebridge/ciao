@@ -23,8 +23,12 @@ export class UnsupportedRecord extends ResourceRecord {
     return new UnsupportedRecord(this.getRecordRepresentation(), this.data);
   }
 
-  dataEquals(record: UnsupportedRecord): boolean {
-    return this.data.toString("hex") === record.data.toString("hex");
+  protected dataAsString(): string {
+    return this.data.toString("base64");
+  }
+
+  public dataEquals(record: UnsupportedRecord): boolean {
+    return this.data.toString("base64") === record.data.toString("base64");
   }
 
   public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<UnsupportedRecord> {

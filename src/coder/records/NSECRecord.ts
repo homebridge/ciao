@@ -118,6 +118,10 @@ export class NSECRecord extends ResourceRecord {
     return new NSECRecord(this.getRecordRepresentation(), this.nextDomainName, NSECRecord.windowsToRRTypes(this.rrTypeWindows));
   }
 
+  protected dataAsString(): string {
+    return `${this.nextDomainName} [${NSECRecord.windowsToRRTypes(this.rrTypeWindows).map(rtype => ""+rtype).join(",")}]`;
+  }
+
   public dataEquals(record: NSECRecord): boolean {
     return this.nextDomainName === record.nextDomainName && deepEqual(this.rrTypeWindows, record.rrTypeWindows);
   }

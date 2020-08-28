@@ -518,7 +518,6 @@ export class Responder implements PacketHandler {
 
     const step5 = new Date().getTime();
 
-    // TODO this note should be placed somewhere else (when we combine delayed multicast packets)
     // RFC 6762 6.4. Response aggregation:
     //    When possible, a responder SHOULD, for the sake of network
     //    efficiency, aggregate as many responses as possible into a single

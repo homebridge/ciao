@@ -53,6 +53,10 @@ export class PTRRecord extends ResourceRecord {
     return new PTRRecord(this.getRecordRepresentation(), this.ptrName);
   }
 
+  protected dataAsString(): string {
+    return this.ptrName;
+  }
+
   public dataEquals(record: PTRRecord): boolean {
     return this.ptrName === record.ptrName;
   }

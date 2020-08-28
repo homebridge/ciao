@@ -85,6 +85,10 @@ export class SRVRecord extends ResourceRecord {
     return new SRVRecord(this.getRecordRepresentation(), this.hostname, this.port);
   }
 
+  protected dataAsString(): string {
+    return `${this.hostname} ${this.port} ${this.priority} ${this.weight}`;
+  }
+
   public dataEquals(record: SRVRecord): boolean {
     return this.hostname === record.hostname && this.port === record.port && this.weight === record.weight && this.priority === record.priority;
   }

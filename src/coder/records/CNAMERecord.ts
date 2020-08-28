@@ -53,6 +53,10 @@ export class CNAMERecord extends ResourceRecord {
     return new CNAMERecord(this.getRecordRepresentation(), this.cname);
   }
 
+  protected dataAsString(): string {
+    return this.cname;
+  }
+
   public dataEquals(record: CNAMERecord): boolean {
     return this.cname === record.cname;
   }

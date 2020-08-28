@@ -67,6 +67,10 @@ export class AAAARecord extends ResourceRecord {
     return new AAAARecord(this.getRecordRepresentation(), this.ipAddress);
   }
 
+  protected dataAsString(): string {
+    return this.ipAddress;
+  }
+
   public dataEquals(record: AAAARecord): boolean {
     return this.ipAddress === record.ipAddress;
   }

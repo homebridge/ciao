@@ -51,6 +51,10 @@ export class Question implements DNSRecord {
     return new Question(this.name, this.type, this.unicastResponseFlag, this.class);
   }
 
+  public asString(): string {
+    return `Q ${this.name} ${this.type} ${this.class}`;
+  }
+
   public static decode(coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<Question> {
     const oldOffset = offset;
 

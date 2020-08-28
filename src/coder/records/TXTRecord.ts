@@ -47,6 +47,10 @@ export class TXTRecord extends ResourceRecord {
     return new TXTRecord(this.getRecordRepresentation(), this.txt);
   }
 
+  protected dataAsString(): string {
+    return `[${this.txt.map(line => `${line.toString("base64")}`).join(",")}]`;
+  }
+
   public dataEquals(record: TXTRecord): boolean {
     // deepEquals on buffers doesn't really work
     if (this.txt.length !== record.txt.length) {

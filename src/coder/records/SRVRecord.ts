@@ -1,5 +1,5 @@
 import assert from "assert";
-import { DNSLabelCoder, Name } from "../DNSLabelCoder";
+import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
@@ -9,9 +9,6 @@ export class SRVRecord extends ResourceRecord {
   readonly port: number;
   private readonly priority: number;
   private readonly weight: number;
-
-  private trackedHostname?: Name;
-  private targetingLegacyUnicastQuerier?: boolean;
 
   constructor(name: string, hostname: string, port: number, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, hostname: string, port: number)
@@ -35,45 +32,15 @@ export class SRVRecord extends ResourceRecord {
     this.weight = 0;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return 6 + DNSLabelCoder.getUncompressedNameLength(this.hostname);
-  }
-
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    super.trackNames(coder, legacyUnicast);
-
-    if (legacyUnicast) {
-      this.targetingLegacyUnicastQuerier = true;
-      return;
-    }
-
-    assert(!this.trackedHostname, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedHostname = coder.trackName(this.hostname);
-  }
-
-  public clearNameTracking(): void {
-    super.clearNameTracking();
-    this.trackedHostname = undefined;
-    this.targetingLegacyUnicastQuerier = undefined;
-  }
-
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedHostname && !this.targetingLegacyUnicastQuerier) {
-      assert.fail("Illegal state. Hostname wasn't yet tracked!");
-    }
-
     return 6 // 2 byte priority; 2 byte weight; 2 byte port;
       // as of RFC 2782 name compression MUST NOT be used for the hostname, though RFC 6762 18.14 specifies it should
-      + (this.targetingLegacyUnicastQuerier
-        ? coder.getNameLength(this.hostname)
-        : coder.getNameLength(this.trackedHostname!));
+      + (coder.legacyUnicastEncoding
+        ? coder.getUncompressedNameLength(this.hostname)
+        : coder.getNameLength(this.hostname));
   }
 
-  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number, disabledCompression?: boolean): number {
-    if (!this.trackedHostname && !this.targetingLegacyUnicastQuerier && !disabledCompression) {
-      assert.fail("Illegal state. Hostname wasn't yet tracked!");
-    }
-
+  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
 
     buffer.writeUInt16BE(this.priority, offset);
@@ -85,9 +52,9 @@ export class SRVRecord extends ResourceRecord {
     buffer.writeUInt16BE(this.port, offset);
     offset += 2;
 
-    const hostnameLength = this.targetingLegacyUnicastQuerier || disabledCompression
-      ? coder.encodeName(this.hostname, offset)
-      : coder.encodeName(this.trackedHostname!, offset);
+    const hostnameLength = coder.legacyUnicastEncoding
+      ? coder.encodeUncompressedName(this.hostname, offset)
+      : coder.encodeName(this.hostname, offset);
     offset += hostnameLength;
 
     return offset - oldOffset; // written bytes
@@ -96,12 +63,10 @@ export class SRVRecord extends ResourceRecord {
   public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<SRVRecord> {
     const oldOffset = offset;
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const priority = buffer.readUInt16BE(offset);
+    //const priority = buffer.readUInt16BE(offset);
     offset += 2;
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const weight = buffer.readUInt16BE(offset);
+    //const weight = buffer.readUInt16BE(offset);
     offset += 2;
 
     const port = buffer.readUInt16BE(offset);

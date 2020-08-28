@@ -20,7 +20,7 @@ export class TXTRecord extends ResourceRecord {
     this.txt = txt;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
+  protected getRDataEncodingLength(): number {
     let length = 0;
 
     for (const buffer of this.txt) {
@@ -29,11 +29,6 @@ export class TXTRecord extends ResourceRecord {
     }
 
     return length;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    return this.getEstimatedRDataEncodingLength();
   }
 
   protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {

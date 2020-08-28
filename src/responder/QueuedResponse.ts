@@ -81,9 +81,6 @@ export class QueuedResponse {
       return false;
     }
 
-    this.packet.initEncodingMode();
-    next.packet.initEncodingMode();
-
     if (!next.packet.canBeCombinedWith(this.packet)) {
       // packets can't be combined
       return false;
@@ -107,9 +104,6 @@ export class QueuedResponse {
       // can't combine packets which get sent via different interfaces
       return false;
     }
-
-    this.packet.initEncodingMode();
-    response.asPacket().initEncodingMode();
 
     if (!this.packet.canBeCombinedWith(response.asPacket())) {
       return false; // packets can't be combined

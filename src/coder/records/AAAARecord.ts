@@ -23,12 +23,7 @@ export class AAAARecord extends ResourceRecord {
     this.ipAddress = ipAddress;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return 16;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected getRDataEncodingLength(coder: DNSLabelCoder): number {
+  protected getRDataEncodingLength(): number {
     return 16; // 16 byte ipv6 address
   }
 

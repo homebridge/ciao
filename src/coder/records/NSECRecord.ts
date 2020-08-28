@@ -1,6 +1,6 @@
 import assert from "assert";
 import deepEqual from "fast-deep-equal";
-import { DNSLabelCoder, Name } from "../DNSLabelCoder";
+import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
@@ -14,8 +14,6 @@ export class NSECRecord extends ResourceRecord {
 
   readonly nextDomainName: string;
   readonly rrTypeWindows: RRTypeWindow[];
-
-  private trackedNextDomainName?: Name;
 
   constructor(name: string, nextDomainName: string, rrtypes: RType[], flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, nextDomainName: string, rrtypes: RType[]);
@@ -48,40 +46,16 @@ export class NSECRecord extends ResourceRecord {
     return rrTypesBitMapLength;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return DNSLabelCoder.getUncompressedNameLength(this.nextDomainName) + this.getRRTypesBitMapEncodingLength();
-  }
-
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    super.trackNames(coder, legacyUnicast);
-
-    assert(!this.trackedNextDomainName, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedNextDomainName = coder.trackName(this.nextDomainName);
-  }
-
-  public clearNameTracking(): void {
-    super.clearNameTracking();
-    this.trackedNextDomainName = undefined;
-  }
-
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedNextDomainName) {
-      assert.fail("Illegal state. Hostname wasn't yet tracked!");
-    }
-
     // RFC 4034 4.1.1. name compression MUST NOT be used for the nextDomainName, though RFC 6762 18.14 specifies it should
-    return coder.getNameLength(this.trackedNextDomainName)
+    return coder.getNameLength(this.nextDomainName)
       + this.getRRTypesBitMapEncodingLength();
   }
 
-  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number, disabledCompression?: boolean): number {
-    if (!this.trackedNextDomainName && !disabledCompression) {
-      assert.fail("Illegal state. Hostname wasn't yet tracked!");
-    }
-
+  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
 
-    const length = disabledCompression? coder.encodeName(this.nextDomainName, offset): coder.encodeName(this.trackedNextDomainName!, offset);
+    const length = coder.encodeName(this.nextDomainName, offset);
     offset += length;
 
     // RFC 4034 4.1.2. type bit maps field has the following format ( Window Block # | Bitmap Length | Bitmap )+ (with | concatenation)

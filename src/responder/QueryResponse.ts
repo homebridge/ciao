@@ -141,9 +141,6 @@ export class QueryResponse {
       const next = responses[i + 1];
       const nextPacket = next.dnsPacket;
 
-      currentPacket.initEncodingMode();
-      nextPacket.initEncodingMode();
-
       if (currentPacket.canBeCombinedWith(nextPacket, udpPayloadSize)) {
         // combine the packet with next one
         currentPacket.combineWith(nextPacket);

@@ -1,21 +1,15 @@
 import assert from "assert";
 import { DecodedData } from "./DNSPacket";
 
-export interface Label {
-  label: string;
-  writtenAt: number; // is initialized with -1 when location is unknown
+interface WrittenName {
+  name: string;
+  writtenLabels: number[]; // array of indices where the corresponding labels are written in the buffer
 }
 
-export interface Pointer {
-  fromIndex: number; // defines the index where the pointer must be inserted in the SOURCE
-  toName: Name; // defines the DESTINATION name object
-  atPosition: number; // defines the offset in the DESTINATION
-}
-
-export interface Name {
-  fullName: string;
-  labels: Label[];
-  pointer?: Pointer;
+interface NameLength {
+  name: string;
+  length: number; // full length in bytes needed to encode this name
+  labelLengths: number[]; // array of byte lengths for every individual label. will always end with root label with length of 1
 }
 
 export class DNSLabelCoder {
@@ -40,210 +34,198 @@ export class DNSLabelCoder {
   private static readonly NOT_POINTER_MASK = 0x3FFF;
 
   private buffer?: Buffer;
+  readonly legacyUnicastEncoding: boolean;
 
-  private readonly trackedNames: Name[] = [];
-  private computedCompressionPaths = false;
+  private readonly trackedLengths: NameLength[] = [];
+  private readonly writtenNames: WrittenName[] = [];
 
-  public initBuf(buffer: Buffer): void {
+  constructor(legacyUnicastEncoding?: boolean) {
+    this.legacyUnicastEncoding = legacyUnicastEncoding || false;
+  }
+
+  public initBuf(buffer?: Buffer): void {
     this.buffer = buffer;
   }
 
-  public trackName(name: string): Name {
-    assert(name.endsWith("."), "Name does not end with the root label");
-
-    this.invalidateCompressionPaths(); // adding a new label. invalidates all previous compression paths
-
-    const nameObject: Name = DNSLabelCoder.allocNameObject(name);
-
-    this.trackedNames.push(nameObject);
-
-    return nameObject;
-  }
-
-  protected static allocNameObject(name: string): Name {
-    return {
-      fullName: name,
-      labels: name === "."
-        ? [{
-          label: "",
-          writtenAt: -1,
-        }]
-        : name.split(".").map(label => ({
-          label: label,
-          writtenAt: -1,
-        })),
-    };
-  }
-
-  private invalidateCompressionPaths(): void {
-    if (this.computedCompressionPaths) {
-      this.computedCompressionPaths = false;
-      this.trackedNames.forEach(name => name.pointer = undefined); // invalidate all computed pointers
+  public getUncompressedNameLength(name: string): number {
+    if (name === ".") {
+      return 1; // root label takes one zero byte
     }
-  }
-
-  public computeCompressionPaths(): void {
-    if (this.computedCompressionPaths) {
-      return; // nothing was changed, no need to recompute the same result
-    }
-
-    // i can start at 1, as the first element has no predecessors
-    for (let i = 1; i < this.trackedNames.length; i++) {
-      const element = this.trackedNames[i];
-
-      let candidateSharingLongestSuffix: Name | undefined = undefined;
-      let longestSuffixLength = 0; // amount of labels which are identical
-
-      for (let j = 0; j < i; j++) { // pointers can only point to PRIOR label locations
-        const candidate = this.trackedNames[j];
-
-        const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element, candidate);
-
-        // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
-        // don't change anything unless you fully understand all implications (0, and big comment block below)
-        if (suffixLength > longestSuffixLength) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          candidateSharingLongestSuffix = candidate;
-          longestSuffixLength = suffixLength;
-        }
-      }
-
-      /* TODO temporarily disable name compression
-      if (candidateSharingLongestSuffix) {
-        // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
-        // the "atPosition" we are pointing to below. This could result in that we point to a location which
-        // never gets written into the buffer, thus we can't point to it.
-        // But as we always start in order (with the first element in our array; see for loop above)
-        // we will always find the label first, which such a theoretical candidate is also pointing at
-
-        element.pointer = {
-          fromIndex: element.labels.length - longestSuffixLength - 1, // -1 as the empty root label is always included
-          toName: candidateSharingLongestSuffix,
-          atPosition: candidateSharingLongestSuffix.labels.length - longestSuffixLength - 1,
-        };
-      }
-      */
-    }
-  }
-
-  public getNameLength(name: Name): number; // returns how much the name will take in an possibly compressed way
-  public getNameLength(name: string): number // returns the length for an uncompressed name
-  public getNameLength(name: Name | string): number {
-    let labels: string[];
-    let maxI: number;
+    assert(name.endsWith("."), "Supplied illegal name which doesn't end with the root label!");
 
     let length = 0;
+    const labels: string[] = name.split(".");
 
-    if (typeof name === "string") {
-      assert(name.endsWith("."), "Name does not end with the root label");
-
-      labels = name === "."? [""]: name.split(".");
-      maxI = labels.length;
-    } else {
-      assert(this.trackedNames.includes(name), "Encountered name in encoding we don't know about yet!");
-      labels = name.labels.map(label => label.label);
-
-      if (name.pointer) {
-        maxI = name.pointer.fromIndex;
-        length += 2; // already add the 2 byte pointer length which will be appended
-      } else {
-        maxI = name.labels.length;
-      }
-    }
-
-    for (let i = 0; i < maxI; i++) {
+    for (let i = 0; i < labels.length; i++) {
       const label = labels[i];
-
-      if (!label) { // empty label aka root label
-        if (i < labels.length - 1) { // check that the empty label can only be the root label
-          assert.fail("Label " + i  + " in name " + name + " was empty");
-        }
-
-        length++; // root label takes one zero byte
-      } else {
-        const byteLength = Buffer.byteLength(label);
-        assert(byteLength <= 63, "Label cannot be longer than 63 bytes (" + label + ")");
-        length += 1 + byteLength; // length byte + label data
+      if (!label && i < labels.length - 1) {
+        assert.fail("Label " + i  + " in name '" + name + "' was empty");
       }
+
+      length += DNSLabelCoder.getLabelLength(label);
     }
 
     return length;
   }
 
-  public encodeName(name: Name, offset: number): number; // encodes the name in an possibly compressed format
-  public encodeName(name: string, offset: number): number; // encodes the name in uncompressed format
-  public encodeName(name: Name | string, offset: number): number {
+  public getNameLength(name: string): number {
+    if (name === ".") {
+      return 1; // root label takes one zero byte and is not compressible
+    }
+    assert(name.endsWith("."), "Supplied illegal name which doesn't end with the root label!");
+
+    const labelLengths: number[] = name.split(".")
+      .map(label => DNSLabelCoder.getLabelLength(label));
+
+    const nameLength: NameLength = {
+      name: name,
+      length: 0, // total length needed for encoding (with compression enabled)
+      labelLengths: labelLengths,
+    };
+
+    let candidateSharingLongestSuffix: NameLength | undefined = undefined;
+    let longestSuffixLength = 0; // amount of labels which are identical
+
+    // pointers MUST only point to PRIOR label locations
+    for (let i = 0; i < this.trackedLengths.length; i++) {
+      const element = this.trackedLengths[i];
+      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.name, name);
+
+      // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
+      // don't change anything unless you fully understand all implications (0, and big comment block below)
+      if (suffixLength > longestSuffixLength) {
+        candidateSharingLongestSuffix = element;
+        longestSuffixLength = suffixLength;
+      }
+    }
+
+    let length = 0;
+    if (candidateSharingLongestSuffix) {
+      // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
+      // the "toIndex" we are pointing to below. This could result in that we point to a location which
+      // never gets written into the buffer, thus we can't point to it.
+      // But as we always start in order (with the first element in our array; see for loop above)
+      // we will always find the label first, which such a theoretical candidate is also pointing at
+
+      const pointingFromIndex = labelLengths.length - 1 - longestSuffixLength; // -1 as the empty root label is always included
+
+      for (let i = 0; i < pointingFromIndex; i++) {
+        length += labelLengths[i];
+      }
+      length += 2; // 2 byte for the pointer
+    } else {
+      for (let i = 0; i < labelLengths.length; i++) {
+        length += labelLengths[i];
+      }
+    }
+
+    nameLength.length = length;
+    this.trackedLengths.push(nameLength);
+
+    return nameLength.length;
+  }
+
+  public encodeUncompressedName(name: string, offset: number): number {
     if (!this.buffer) {
       assert.fail("Illegal state. Buffer not initialized!");
     }
+
+    return DNSLabelCoder.encodeUncompressedName(name, this.buffer, offset);
+  }
+
+  public static encodeUncompressedName(name: string, buffer: Buffer, offset: number): number {
+    assert(name.endsWith("."), "Name does not end with the root label");
     const oldOffset = offset;
 
-    if (typeof name === "string") {
-      assert(name.endsWith("."), "Name does not end with the root label");
-      assert(name !== ".", "the name must be more than just the root label.");
+    const labels = name === "."
+      ? [""]
+      : name.split(".");
 
-      const labels = name.split(".");
+    for (let i = 0; i < labels.length; i++) {
+      const label = labels[i];
 
-      for (let i = 0; i < labels.length; i++) {
-        const label = labels[i];
+      if (label === "") {
+        assert(i === labels.length - 1, "Encountered root label being not at the end of the domain name");
 
-        if (label === "") {
-          assert(i === labels.length - 1, "Encountered root label being not at the end of the domain name");
-
-          this.buffer.writeUInt8(0, offset++); // write a terminating zero
-          break;
-        }
-
-        // write length byte followed by the label data
-        const length = this.buffer.write(label, offset + 1);
-        this.buffer.writeUInt8(length, offset);
-        offset += length + 1;
-      }
-    } else {
-      assert(this.trackedNames.includes(name), "Encountered name in encoding we don't know about yet!");
-      const maxI = name.pointer ? name.pointer.fromIndex : name.labels.length;
-
-      for (let i = 0; i < maxI; i++) {
-        const label = name.labels[i];
-
-        if (label.label === "") {
-          assert(i === name.labels.length - 1, "Encountered root label being not at the end of the domain name");
-
-          this.buffer.writeUInt8(0, offset); // write a terminating zero
-          label.writtenAt = offset++;
-          break;
-        }
-
-        // write length byte followed by the label data
-        const length = this.buffer.write(label.label, offset + 1);
-        this.buffer.writeUInt8(length, offset);
-
-        label.writtenAt = offset;
-        offset += length + 1;
+        buffer.writeUInt8(0, offset++); // write a terminating zero
+        break;
       }
 
-      if (name.pointer) {
-        const pointed = name.pointer.toName.labels[name.pointer.atPosition];
-        assert(pointed, "Could not find label which pointer points at");
-        assert(pointed.writtenAt !== -1, "Label which was pointed at wasn't yet written to the buffer!");
-        assert(pointed.writtenAt <= DNSLabelCoder.NOT_POINTER_MASK, "Pointer exceeds to length of a maximum of 14 bits");
-        assert(pointed.writtenAt < offset, "Pointer can only point to a prior location");
-
-        const pointer = DNSLabelCoder.POINTER_MASK | pointed.writtenAt;
-
-        this.buffer.writeUInt16BE(pointer, offset);
-        offset += 2;
-      }
+      // write length byte followed by the label data
+      const length = buffer.write(label, offset + 1);
+      buffer.writeUInt8(length, offset);
+      offset += length + 1;
     }
 
     return offset - oldOffset; // written bytes
   }
 
-  public resetCoder(): void {
-    // reset the label coder
-    this.buffer = undefined;
-    this.trackedNames.splice(0, this.trackedNames.length);
-    this.computedCompressionPaths = false;
+  public encodeName(name: string, offset: number): number {
+    if (!this.buffer) {
+      assert.fail("Illegal state. Buffer not initialized!");
+    }
+
+    if (name === ".") {
+      this.buffer.writeUInt8(0, offset); // write a terminating zero
+      return 1;
+    }
+
+    const oldOffset = offset;
+
+    const labels: string[] = name.split(".");
+    const writtenName: WrittenName = {
+      name: name,
+      writtenLabels: new Array(labels.length).fill(-1), // init with "-1" meaning unknown location
+    };
+
+    let candidateSharingLongestSuffix: WrittenName | undefined = undefined;
+    let longestSuffixLength = 0; // amount of labels which are identical
+
+    for (let i = 0; i < this.writtenNames.length; i++) {
+      const element = this.writtenNames[i];
+      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.name, name);
+
+      // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
+      // don't change anything unless you fully understand all implications (0, and big comment block below)
+      if (suffixLength > longestSuffixLength) {
+        candidateSharingLongestSuffix = element;
+        longestSuffixLength = suffixLength;
+      }
+    }
+
+    if (candidateSharingLongestSuffix) {
+      // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
+      // the "toIndex" we are pointing to below. This could result in that we point to a location which
+      // never gets written into the buffer, thus we can't point to it.
+      // But as we always start in order (with the first element in our array; see for loop above)
+      // we will always find the label first, which such a theoretical candidate is also pointing at
+
+      const pointingFromIndex = labels.length - 1 - longestSuffixLength; // -1 as the empty root label is always included
+      const pointingToIndex = candidateSharingLongestSuffix.writtenLabels.length - 1 - longestSuffixLength;
+
+      for (let i = 0; i < pointingFromIndex; i++) {
+        writtenName.writtenLabels[i] = offset;
+        offset += DNSLabelCoder.writeLabel(labels[i], this.buffer, offset);
+      }
+
+      const pointerDestination = candidateSharingLongestSuffix.writtenLabels[pointingToIndex];
+      assert(pointerDestination !== -1, "Label which was pointed at wasn't yet written to the buffer!");
+      assert(pointerDestination <= DNSLabelCoder.NOT_POINTER_MASK, "Pointer exceeds to length of a maximum of 14 bits");
+      assert(pointerDestination < offset, "Pointer can only point to a prior location");
+
+      const pointer = DNSLabelCoder.POINTER_MASK | pointerDestination;
+      this.buffer.writeUInt16BE(pointer, offset);
+      offset += 2;
+    } else {
+      for (let i = 0; i < labels.length; i++) {
+        writtenName.writtenLabels[i] = offset;
+        offset += DNSLabelCoder.writeLabel(labels[i], this.buffer, offset);
+      }
+    }
+
+    this.writtenNames.push(writtenName);
+
+    return offset - oldOffset; // written bytes
   }
 
   public decodeName(offset: number): DecodedData<string> {
@@ -260,6 +242,22 @@ export class DNSLabelCoder {
       if (length === 0) { // zero byte to terminate the name
         name += ".";
         break; // root label marks end of name
+      }
+
+      const labelTypePattern: number = length & DNSLabelCoder.POINTER_MASK_ONE_BYTE;
+      if (labelTypePattern) {
+        if (labelTypePattern === DNSLabelCoder.POINTER_MASK_ONE_BYTE) {
+          // we got a pointer here
+          const pointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK; // extract the offset
+          offset++; // increment for the second byte of the pointer
+
+          assert(pointer < oldOffset, "Pointer MUST point to a prior location!");
+
+          name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name
+          break; // pointer marks end of name
+        } else {
+          assert.fail("Encountered unknown pointer type: " + Buffer.from([labelTypePattern >> 6]).toString("binary"));
+        }
       }
 
       if ((length & DNSLabelCoder.POINTER_MASK_ONE_BYTE) === DNSLabelCoder.POINTER_MASK_ONE_BYTE) {
@@ -283,15 +281,32 @@ export class DNSLabelCoder {
     };
   }
 
-  public static getUncompressedNameLength(name: string): number {
-    return NonCompressionLabelCoder.INSTANCE.getNameLength(name);
+  private static getLabelLength(label: string): number {
+    if (!label) { // empty label aka root label
+      return 1; // root label takes one zero byte
+    } else {
+      const byteLength = Buffer.byteLength(label);
+      assert(byteLength <= 63, "Label cannot be longer than 63 bytes (" + label + ")");
+      return 1 + byteLength; // length byte + label data
+    }
   }
 
-  private static computeLabelSuffixLength(element: Name, candidate: Name): number {
-    assert(element.fullName.endsWith(".") && candidate.fullName.endsWith("."), "Encountered illegal domain names!");
-    const lastAIndex = element.fullName.length - 1;
-    const lastBIndex = candidate.fullName.length - 1;
-    assert(lastAIndex >= 0 && lastBIndex >= 0, "Encountered empty name when comparing suffixes!");
+  private static writeLabel(label: string, buffer: Buffer, offset: number): number {
+    if (!label) {
+      buffer.writeUInt8(0, offset);
+      return 1;
+    } else {
+      const length = buffer.write(label, offset + 1);
+      buffer.writeUInt8(length, offset);
+
+      return length + 1;
+    }
+  }
+
+  private static computeLabelSuffixLength(a: string, b: string): number {
+    assert(a.length !== 0 && b.length !== 0, "Encountered empty name when comparing suffixes!");
+    const lastAIndex = a.length - 1;
+    const lastBIndex = b.length - 1;
 
     let equalLabels = 0;
     let exitByBreak = false;
@@ -299,8 +314,8 @@ export class DNSLabelCoder {
     // we start with i=1 as the last character will always be the root label terminator "."
     for (let i = 1; i <= lastAIndex && i <= lastBIndex; i++) {
       // we are comparing both strings backwards
-      const aChar = element.fullName.charAt(lastAIndex - i);
-      const bChar = candidate.fullName.charAt(lastBIndex - i);
+      const aChar = a.charAt(lastAIndex - i);
+      const bChar = b.charAt(lastBIndex - i);
       assert(!!aChar && !!bChar, "Seemingly encountered out of bounds trying to calculate suffixes");
 
       if (aChar !== bChar) {
@@ -313,7 +328,7 @@ export class DNSLabelCoder {
     }
 
     if (!exitByBreak) {
-      equalLabels++;
+      equalLabels++; // accommodate for the top level label (fqdn doesn't start with a dot)
     }
 
     return equalLabels;
@@ -325,28 +340,12 @@ export class NonCompressionLabelCoder extends DNSLabelCoder {
 
   public static readonly INSTANCE = new NonCompressionLabelCoder();
 
-
-  trackName(name: string): Name {
-    return DNSLabelCoder.allocNameObject(name); // prevent adding to the dict
+  public getNameLength(name: string): number {
+    return this.getUncompressedNameLength(name);
   }
 
-  computeCompressionPaths(): void {
-    // empty
+  public encodeName(name: string, offset: number): number {
+    return this.encodeUncompressedName(name, offset);
   }
 
-  getNameLength(name: Name | string): number {
-    if (typeof name === "string") {
-      return super.getNameLength(name);
-    } else {
-      return super.getNameLength(name.fullName); // disable compression
-    }
-  }
-
-  encodeName(name: Name | string, offset: number): number {
-    if (typeof name === "string") {
-      return super.encodeName(name, offset);
-    } else {
-      return super.encodeName(name.fullName, offset); // disable compression
-    }
-  }
 }

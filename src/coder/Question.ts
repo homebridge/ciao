@@ -1,6 +1,5 @@
-import assert from "assert";
-import { DNSLabelCoder, Name } from "./DNSLabelCoder";
-import { DecodedData, QClass, QType, DNSRecord } from "./DNSPacket";
+import { DNSLabelCoder } from "./DNSLabelCoder";
+import { DecodedData, DNSRecord, QClass, QType } from "./DNSPacket";
 
 export class Question implements DNSRecord {
 
@@ -12,8 +11,6 @@ export class Question implements DNSRecord {
   readonly class: QClass;
 
   unicastResponseFlag = false;
-
-  private trackedName?: Name;
 
   constructor(name: string, type: QType, unicastResponseFlag = false, clazz = QClass.IN) {
     if (!name.endsWith(".")) {
@@ -27,38 +24,14 @@ export class Question implements DNSRecord {
     this.unicastResponseFlag = unicastResponseFlag;
   }
 
-  public getEstimatedEncodingLength(): number {
-    // returns encoding length without considering space saving achieved by message compression
-    return DNSLabelCoder.getUncompressedNameLength(this.name) + 4;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    assert(!this.trackedName, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedName = coder.trackName(this.name);
-  }
-
-  public clearNameTracking(): void {
-    this.trackedName = undefined;
-  }
-
   public getEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedName) {
-      assert.fail("Illegal state. Name wasn't yet tracked!");
-    }
-
-    return coder.getNameLength(this.trackedName)
-      + 4; // 2 bytes type; 2 bytes class
+    return coder.getNameLength(this.name) + 4; // 2 bytes type; 2 bytes class
   }
 
   public encode(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
-    if (!this.trackedName) {
-      assert.fail("Illegal state. Name wasn't yet tracked!");
-    }
-
     const oldOffset = offset;
 
-    const nameLength = coder.encodeName(this.trackedName, offset);
+    const nameLength = coder.encodeName(this.name, offset);
     offset += nameLength;
 
     buffer.writeUInt16BE(this.type, offset);

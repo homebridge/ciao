@@ -17,7 +17,42 @@ function bufferFromArrayMix(data: (string | number)[]): Buffer {
 
 describe(DNSLabelCoder, () => {
   describe("name compression", () => {
-    it("should undo name compression", () => {
+    it("should encode name compression", () => {
+      const coder = new DNSLabelCoder();
+
+      let length = 0;
+
+      length += coder.getNameLength("c.b.a."); // #7
+      expect(length).toBe(7);
+      length += coder.getNameLength("f.b.a."); // #4
+      expect(length).toBe(11);
+      length += coder.getNameLength("x.c.b.a."); // #4
+      expect(length).toBe(15);
+      length += coder.getNameLength("s.x.c.b.a."); // #4
+      expect(length).toBe(19);
+      length += coder.getNameLength("."); // #1
+      expect(length).toBe(20);
+
+      const buffer = Buffer.alloc(length);
+      coder.initBuf(buffer);
+
+      coder.encodeName("c.b.a.", 0);
+      coder.encodeName("f.b.a.", 7);
+      coder.encodeName("x.c.b.a.", 11);
+      coder.encodeName("s.x.c.b.a.", 15);
+      coder.encodeName(".", 19);
+
+      const expected = bufferFromArrayMix([
+        1, "c", 1, "b", 1, "a", 0,
+        1, "f", 0xC0, 2,
+        1, "x", 0xC0, 0,
+        1, "s", 0xC0, 11,
+        0,
+      ]);
+      expect(buffer.toString("hex")).toBe(expected.toString("hex"));
+    });
+
+    it("should decode name compression", () => {
       const coder = new DNSLabelCoder();
 
       // example from RFC 1035 4.1.4.

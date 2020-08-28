@@ -22,12 +22,7 @@ export class ARecord extends ResourceRecord {
     this.ipAddress = ipAddress;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return 4;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected getRDataEncodingLength(coder: DNSLabelCoder): number {
+  protected getRDataEncodingLength(): number {
     return 4; // 4 byte ipv4 address
   }
 

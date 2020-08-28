@@ -1,13 +1,11 @@
 import assert from "assert";
-import { DNSLabelCoder, Name } from "../DNSLabelCoder";
+import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class PTRRecord extends ResourceRecord {
 
   readonly ptrName: string;
-
-  private trackedPtrName?: Name;
 
   constructor(name: string, ptrName: string, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, ptrName: string);
@@ -26,38 +24,14 @@ export class PTRRecord extends ResourceRecord {
     this.ptrName = ptrName;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return DNSLabelCoder.getUncompressedNameLength(this.ptrName);
-  }
-
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    super.trackNames(coder, legacyUnicast);
-
-    assert(!this.trackedPtrName, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedPtrName = coder.trackName(this.ptrName);
-  }
-
-  public clearNameTracking(): void {
-    super.clearNameTracking();
-    this.trackedPtrName = undefined;
-  }
-
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedPtrName) {
-      assert.fail("Illegal state. PtrName wasn't yet tracked!");
-    }
-
-    return coder.getNameLength(this.trackedPtrName!);
+    return coder.getNameLength(this.ptrName);
   }
 
-  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number, disabledCompression?: boolean): number {
-    if (!this.trackedPtrName && !disabledCompression) {
-      assert.fail("Illegal state. PtrName wasn't yet tracked!");
-    }
-
+  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
 
-    const ptrNameLength = disabledCompression? coder.encodeName(this.ptrName, offset): coder.encodeName(this.trackedPtrName!, offset);
+    const ptrNameLength = coder.encodeName(this.ptrName, offset);
     offset += ptrNameLength;
 
     return offset - oldOffset; // written bytes

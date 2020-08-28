@@ -1,13 +1,11 @@
 import assert from "assert";
-import { DNSLabelCoder, Name } from "../DNSLabelCoder";
+import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class CNAMERecord extends ResourceRecord {
 
   readonly cname: string;
-
-  private trackedCName?: Name;
 
   constructor(name: string, cname: string, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, cname: string);
@@ -26,38 +24,14 @@ export class CNAMERecord extends ResourceRecord {
     this.cname = cname;
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
-    return DNSLabelCoder.getUncompressedNameLength(this.cname);
-  }
-
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    super.trackNames(coder, legacyUnicast);
-
-    assert(!this.trackedCName, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedCName = coder.trackName(this.cname);
-  }
-
-  public clearNameTracking(): void {
-    super.clearNameTracking();
-    this.trackedCName = undefined;
-  }
-
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedCName) {
-      assert.fail("Illegal state. CName wasn't yet tracked!");
-    }
-
-    return coder.getNameLength(this.trackedCName);
+    return coder.getNameLength(this.cname);
   }
 
-  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number, disabledCompression?: boolean): number {
-    if (!this.trackedCName && !disabledCompression) {
-      assert.fail("Illegal state. CName wasn't yet tracked!");
-    }
-
+  protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
 
-    const cnameLength = disabledCompression? coder.encodeName(this.cname, offset): coder.encodeName(this.trackedCName!, offset);
+    const cnameLength = coder.encodeName(this.cname, offset);
     offset += cnameLength;
 
     return offset - oldOffset; // written bytes

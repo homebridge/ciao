@@ -48,7 +48,7 @@ export class OPTRecord extends ResourceRecord {
     this.options = options || [];
   }
 
-  protected getEstimatedRDataEncodingLength(): number {
+  protected getRDataEncodingLength(): number {
     let length = 0;
 
     for (const option of this.options) {
@@ -56,11 +56,6 @@ export class OPTRecord extends ResourceRecord {
     }
 
     return length;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    return this.getEstimatedRDataEncodingLength();
   }
 
   protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {

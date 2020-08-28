@@ -1,7 +1,6 @@
 import assert from "assert";
 import deepEqual from "fast-deep-equal";
-import { MDNSServer } from "../MDNSServer";
-import { DNSLabelCoder } from "./DNSLabelCoder";
+import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { Question } from "./Question";
 import "./records";
 import { ResourceRecord } from "./ResourceRecord";
@@ -140,12 +139,6 @@ export interface PacketDefinition {
 
 export interface DNSRecord {
 
-  getEstimatedEncodingLength(): number;
-
-  trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void;
-
-  clearNameTracking(): void;
-
   getEncodingLength(coder: DNSLabelCoder): number;
 
   encode(coder: DNSLabelCoder, buffer: Buffer, offset: number): number;
@@ -170,7 +163,7 @@ export class DNSPacket {
   private static readonly DNS_PACKET_HEADER_SIZE = 12;
 
   id: number;
-  private legacyUnicastEncoding: boolean;
+  private legacyUnicastEncoding: boolean; // TODO must somehow be directed to the SRV record
 
   readonly type: PacketType;
   readonly opcode: OpCode;
@@ -182,9 +175,9 @@ export class DNSPacket {
   readonly authorities: ResourceRecord[];
   readonly additionals: ResourceRecord[];
 
-  private readonly labelCoder: DNSLabelCoder;
-  private encodingMode = false;
-  private estimatedPacketSize = 0; // only set in encoding mode
+  private estimatedEncodingLength = 0; // upper bound for the resulting encoding length, should only be called via the getter
+  private lastCalculatedLength = 0;
+  private lengthDirty = true;
 
   constructor(definition: PacketDefinition) {
     this.id = definition.id || 0;
@@ -199,8 +192,6 @@ export class DNSPacket {
     this.answers = definition.answers || [];
     this.authorities = definition.authorities || [];
     this.additionals = definition.additionals || [];
-
-    this.labelCoder = new DNSLabelCoder();
   }
 
   public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket[] {
@@ -211,7 +202,6 @@ export class DNSPacket {
       type: PacketType.QUERY,
       questions: definition.questions,
     });
-    packet.initEncodingMode();
     packets.push(packet);
 
     if (packet.getEstimatedEncodingLength() > udpPayloadSize) {
@@ -229,14 +219,16 @@ export class DNSPacket {
       let i = 0;
       const answers = definition.answers.concat([]); // concat basically creates a copy of the array
       // sort the answers ascending on their encoding length; otherwise we would need to check if a packets fits in a previously created packet
-      answers.sort((a, b) => a.getEstimatedEncodingLength() - b.getEstimatedEncodingLength());
+      answers.sort((a, b) => {
+        return a.getEncodingLength(NonCompressionLabelCoder.INSTANCE) - b.getEncodingLength(NonCompressionLabelCoder.INSTANCE);
+      });
 
       // in the loop below, we check if we need to truncate the list of known-answers in the query
 
       while (i < answers.length) {
         for (; i < answers.length; i++) {
           const answer = answers[i];
-          const estimatedSize = answer.getEstimatedEncodingLength();
+          const estimatedSize = answer.getEncodingLength(NonCompressionLabelCoder.INSTANCE);
 
           if (packet.getEstimatedEncodingLength() + estimatedSize <= udpPayloadSize) { // size check on estimated calculations
             currentPacket.addAnswers(answer);
@@ -262,7 +254,6 @@ export class DNSPacket {
         if (i < answers.length) { // if there are more records left, we need to truncate the packet again
           currentPacket.flags.truncation = true; // first of all, mark the previous packet as truncated
           currentPacket = new DNSPacket({ type: PacketType.QUERY });
-          currentPacket.initEncodingMode();
           packets.push(currentPacket);
         }
       }
@@ -290,7 +281,6 @@ export class DNSPacket {
       answers: definition.answers,
       additionals: definition.additionals,
     });
-    packet.initEncodingMode();
 
     if (packet.getEncodingLength() > udpPayloadSize) {
       assert.fail("Couldn't construct a dns response packet from a rr set which fits in an udp payload sized packet!");
@@ -313,9 +303,7 @@ export class DNSPacket {
     // so we leave it commented out for now
     // assert(this.canBeCombined(packet), "Tried combining packet which can not be combined!");
 
-    this.legacyUnicastEncoding = this.legacyUnicastEncoding || packet.legacyUnicastEncoding;
-
-    packet.clearNameTracking();
+    this.setLegacyUnicastEncoding(this.legacyUnicastEncoding || packet.legacyUnicastEncoding);
 
     this.addQuestions(...packet.questions);
     this.addAnswers(...packet.answers);
@@ -341,11 +329,10 @@ export class DNSPacket {
 
   private addRecords(recordList: DNSRecord[], added: DNSRecord[]): void {
     for (const record of added) {
-      if (this.encodingMode) {
-        record.clearNameTracking();
-        record.trackNames(this.labelCoder, this.legacyUnicastEncoding);
-        this.estimatedPacketSize += record.getEstimatedEncodingLength();
+      if (this.estimatedEncodingLength) {
+        this.estimatedEncodingLength += record.getEncodingLength(NonCompressionLabelCoder.INSTANCE);
       }
+      this.lengthDirty = true;
 
       recordList.push(record);
     }
@@ -364,8 +351,6 @@ export class DNSPacket {
   }
 
   private replaceExistingRecord(recordList: ResourceRecord[], record: ResourceRecord): boolean {
-    assert(!this.encodingMode, "Can't replace records when already in encoding mode!");
-
     let overwrittenSome = false;
 
     for (let i = 0; i < recordList.length; i++) {
@@ -376,6 +361,8 @@ export class DNSPacket {
         if (record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) {
           recordList[i] = record;
           overwrittenSome = true;
+
+          this.lengthDirty = true; // depending on the record type, rdata length may change
           break;
         } else if (record0.dataEquals(record)) {
           // flush flag is not set, but it is the same data thus the SAME record
@@ -390,16 +377,15 @@ export class DNSPacket {
   }
 
   private removeAboutSameRecord(recordList: ResourceRecord[], record: ResourceRecord): void {
-    assert(!this.encodingMode, "Can't remove records when already in encoding mode!");
-
     for (let i = 0; i < recordList.length; i++) {
       const record0 = recordList[i];
 
       if (record0.representsSameData(record)) {
         // A and AAAA records can be duplicate in one packet even though flush flag is set
-        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA)
-          || record0.dataEquals(record)) {
+        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) || record0.dataEquals(record)) {
           recordList.splice(i, 1);
+
+          this.lengthDirty = true;
           break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
         }
       }
@@ -407,7 +393,9 @@ export class DNSPacket {
   }
 
   public setLegacyUnicastEncoding(legacyUnicastEncoding: boolean): void {
-    assert(!this.encodingMode, "Can't change legacy unicast encoding flag when already in encoding mode!");
+    if (this.legacyUnicastEncoding !== legacyUnicastEncoding) {
+      this.lengthDirty = true; // above option changes length of SRV records
+    }
     this.legacyUnicastEncoding = legacyUnicastEncoding;
   }
 
@@ -415,67 +403,52 @@ export class DNSPacket {
     return this.legacyUnicastEncoding;
   }
 
-  public initEncodingMode(): void {
-    if (this.encodingMode) {
-      return;
+  private getEstimatedEncodingLength(): number {
+    if (this.estimatedEncodingLength) {
+      return this.estimatedEncodingLength;
     }
 
-    this.questions.forEach(question => question.trackNames(this.labelCoder, this.legacyUnicastEncoding));
-    this.answers.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
-    this.authorities.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
-    this.additionals.forEach(record => record.trackNames(this.labelCoder, this.legacyUnicastEncoding));
+    const labelCoder = NonCompressionLabelCoder.INSTANCE;
+    let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    this.estimatedPacketSize = DNSPacket.DNS_PACKET_HEADER_SIZE;
+    this.questions.forEach(question => length += question.getEncodingLength(labelCoder));
+    this.answers.forEach(record => length += record.getEncodingLength(labelCoder));
+    this.authorities.forEach(record => length += record.getEncodingLength(labelCoder));
+    this.additionals.forEach(record => length += record.getEncodingLength(labelCoder));
 
-    this.questions.forEach(question => this.estimatedPacketSize += question.getEstimatedEncodingLength());
-    this.answers.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
-    this.authorities.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
-    this.additionals.forEach(record => this.estimatedPacketSize += record.getEstimatedEncodingLength());
+    this.estimatedEncodingLength = length;
 
-    this.encodingMode = true;
+    return length;
   }
 
-  private clearNameTracking() {
-    this.estimatedPacketSize = 0;
-    this.encodingMode = false;
+  private getEncodingLength(coder?: DNSLabelCoder): number {
+    if (!this.lengthDirty) {
+      return this.lastCalculatedLength;
+    }
 
-    this.labelCoder.resetCoder();
-
-    this.questions.forEach(record => record.clearNameTracking());
-    this.answers.forEach(record => record.clearNameTracking());
-    this.authorities.forEach(record => record.clearNameTracking());
-    this.additionals.forEach(record => record.clearNameTracking());
-  }
-
-  private getEstimatedEncodingLength(): number {
-    assert(this.encodingMode, "Can't calculate estimated encoding length when not in encoding mode!");
-    return this.estimatedPacketSize; // returns the upper bound (<=) for the packet length
-  }
-
-  private getEncodingLength(): number {
-    assert(this.encodingMode, "Can't calculate REAL encoding length when not in encoding mode!");
+    const labelCoder = coder || new DNSLabelCoder(this.legacyUnicastEncoding);
 
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    this.labelCoder.computeCompressionPaths(); // ensure we are up to date with all the latest information
+    this.questions.forEach(question => length += question.getEncodingLength(labelCoder));
+    this.answers.forEach(record => length += record.getEncodingLength(labelCoder));
+    this.authorities.forEach(record => length += record.getEncodingLength(labelCoder));
+    this.additionals.forEach(record => length += record.getEncodingLength(labelCoder));
 
-    this.questions.forEach(question => length += question.getEncodingLength(this.labelCoder));
-    this.answers.forEach(record => length += record.getEncodingLength(this.labelCoder));
-    this.authorities.forEach(record => length += record.getEncodingLength(this.labelCoder));
-    this.additionals.forEach(record => length += record.getEncodingLength(this.labelCoder));
-
-    this.estimatedPacketSize = length; // if we calculate the REAL packet length we update the estimate as well
+    this.lengthDirty = false; // reset dirty flag
+    this.lastCalculatedLength = length;
+    this.estimatedEncodingLength = length;
 
     return length;
   }
 
   public encode(): Buffer {
-    this.clearNameTracking(); // TODO remove workaround (addRecord, will result in out of order name compression)
-    this.initEncodingMode();
+    const labelCoder = new DNSLabelCoder(this.legacyUnicastEncoding);
 
-    const length = this.getEncodingLength();
+    const length = this.getEncodingLength(labelCoder);
     const buffer = Buffer.allocUnsafe(length);
-    this.labelCoder.initBuf(buffer);
+
+    labelCoder.initBuf(buffer);
 
     let offset = 0;
 
@@ -517,28 +490,26 @@ export class DNSPacket {
     offset += 2;
 
     for (const question of this.questions) {
-      const length = question.encode(this.labelCoder, buffer, offset);
+      const length = question.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
     for (const record of this.answers) {
-      const length = record.encode(this.labelCoder, buffer, offset);
+      const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
     for (const record of this.authorities) {
-      const length = record.encode(this.labelCoder, buffer, offset);
+      const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
     for (const record of this.additionals) {
-      const length = record.encode(this.labelCoder, buffer, offset);
+      const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
     assert(offset === buffer.length, "Bytes written didn't match the buffer size!");
-
-    this.clearNameTracking();
 
     return buffer;
   }

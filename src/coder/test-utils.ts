@@ -1,22 +1,19 @@
-import { AssertionError } from "assert";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { DNSPacket } from "./DNSPacket";
 import { Question } from "./Question";
 import { ResourceRecord } from "./ResourceRecord";
 
 export function runRecordEncodingTest(record: Question | ResourceRecord, legacyUnicast = false): void {
-  const coder = new DNSLabelCoder();
-  record.trackNames(coder, legacyUnicast);
-  coder.computeCompressionPaths();
+  let coder = new DNSLabelCoder(legacyUnicast);
 
   const length = record.getEncodingLength(coder);
   const buffer = Buffer.alloc(length);
   coder.initBuf(buffer);
 
   const written = record.encode(coder, buffer, 0);
-  coder.resetCoder();
   expect(written).toBe(buffer.length);
 
+  coder = new DNSLabelCoder(legacyUnicast);
   coder.initBuf(buffer);
 
   const decodedRecord = record instanceof Question
@@ -27,16 +24,13 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
   //
   const record2 = decodedRecord.data;
 
-  const coder2 = new DNSLabelCoder();
-  record2.trackNames(coder2, legacyUnicast);
-  coder2.computeCompressionPaths();
+  coder = new DNSLabelCoder(legacyUnicast);
 
-  const length2 = record2.getEncodingLength(coder2);
+  const length2 = record2.getEncodingLength(coder);
   const buffer2 = Buffer.allocUnsafe(length2);
-  coder2.initBuf(buffer2);
+  coder.initBuf(buffer2);
 
-  const written2 = record2.encode(coder2, buffer2, 0);
-  coder2.resetCoder();
+  const written2 = record2.encode(coder, buffer2, 0);
   expect(written2).toBe(buffer2.length);
 
   expect(buffer2).toEqual(buffer);
@@ -48,26 +42,8 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
 
     // test the clone method
     const clone = record.clone();
-    record2.clearNameTracking();
     expect(clone).toEqual(record2);
     expect(clone.aboutEqual(record2)).toBe(true);
-  }
-}
-
-const empty = Buffer.allocUnsafe(0);
-
-export function runCompressionSanityChecks(record: ResourceRecord | Question): void {
-  const coder = new DNSLabelCoder();
-
-  expect(() => record.getEncodingLength(coder)).toThrow(AssertionError);
-  expect(() => record.encode(coder, empty, 0)).toThrow(AssertionError);
-  if (record instanceof ResourceRecord) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error
-    expect(() => record.getRDataEncodingLength(coder)).toThrow(AssertionError);
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error
-    expect(() => record.encodeRData(coder, empty, 0)).toThrow(AssertionError);
   }
 }
 

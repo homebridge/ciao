@@ -1,6 +1,6 @@
 import { QType } from "./DNSPacket";
 import { Question } from "./Question";
-import { runCompressionSanityChecks, runRecordEncodingTest } from "./test-utils";
+import { runRecordEncodingTest } from "./test-utils";
 
 
 describe(Question, () => {
@@ -13,8 +13,6 @@ describe(Question, () => {
     runRecordEncodingTest(new Question("testasd.lasd.asd.local.", QType.SRV));
     runRecordEncodingTest(new Question("test 2asdf.asdkasd.local.", QType.TXT));
     runRecordEncodingTest(new Question("testasd.local.", QType.ANY));
-
-    runCompressionSanityChecks(new Question("test.local", QType.PTR));
   });
 
 });

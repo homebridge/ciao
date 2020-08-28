@@ -1,5 +1,5 @@
 import assert from "assert";
-import { DNSLabelCoder, Name, NonCompressionLabelCoder } from "./DNSLabelCoder";
+import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, RClass, RType } from "./DNSPacket";
 
 export interface RecordRepresentation {
@@ -33,8 +33,6 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   flushFlag = false;
 
-  private trackedName?: Name;
-
   protected constructor(headerData: RecordRepresentation);
   protected constructor(name: string, type: RType, ttl?: number, flushFlag?: boolean, clazz?: RClass);
   protected constructor(name: string | RecordRepresentation, type?: RType, ttl: number = ResourceRecord.DEFAULT_TTL, flushFlag = false, clazz: RClass = RClass.IN) {
@@ -57,39 +55,16 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
     }
   }
 
-  public getEstimatedEncodingLength(): number {
-    // returns encoding length without considering space saving achieved by message compression
-    return DNSLabelCoder.getUncompressedNameLength(this.name) + 10 + this.getEstimatedRDataEncodingLength();
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public trackNames(coder: DNSLabelCoder, legacyUnicast: boolean): void {
-    assert(!this.trackedName, "trackNames can only be called once per DNSLabelCoder!");
-    this.trackedName = coder.trackName(this.name);
-  }
-
-  public clearNameTracking(): void {
-    this.trackedName = undefined;
-  }
-
   public getEncodingLength(coder: DNSLabelCoder): number {
-    if (!this.trackedName) {
-      assert.fail("Illegal state. Name wasn't yet tracked!");
-    }
-
-    return coder.getNameLength(this.trackedName)
+    return coder.getNameLength(this.name)
       + 10 // 2 bytes TYPE; 2 bytes class, 4 bytes TTL, 2 bytes RDLength
       + this.getRDataEncodingLength(coder);
   }
 
   public encode(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
-    if (!this.trackedName) {
-      assert.fail("Illegal state. Name wasn't yet tracked!");
-    }
-
     const oldOffset = offset;
 
-    const nameLength = coder.encodeName(this.trackedName, offset);
+    const nameLength = coder.encodeName(this.name, offset);
     offset += nameLength;
 
     buffer.writeUInt16BE(this.type, offset);
@@ -116,24 +91,24 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   }
 
   public getRawData(): Buffer { // returns the rData as a buffer without any message compression (used for probe tiebreaking)
-    const length = this.getEstimatedRDataEncodingLength();
+    const coder = NonCompressionLabelCoder.INSTANCE; // this forces uncompressed names
+
+    const length = this.getRDataEncodingLength(coder);
     const buffer = Buffer.allocUnsafe(length);
 
-    const coder = NonCompressionLabelCoder.INSTANCE;
     coder.initBuf(buffer);
 
-    const writtenBytes = this.encodeRData(coder, buffer, 0, true);
+    const writtenBytes = this.encodeRData(coder, buffer, 0);
     assert(writtenBytes === buffer.length, "Didn't completely write to the buffer! (" + writtenBytes + "!=" + buffer.length  +")");
-    coder.resetCoder();
+
+    coder.initBuf(); // reset buffer to undefined
 
     return buffer;
   }
 
-  protected abstract getEstimatedRDataEncodingLength(): number;
-
   protected abstract getRDataEncodingLength(coder: DNSLabelCoder): number;
 
-  protected abstract encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number, disabledCompression?: boolean): number;
+  protected abstract encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number;
 
   public abstract clone(): ResourceRecord;
 

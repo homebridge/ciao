@@ -8,15 +8,12 @@ export class QueryResponse {
 
   private readonly dnsPacket: DNSPacket;
 
-  knownAnswers?: Map<string, ResourceRecord>;
+  readonly knownAnswers: Map<string, ResourceRecord>;
   private sharedAnswer = false;
 
-  constructor() {
+  constructor(knownAnswers: Map<string, ResourceRecord>) {
     this.dnsPacket = new DNSPacket({ type: PacketType.RESPONSE });
-  }
-
-  public defineKnownAnswers(records: Map<string, ResourceRecord>): void {
-    this.knownAnswers = records;
+    this.knownAnswers = knownAnswers;
   }
 
   public asPacket(): DNSPacket {

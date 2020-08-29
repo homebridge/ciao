@@ -465,7 +465,6 @@ export class Responder implements PacketHandler {
 
       return; // wait for the next query
     }
-    const step1 = new Date().getTime();
 
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
     const isProbeQuery = packet.authorities.size > 0;
@@ -479,15 +478,9 @@ export class Responder implements PacketHandler {
     }
 
     // responses must not include questions RFC 6762 6.
-    const multicastResponses: QueryResponse[] = [new QueryResponse()];
-    const unicastResponses: QueryResponse[] = [new QueryResponse()];
-
-    // define knownAnswers so the addAnswer/addAdditional method can check if records need to be added or not
     // known answer suppression according to RFC 6762 7.1.
-    multicastResponses[0].defineKnownAnswers(packet.answers);
-    unicastResponses[0].defineKnownAnswers(packet.answers);
-
-    const step2 = new Date().getTime();
+    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
+    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
@@ -495,13 +488,9 @@ export class Responder implements PacketHandler {
       responses.push(...this.answerQuestion(question, endpoint, responses[0]));
     });
 
-    const step3 = new Date().getTime();
-
     if (this.currentProber) {
       this.currentProber.handleQuery(packet);
     }
-
-    const step4 = new Date().getTime();
 
     if (isUnicastQuerier) {
       // we are dealing with a legacy unicast dns query (RFC 6762 6.7.)
@@ -515,8 +504,6 @@ export class Responder implements PacketHandler {
         response.markLegacyUnicastResponse(packet.id, i === 0? Array.from(packet.questions.values()): undefined);
       }
     }
-
-    const step5 = new Date().getTime();
 
     // RFC 6762 6.4. Response aggregation:
     //    When possible, a responder SHOULD, for the sake of network
@@ -538,11 +525,6 @@ export class Responder implements PacketHandler {
       unicastResponses.splice(1, unicastResponses.length - 1); // discard all other
       unicastResponses[0].markTruncated();
     }
-
-    const step6 = new Date().getTime();
-
-    console.log("Truncated queries: \t" + (step1- start) + "ms; Init stuff: \t" + (step2- step1) + "ms; Answers: \t" + (step3-step2) + "ms; " +
-      "Proper: \t" + (step4- step3)+ "ms; unicast queries: \t" + (step5-step4) + "ms; Combine responses: \t" + (step6-step5) +"ms");
 
     for (const unicastResponse of unicastResponses) {
       if (!unicastResponse.hasAnswers()) {
@@ -816,7 +798,9 @@ export class Responder implements PacketHandler {
           if (service) {
             // call the method for original question, so additionals get added properly
             const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
-            serviceResponses.push(response);
+            if (response.hasAnswers()) {
+              serviceResponses.push(response);
+            }
           } else {
             // it's probably question for PTR '_services._dns-sd._udp.local'
             // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
@@ -842,7 +826,9 @@ export class Responder implements PacketHandler {
 
     for (const service of this.announcedServices.values()) {
       const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
-      serviceResponses.push(response);
+      if (response.hasAnswers()) {
+        serviceResponses.push(response);
+      }
     }
 
     return serviceResponses;
@@ -853,10 +839,7 @@ export class Responder implements PacketHandler {
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const response = new QueryResponse();
-    if (mainResponse.knownAnswers) {
-      response.defineKnownAnswers(mainResponse.knownAnswers);
-    }
+    const response = new QueryResponse(mainResponse.knownAnswers);
 
     const questionName = dnsLowerCase(question.name);
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;

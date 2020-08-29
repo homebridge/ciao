@@ -110,7 +110,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   protected abstract encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number;
 
-  protected abstract dataAsString(): string;
+  public abstract dataAsString(): string;
 
   public abstract clone(): ResourceRecord;
 

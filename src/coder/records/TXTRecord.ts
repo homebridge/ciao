@@ -47,7 +47,7 @@ export class TXTRecord extends ResourceRecord {
     return new TXTRecord(this.getRecordRepresentation(), this.txt);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return `[${this.txt.map(line => `${line.toString("base64")}`).join(",")}]`;
   }
 

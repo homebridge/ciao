@@ -53,7 +53,7 @@ export class PTRRecord extends ResourceRecord {
     return new PTRRecord(this.getRecordRepresentation(), this.ptrName);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return this.ptrName;
   }
 

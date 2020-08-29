@@ -53,7 +53,7 @@ export class CNAMERecord extends ResourceRecord {
     return new CNAMERecord(this.getRecordRepresentation(), this.cname);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return this.cname;
   }
 

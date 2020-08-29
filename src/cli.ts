@@ -15,7 +15,9 @@ const txt = {
   "sh": "aaaaab",
 };
 
-const responder = ciao.getResponder();
+const responder = ciao.getResponder({
+  interface: ["en0"],
+});
 const service = responder.createService({
   name: "My Accessory2",
   type: ServiceType.HAP,

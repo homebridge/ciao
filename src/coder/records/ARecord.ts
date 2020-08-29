@@ -62,7 +62,7 @@ export class ARecord extends ResourceRecord {
     return new ARecord(this.getRecordRepresentation(), this.ipAddress);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return this.ipAddress;
   }
 

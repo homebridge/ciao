@@ -118,7 +118,7 @@ export class NSECRecord extends ResourceRecord {
     return new NSECRecord(this.getRecordRepresentation(), this.nextDomainName, NSECRecord.windowsToRRTypes(this.rrTypeWindows));
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return `${this.nextDomainName} [${NSECRecord.windowsToRRTypes(this.rrTypeWindows).map(rtype => ""+rtype).join(",")}]`;
   }
 

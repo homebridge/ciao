@@ -23,7 +23,7 @@ export class UnsupportedRecord extends ResourceRecord {
     return new UnsupportedRecord(this.getRecordRepresentation(), this.data);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return this.data.toString("base64");
   }
 

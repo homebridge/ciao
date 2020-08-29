@@ -85,7 +85,7 @@ export class SRVRecord extends ResourceRecord {
     return new SRVRecord(this.getRecordRepresentation(), this.hostname, this.port);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return `${this.hostname} ${this.port} ${this.priority} ${this.weight}`;
   }
 

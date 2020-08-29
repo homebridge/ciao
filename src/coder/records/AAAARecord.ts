@@ -67,7 +67,7 @@ export class AAAARecord extends ResourceRecord {
     return new AAAARecord(this.getRecordRepresentation(), this.ipAddress);
   }
 
-  protected dataAsString(): string {
+  public dataAsString(): string {
     return this.ipAddress;
   }
 

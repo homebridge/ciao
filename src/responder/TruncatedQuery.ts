@@ -49,10 +49,7 @@ export class TruncatedQuery extends EventEmitter {
   }
 
   public appendDNSPacket(packet: DNSPacket): TruncatedQueryResult {
-    this.packet.questions.push(...packet.questions);
-    this.packet.answers.push(...packet.answers);
-    this.packet.additionals.push(...packet.additionals);
-    this.packet.authorities.push(...packet.authorities);
+    this.packet.combineWith(packet);
 
     this.arrivedPackets++;
 

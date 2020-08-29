@@ -241,7 +241,7 @@ export class Prober {
     }
 
     // first of all check if the contents of authorities answers our query
-    let conflict = packet.authorities.length === 0;
+    let conflict = packet.authorities.size === 0;
     packet.authorities.forEach(record => {
       if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         conflict = true;
@@ -256,7 +256,7 @@ export class Prober {
 
     // first of all build our own records
     const answers = this.records; // already sorted
-    const opponent = packet.authorities.sort(tiebreaking.rrComparator);
+    const opponent = Array.from(packet.authorities.values()).sort(tiebreaking.rrComparator);
 
     const result = tiebreaking.runTiebreaking(answers, opponent);
 

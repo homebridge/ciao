@@ -172,10 +172,10 @@ export class DNSPacket {
   readonly flags: PacketFlags;
   readonly rcode: RCode;
 
-  readonly questions: Question[];
-  readonly answers: ResourceRecord[];
-  readonly authorities: ResourceRecord[];
-  readonly additionals: ResourceRecord[];
+  readonly questions: Map<string, Question> = new Map();
+  readonly answers: Map<string, ResourceRecord> = new Map();
+  readonly authorities: Map<string, ResourceRecord> = new Map();
+  readonly additionals: Map<string, ResourceRecord> = new Map();
 
   private estimatedEncodingLength = 0; // upper bound for the resulting encoding length, should only be called via the getter
   private lastCalculatedLength = 0;
@@ -190,10 +190,18 @@ export class DNSPacket {
     this.flags = definition.flags || {};
     this.rcode = definition.rCode || RCode.NoError;
 
-    this.questions = definition.questions || [];
-    this.answers = definition.answers || [];
-    this.authorities = definition.authorities || [];
-    this.additionals = definition.additionals || [];
+    if (definition.questions) {
+      this.addQuestions(...definition.questions);
+    }
+    if (definition.answers) {
+      this.addAnswers(...definition.answers);
+    }
+    if (definition.authorities) {
+      this.addAuthorities(...definition.authorities);
+    }
+    if (definition.additionals) {
+      this.addAdditionals(...definition.additionals);
+    }
   }
 
   public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket[] {
@@ -239,7 +247,7 @@ export class DNSPacket {
             // record, thus we rely on the estimated size
             currentPacket.addAnswers(answer);
           } else {
-            if (currentPacket.questions.length === 0 && currentPacket.answers.length === 0) {
+            if (currentPacket.questions.size === 0 && currentPacket.answers.size === 0) {
               // we encountered a record which is to big and can't fit in a udpPayloadSize sized packet
 
               // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
@@ -301,97 +309,53 @@ export class DNSPacket {
   }
 
   public combineWith(packet: DNSPacket): void {
-    // below assert would be useful, but current codebase will check this in any case
-    // so we leave it commented out for now
-    // assert(this.canBeCombined(packet), "Tried combining packet which can not be combined!");
-
     this.setLegacyUnicastEncoding(this.legacyUnicastEncoding || packet.legacyUnicastEncoding);
 
-    this.addQuestions(...packet.questions);
-    this.addAnswers(...packet.answers);
-    this.addAuthorities(...packet.authorities);
-    this.addAdditionals(...packet.additionals);
+    this.addRecords(this.questions, packet.questions.values());
+    this.addRecords(this.answers, packet.answers.values(), this.additionals);
+    this.addRecords(this.authorities, packet.authorities.values());
+    this.addRecords(this.additionals, packet.additionals.values());
   }
 
-  public addQuestions(...questions: Question[]): void {
-    this.addRecords(this.questions, questions);
+  public addQuestions(...questions: Question[]): boolean {
+    return this.addRecords(this.questions, questions);
   }
 
-  public addAnswers(...answers: ResourceRecord[]): void {
-    this.addRecords(this.answers, answers);
+  public addAnswers(...answers: ResourceRecord[]): boolean {
+    return this.addRecords(this.answers, answers, this.additionals);
   }
 
-  public addAuthorities(...authorities: ResourceRecord[]): void {
-    this.addRecords(this.authorities, authorities);
+  public addAuthorities(...authorities: ResourceRecord[]): boolean {
+    return this.addRecords(this.authorities, authorities);
   }
 
-  public addAdditionals(...additionals: ResourceRecord[]): void {
-    this.addRecords(this.additionals, additionals);
+  public addAdditionals(...additionals: ResourceRecord[]): boolean {
+    return this.addRecords(this.additionals, additionals);
   }
 
-  private addRecords(recordList: DNSRecord[], added: DNSRecord[]): void {
+  private addRecords(recordList: Map<string, DNSRecord>, added: DNSRecord[] | IterableIterator<DNSRecord>, removeFromWhenAdded?: Map<string, DNSRecord>): boolean {
+    let addedAny = false;
+
     for (const record of added) {
+      if (recordList.has(record.asString())) {
+        continue;
+      }
+
       if (this.estimatedEncodingLength) {
         this.estimatedEncodingLength += record.getEncodingLength(NonCompressionLabelCoder.INSTANCE);
       }
+
+      recordList.set(record.asString(), record);
+
+      addedAny = true;
       this.lengthDirty = true;
 
-      recordList.push(record);
-    }
-  }
-
-  public replaceExistingAnswer(record: ResourceRecord): boolean {
-    return this.replaceExistingRecord(this.answers, record);
-  }
-
-  public replaceExistingAdditional(record: ResourceRecord): boolean {
-    return this.replaceExistingRecord(this.additionals, record);
-  }
-
-  public removeAboutSameAdditional(record: ResourceRecord): void {
-    this.removeAboutSameRecord(this.additionals, record);
-  }
-
-  private replaceExistingRecord(recordList: ResourceRecord[], record: ResourceRecord): boolean {
-    let overwrittenSome = false;
-
-    for (let i = 0; i < recordList.length; i++) {
-      const record0 = recordList[i];
-
-      if (record0.representsSameData(record)) {
-        // A and AAAA records can be duplicate in one packet even though flush flag is set
-        if (record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) {
-          recordList[i] = record;
-          overwrittenSome = true;
-
-          this.lengthDirty = true; // depending on the record type, rdata length may change
-          break;
-        } else if (record0.dataEquals(record)) {
-          // flush flag is not set, but it is the same data thus the SAME record
-          record0.ttl = record.ttl;
-          overwrittenSome = true;
-          break;
-        }
+      if (removeFromWhenAdded) {
+        removeFromWhenAdded.delete(record.asString());
       }
     }
 
-    return overwrittenSome;
-  }
-
-  private removeAboutSameRecord(recordList: ResourceRecord[], record: ResourceRecord): void {
-    for (let i = 0; i < recordList.length; i++) {
-      const record0 = recordList[i];
-
-      if (record0.representsSameData(record)) {
-        // A and AAAA records can be duplicate in one packet even though flush flag is set
-        if ((record.flushFlag && record.type !== RType.A && record.type !== RType.AAAA) || record0.dataEquals(record)) {
-          recordList.splice(i, 1);
-
-          this.lengthDirty = true;
-          break; // we can break, as assumption is that no equal records follow (does not contain duplicates)
-        }
-      }
-    }
+    return addedAny;
   }
 
   public setLegacyUnicastEncoding(legacyUnicastEncoding: boolean): void {
@@ -413,16 +377,16 @@ export class DNSPacket {
     const labelCoder = NonCompressionLabelCoder.INSTANCE;
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    for (const record of this.questions) {
+    for (const record of this.questions.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.answers) {
+    for (const record of this.answers.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.authorities) {
+    for (const record of this.authorities.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.additionals) {
+    for (const record of this.additionals.values()) {
       length += record.getEncodingLength(labelCoder);
     }
 
@@ -440,16 +404,16 @@ export class DNSPacket {
 
     let length = DNSPacket.DNS_PACKET_HEADER_SIZE;
 
-    for (const record of this.questions) {
+    for (const record of this.questions.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.answers) {
+    for (const record of this.answers.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.authorities) {
+    for (const record of this.authorities.values()) {
       length += record.getEncodingLength(labelCoder);
     }
-    for (const record of this.additionals) {
+    for (const record of this.additionals.values()) {
       length += record.getEncodingLength(labelCoder);
     }
 
@@ -498,31 +462,31 @@ export class DNSPacket {
     buffer.writeUInt16BE(flags, offset);
     offset += 2;
 
-    buffer.writeUInt16BE(this.questions.length, offset);
+    buffer.writeUInt16BE(this.questions.size, offset);
     offset += 2;
-    buffer.writeUInt16BE(this.answers.length, offset);
+    buffer.writeUInt16BE(this.answers.size, offset);
     offset += 2;
-    buffer.writeUInt16BE(this.authorities.length, offset);
+    buffer.writeUInt16BE(this.authorities.size, offset);
     offset += 2;
-    buffer.writeUInt16BE(this.additionals.length, offset);
+    buffer.writeUInt16BE(this.additionals.size, offset);
     offset += 2;
 
-    for (const question of this.questions) {
+    for (const question of this.questions.values()) {
       const length = question.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
-    for (const record of this.answers) {
+    for (const record of this.answers.values()) {
       const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
-    for (const record of this.authorities) {
+    for (const record of this.authorities.values()) {
       const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
 
-    for (const record of this.additionals) {
+    for (const record of this.additionals.values()) {
       const length = record.encode(labelCoder, buffer, offset);
       offset += length;
     }
@@ -624,8 +588,21 @@ export class DNSPacket {
   }
 
   public asLoggingString(udpPayloadSize?: number): string {
-    const answerString = this.answers.map(record => dnsTypeToString(record.type)).join(",");
-    const additionalsString = this.additionals.map(record => dnsTypeToString(record.type)).join(",");
+    let answerString = "";
+    let additionalsString = "";
+
+    for (const record of this.answers.values()) {
+      if (answerString) {
+        answerString += ",";
+      }
+      answerString += dnsTypeToString(record.type);
+    }
+    for (const record of this.additionals.values()) {
+      if (additionalsString) {
+        additionalsString += ",";
+      }
+      additionalsString += dnsTypeToString(record.type);
+    }
 
     const optionsStrings: string[] = [];
     if (this.legacyUnicastEncodingEnabled()) {

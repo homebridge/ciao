@@ -8,14 +8,14 @@ export class QueryResponse {
 
   private readonly dnsPacket: DNSPacket;
 
-  knownAnswers?: ResourceRecord[];
+  knownAnswers?: Map<string, ResourceRecord>;
   private sharedAnswer = false;
 
   constructor() {
     this.dnsPacket = new DNSPacket({ type: PacketType.RESPONSE });
   }
 
-  public defineKnownAnswers(records: ResourceRecord[]): void {
+  public defineKnownAnswers(records: Map<string, ResourceRecord>): void {
     this.knownAnswers = records;
   }
 
@@ -40,18 +40,13 @@ export class QueryResponse {
         continue;
       }
 
-      const overwritten = this.dnsPacket.replaceExistingAnswer(record);
-      addedAny = true;
-
-      if (!overwritten) {
+      const added = this.dnsPacket.addAnswers(record);
+      if (added) {
+        addedAny = true;
         if (!record.flushFlag) {
           this.sharedAnswer = true;
         }
-
-        this.dnsPacket.addAnswers(record);
       }
-
-      this.dnsPacket.removeAboutSameAdditional(record);
     }
 
     return addedAny;
@@ -66,18 +61,12 @@ export class QueryResponse {
         continue;
       }
 
-      const overwrittenAnswer = this.dnsPacket.replaceExistingAnswer(record);
+      if (this.dnsPacket.answers.has(record.asString())) {
+        continue; // if it is already in the answer section, don't include it in additionals
+      }
 
-      // if it is already in the answer section, don't include it in additionals
-      if (!overwrittenAnswer) {
-        const overwrittenAdditional = this.dnsPacket.replaceExistingAdditional(record);
-        if (!overwrittenAdditional) {
-          this.dnsPacket.addAdditionals(record);
-          addedAny = true;
-        } else {
-          addedAny = true;
-        }
-      } else {
+      const added = this.dnsPacket.addAdditionals(record);
+      if (added) {
         addedAny = true;
       }
     }
@@ -113,7 +102,7 @@ export class QueryResponse {
   public hasAnswers(): boolean {
     // we may still have additionals, though there is no reason when answers is empty
     // removeKnownAnswer may have removed all answers and only additionals are known.
-    return this.dnsPacket.answers.length > 0;
+    return this.dnsPacket.answers.size > 0;
   }
 
   private isKnownAnswer(record: ResourceRecord): boolean {
@@ -121,17 +110,10 @@ export class QueryResponse {
       return false;
     }
 
-    for (const knownAnswer of this.knownAnswers) {
-      if (knownAnswer.aboutEqual(record)) {
-        // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
-        // so only if the ttl is more than half than the original ttl we consider it a valid known answer
-        if (knownAnswer.ttl > record.ttl / 2) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    const knownAnswer = this.knownAnswers.get(record.asString());
+    // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
+    // so only if the ttl is more than half than the original ttl we consider it a valid known answer
+    return knownAnswer !== undefined && knownAnswer.ttl > record.ttl / 2;
   }
 
   public static combineResponses(responses: QueryResponse[], udpPayloadSize?: number): void {

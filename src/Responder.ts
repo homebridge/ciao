@@ -468,10 +468,10 @@ export class Responder implements PacketHandler {
     const step1 = new Date().getTime();
 
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
-    const isProbeQuery = packet.authorities.length > 0;
+    const isProbeQuery = packet.authorities.size > 0;
 
     let udpPayloadSize: number | undefined = undefined; // payload size supported by the querier
-    for (const record of packet.additionals) {
+    for (const record of packet.additionals.values()) {
       if (record.type === RType.OPT) {
         udpPayloadSize = (record as OPTRecord).udpPayloadSize;
         break;
@@ -512,7 +512,7 @@ export class Responder implements PacketHandler {
         const response = unicastResponses[i];
         // only add questions to the first packet (will be combined anyways) and we must ensure
         // each packet stays unique in it's records
-        response.markLegacyUnicastResponse(packet.id, i === 0? packet.questions: undefined);
+        response.markLegacyUnicastResponse(packet.id, i === 0? Array.from(packet.questions.values()): undefined);
       }
     }
 
@@ -568,7 +568,7 @@ export class Responder implements PacketHandler {
       //    since the last time that record was multicast on that particular
       //    interface.
 
-      if ((multicastResponse.containsSharedAnswer() || packet.questions.length > 1) && !isProbeQuery) {
+      if ((multicastResponse.containsSharedAnswer() || packet.questions.size > 1) && !isProbeQuery) {
         // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
         // This is also the case if there are multiple questions. If multiple questions are asked
         // we probably could not answer them all (because not all of them were directed to us).
@@ -622,7 +622,7 @@ export class Responder implements PacketHandler {
     for (const service of this.announcedServices.values()) {
       let conflictingRecord: ResourceRecord | undefined = undefined;
 
-      for (const record of packet.answers) {
+      for (const record of packet.answers.values()) {
         if (Responder.hasConflict(service, record)) {
           conflictingRecord = record;
           break;
@@ -630,7 +630,7 @@ export class Responder implements PacketHandler {
       }
 
       if (!conflictingRecord) {
-        for (const record of packet.additionals) {
+        for (const record of packet.additionals.values()) {
           if (Responder.hasConflict(service, record)) {
             conflictingRecord = record;
             break;

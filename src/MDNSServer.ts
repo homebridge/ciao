@@ -161,7 +161,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, MDNSServer.forwardError.bind(undefined, callback));
+    }, MDNSServer.forwardError.bind(MDNSServer, callback));
   }
 
   public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
@@ -171,7 +171,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, MDNSServer.forwardError.bind(undefined, callback));
+    }, MDNSServer.forwardError.bind(MDNSServer, callback));
   }
 
   public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
@@ -181,7 +181,7 @@ export class MDNSServer {
       if (callback) {
         callback();
       }
-    }, MDNSServer.forwardError.bind(undefined, callback));
+    }, MDNSServer.forwardError.bind(MDNSServer, callback));
   }
 
   private sendOnAllNetworks(packet: DNSPacket): Promise<void> {
@@ -269,7 +269,7 @@ export class MDNSServer {
     });
 
     socket.on("message", this.handleMessage.bind(this, name));
-    socket.on("error", MDNSServer.handleSocketError.bind(this, name));
+    socket.on("error", MDNSServer.handleSocketError.bind(MDNSServer, name));
 
     return socket;
   }
@@ -362,14 +362,14 @@ export class MDNSServer {
   }
 
   private static forwardError(callback: SendCallback | undefined, error: SocketError): void {
-    if (this.isSilencedSocketError(error.error)) {
+    if (MDNSServer.isSilencedSocketError(error.error)) {
       return;
     }
 
     if (callback) {
       callback(error.error);
     } else {
-      this.handleSocketError(error.name, error.error);
+      MDNSServer.handleSocketError(error.name, error.error);
     }
   }
 
@@ -382,7 +382,7 @@ export class MDNSServer {
   }
 
   private static handleSocketError(name: InterfaceName, error: Error): void {
-    if (this.isSilencedSocketError(error)) {
+    if (MDNSServer.isSilencedSocketError(error)) {
       return;
     }
 

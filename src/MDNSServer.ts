@@ -13,6 +13,7 @@ import {
 } from "./coder/DNSPacket";
 import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
+import { InterfaceNotFoundError } from "./util/errors";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -231,7 +232,9 @@ export class MDNSServer {
     }
 
     const socket = this.sockets.get(name);
-    assert(socket, `Could not find socket for given network interface '${name}'`);
+    if (!socket) {
+      throw new InterfaceNotFoundError(`Could not find socket for given network interface '${name}'`);
+    }
 
     return new Promise<void>((resolve, reject) => {
       socket!.send(message, port, address, error => {
@@ -276,7 +279,9 @@ export class MDNSServer {
 
   private bindSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
     const networkInterface = this.networkManager.getInterface(name);
-    assert(networkInterface, `Could not find network interface '${name}' in network manager which socket is going to be bind to!`);
+    if (!networkInterface) {
+      throw new InterfaceNotFoundError(`Could not find network interface '${name}' in network manager which socket is going to be bind to!`);
+    }
 
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error | number): void => reject(error);

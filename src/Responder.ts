@@ -26,6 +26,7 @@ import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
 import { dnsLowerCase } from "./util/dns-equal";
+import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
 import { sortedInsert } from "./util/sorted-array";
 
 const debug = createDebug("ciao:Responder");
@@ -575,7 +576,6 @@ export class Responder implements PacketHandler {
           }
 
           if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
-            // TODO we might have duplicated records (in answers, in additionals and in additionals duplicating records in answers)
             sentWithLaterPacket = true;
             debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later", endpoint.interface, time);
             break;
@@ -737,7 +737,6 @@ export class Responder implements PacketHandler {
         }
 
         if (response0.combineWithNextPacketIfPossible(response1)) {
-          // TODO we might have duplicated records (in answers, in additionals and in additionals duplicating records in answers)
           // combine was a success and the packet got delay
 
           // remove the packet from the queue
@@ -763,9 +762,18 @@ export class Responder implements PacketHandler {
           this.delayedMulticastResponses.splice(index, 1);
         }
 
-        this.server.sendResponse(response.getPacket(), interfaceName);
-        debug("Sending (delayed %dms) response via multicast on network %s (took %d ms): %s",
-          Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asLoggingString());
+        try {
+          this.server.sendResponse(response.getPacket(), interfaceName);
+          debug("Sending (delayed %dms) response via multicast on network interface %s (took %d ms): %s",
+            Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asLoggingString());
+        } catch (error) {
+          if (error.name === ERR_INTERFACE_NOT_FOUND) {
+            debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
+              Math.round(response.getTimeSinceCreation()), interfaceName);
+          } else {
+            throw error;
+          }
+        }
       });
     }
   }

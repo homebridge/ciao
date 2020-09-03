@@ -26,7 +26,7 @@ import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
 import { dnsLowerCase } from "./util/dns-equal";
-import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
+import { ERR_INTERFACE_NOT_FOUND, ERR_SERVER_CLOSED } from "./util/errors";
 import { sortedInsert } from "./util/sorted-array";
 
 const debug = createDebug("ciao:Responder");
@@ -770,6 +770,9 @@ export class Responder implements PacketHandler {
           if (error.name === ERR_INTERFACE_NOT_FOUND) {
             debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
               Math.round(response.getTimeSinceCreation()), interfaceName);
+          } else if (error.name === ERR_SERVER_CLOSED) {
+            debug("Multicast response (delayed %dms) was cancelled as the server is about to be shutdown!",
+              Math.round(response.getTimeSinceCreation()));
           } else {
             throw error;
           }

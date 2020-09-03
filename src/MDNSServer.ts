@@ -13,7 +13,7 @@ import {
 } from "./coder/DNSPacket";
 import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
-import { InterfaceNotFoundError } from "./util/errors";
+import { InterfaceNotFoundError, ServerClosedError } from "./util/errors";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -255,8 +255,10 @@ export class MDNSServer {
   }
 
   private assertBeforeSend(message: Buffer, family: IPFamily): void {
+    if (this.closed) {
+      throw new ServerClosedError("Cannot send packets on a closed mdns server!");
+    }
     assert(this.bound, "Cannot send packets before server is not bound!");
-    assert(!this.closed, "Cannot send packets on a closed mdns server!");
 
     const ipHeaderSize = family === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER;
 

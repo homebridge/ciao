@@ -718,7 +718,7 @@ export class CiaoService extends EventEmitter {
       aaaaR: aaaaRoutableRecordMap,
       aaaaULA: aaaaUniqueLocalRecordMap,
       reverseAddressPTRs: reverseAddressMap,
-      nsec: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], true),
+      nsec: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
     };
   }
 

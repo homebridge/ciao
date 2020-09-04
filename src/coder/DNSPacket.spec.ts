@@ -19,7 +19,7 @@ describe(DNSPacket, () => {
         aRecord,
         new AAAARecord("example.org", "::1"),
         new CNAMERecord("eg.org", "example.org"),
-        new NSECRecord("test.local", "test.local", [RType.SRV]),
+        new NSECRecord("test.local", "test.local", [RType.SRV], 120),
       ],
       additionals: [
         new PTRRecord("test.pointer", "test.local"),

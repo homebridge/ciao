@@ -11,7 +11,7 @@ export class PTRRecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ptrName: string);
   constructor(name: string | RecordRepresentation, ptrName: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.PTR, ttl || 120, flushFlag);
+      super(name, RType.PTR, ttl, flushFlag);
     } else {
       assert(name.type === RType.PTR);
       super(name);

@@ -28,8 +28,8 @@ describe(ResourceRecord, () => {
   });
 
   it("should encode NSEC", () => {
-    runRecordEncodingTest(new NSECRecord("test.local.", "test.local.", [RType.TXT, RType.SRV, RType.A]));
-    runRecordEncodingTest(new NSECRecord("sub.test.local.", "sub.test.local.", [RType.CNAME, RType.AAAA]));
+    runRecordEncodingTest(new NSECRecord("test.local.", "test.local.", [RType.TXT, RType.SRV, RType.A], 120));
+    runRecordEncodingTest(new NSECRecord("sub.test.local.", "sub.test.local.", [RType.CNAME, RType.AAAA], 120));
   });
 
   it("should encode OPT", () => {

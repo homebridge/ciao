@@ -15,9 +15,9 @@ export class NSECRecord extends ResourceRecord {
   readonly nextDomainName: string;
   readonly rrTypeWindows: RRTypeWindow[];
 
-  constructor(name: string, nextDomainName: string, rrtypes: RType[], flushFlag?: boolean, ttl?: number);
+  constructor(name: string, nextDomainName: string, rrtypes: RType[], ttl: number, flushFlag?: boolean);
   constructor(header: RecordRepresentation, nextDomainName: string, rrtypes: RType[]);
-  constructor(name: string | RecordRepresentation, nextDomainName: string, rrtypes: RType[], flushFlag?: boolean, ttl?: number) {
+  constructor(name: string | RecordRepresentation, nextDomainName: string, rrtypes: RType[], ttl?: number, flushFlag?: boolean) {
     if (typeof name === "string") {
       super(name, RType.NSEC, ttl || 120, flushFlag);
     } else {

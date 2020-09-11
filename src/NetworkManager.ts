@@ -490,7 +490,7 @@ export class NetworkManager extends EventEmitter {
           return;
         }
 
-        const lines = stdout.split(os.EOL); // windows always appends one empty newline
+        const lines = stdout.split(os.EOL);
 
         const addresses: IPv4Address[] = [];
         for (let i = 0; i < lines.length - 1; i++) {
@@ -499,7 +499,7 @@ export class NetworkManager extends EventEmitter {
           if (line[line.length - 3]) {
             addresses.push(line[line.length - 3]);
           } else {
-            debug(`WINDOWS: Failed to parse windows arp line: '${line.join(" ")}'!`);
+            debug(`WINDOWS: Failed to read interface name from line ${i}: '${lines[i]}'`);
           }
         }
 
@@ -546,9 +546,14 @@ export class NetworkManager extends EventEmitter {
         const names: InterfaceName[] = [];
 
         for (let i = 0; i < lines.length - 1; i++) {
-          const columns = lines[i].trim().split(NetworkManager.SPACE_PATTERN);
-          if (!names.includes(columns[4])) {
-            names.push(columns[4]);
+          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[4];
+          if (!interfaceName) {
+            debug(`DARWIN: Failed to read interface name from line ${i}: '${lines[i]}'`);
+            continue;
+          }
+
+          if (!names.includes(interfaceName)) {
+            names.push(interfaceName);
           }
         }
 
@@ -575,10 +580,10 @@ export class NetworkManager extends EventEmitter {
         const lines = stdout.split(os.EOL);
         const names: InterfaceName[] = [];
 
-        for (let i = 0; i < lines.length; i++) {
+        for (let i = 0; i < lines.length - 1; i++) {
           const interfaceName = lines[i].trim().split(" ")[6];
           if (!interfaceName) {
-            debug(`LINUX: Failed to read interface name from line '${lines[i]}'`);
+            debug(`LINUX: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;
           }
 
@@ -609,10 +614,10 @@ export class NetworkManager extends EventEmitter {
         const lines = stdout.split(os.EOL);
         const names: InterfaceName[] = [];
 
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = 1; i < lines.length - 1; i++) {
           const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[2];
           if (!interfaceName) {
-            debug(`${os.platform()}: Failed to read interface name from line '${lines[i]}'`);
+            debug(`${os.platform()}: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;
           }
 

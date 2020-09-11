@@ -16,7 +16,7 @@ const txt = {
 };
 
 const responder = ciao.getResponder({
-  interface: ["en0"],
+  // interface: ["en0"],
 });
 const service = responder.createService({
   name: "My Accessory2",

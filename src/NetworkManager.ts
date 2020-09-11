@@ -93,6 +93,8 @@ export declare interface NetworkManager {
  */
 export class NetworkManager extends EventEmitter {
 
+  private static readonly SPACE_PATTERN = /\s+/g;
+
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
   private readonly restrictedInterfaces?: InterfaceName[];
@@ -127,7 +129,6 @@ export class NetworkManager extends EventEmitter {
     }
 
     this.initPromise = new Promise(resolve => {
-      // below call takes about 20-30ms
       this.getCurrentNetworkInterfaces().then(map => {
         this.currentInterfaces = map;
 
@@ -295,11 +296,33 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
-    const defaultIp4Netaddress: IPv4Address | undefined = !this.restrictedInterfaces? await NetworkManager.getDefaultIpv4Subnet(): undefined;
+    let names: InterfaceName[];
+    if (this.restrictedInterfaces) {
+      names = this.restrictedInterfaces;
+
+      const loopback = NetworkManager.getLoopbackInterface();
+      if (!names.includes(loopback)) {
+        names.push(loopback);
+      }
+    } else {
+      try {
+        names = await NetworkManager.getNetworkInterfaceNames();
+      } catch (error) {
+        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces!`);
+        // fallback way of gathering network interfaces
+        names = NetworkManager.assumeNetworkInterfaceNames();
+      }
+    }
+
 
     const interfaces: Map<InterfaceName, NetworkInterface> = new Map();
+    const networkInterfaces = os.networkInterfaces();
 
-    Object.entries(os.networkInterfaces()).forEach(([name, infoArray]) => {
+    for (const name of names) {
+      const infos = networkInterfaces[name];
+      if (!infos) {
+        continue;
+      }
 
       let ipv4Info: NetworkInterfaceInfo | undefined = undefined;
       let ipv6Info: NetworkInterfaceInfo | undefined = undefined;
@@ -307,7 +330,7 @@ export class NetworkManager extends EventEmitter {
       let uniqueLocalIpv6Info: NetworkInterfaceInfo | undefined = undefined;
       let internal = false;
 
-      for (const info of infoArray) {
+      for (const info of infos) {
         if (info.internal) {
           internal = true;
         }
@@ -318,8 +341,10 @@ export class NetworkManager extends EventEmitter {
           if (info.scopeid && !ipv6Info) { // we only care about non zero scope (aka link-local ipv6)
             ipv6Info = info;
           } else if (info.scopeid === 0) { // global routable ipv6
-            if ((info.address.startsWith("fc") || info.address.startsWith("fd")) && !uniqueLocalIpv6Info) {
-              uniqueLocalIpv6Info = info;
+            if (info.address.startsWith("fc") || info.address.startsWith("fd")) {
+              if (!uniqueLocalIpv6Info) {
+                uniqueLocalIpv6Info = info;
+              }
             } else if (!routableIpv6Info) {
               routableIpv6Info = info;
             }
@@ -334,7 +359,7 @@ export class NetworkManager extends EventEmitter {
       assert(ipv4Info || ipv6Info, "Could not find valid addresses for interface '" + name + "'");
 
       if (this.excludeIpv6Only && !ipv4Info) {
-        return;
+        continue;
       }
 
       const networkInterface: NetworkInterface = {
@@ -364,17 +389,8 @@ export class NetworkManager extends EventEmitter {
         networkInterface.uniqueLocalIpv6Netmask = uniqueLocalIpv6Info.netmask;
       }
 
-      if (internal) {
-        // we always add the loopback iface even when interfaces are restricted
-        interfaces.set(name, networkInterface);
-      } else if (this.restrictedInterfaces) {
-        if (this.restrictedInterfaces.includes(name)) {
-          interfaces.set(name, networkInterface);
-        }
-      } else if (networkInterface.globallyRoutableIpv6 || defaultIp4Netaddress && defaultIp4Netaddress === networkInterface.ipv4Netaddress) {
-        interfaces.set(name, networkInterface);
-      }
-    });
+      interfaces.set(name, networkInterface);
+    }
 
     return interfaces;
   }
@@ -394,147 +410,221 @@ export class NetworkManager extends EventEmitter {
     return interfaceName;
   }
 
-  private static async getDefaultIpv4Subnet(): Promise<IPv4Address | undefined> {
-    // this method was derived from the systeminformation library (https://github.com/sebhildebrandt/systeminformation/blob/master/lib/network.js)
-    // the library is licensed under the MIT license and Copyright (c) 2014-2020 Sebastian Hildebrandt
+  private static async getNetworkInterfaceNames(): Promise<InterfaceName[]> {
+    // this function will always include the loopback interface
 
-    let interfaceNamePromise;
+    let promise: Promise<InterfaceName[]>;
     switch (os.platform()) {
       case "win32":
-        interfaceNamePromise = this.getWinDefaultNetworkInterface();
+        promise = NetworkManager.getWindowsNetworkInterfaces();
         break;
-      case "linux":
-        interfaceNamePromise = this.getLinuxDefaultNetworkInterface();
+      case "linux": {
+        promise = NetworkManager.getLinuxDefaultNetworkInterface();
         break;
+      }
       case "darwin":
+        promise = NetworkManager.getDarwinNetworkInterfaces();
+        break;
       case "openbsd":
       case "freebsd":
-      case "sunos":
-        interfaceNamePromise = this.getDarwin_BSD_SUNOSDefaultNetworkInterface();
+      case "sunos": {
+        promise = NetworkManager.getBSD_SUNOS_DefaultNetworkInterface();
         break;
+      }
       default:
         debug("Found unsupported platform %s", os.platform());
         return Promise.reject(new Error("unsupported platform!"));
     }
 
-    let interfaceName;
-    try {
-      interfaceName = await interfaceNamePromise;
-    } catch (error) {
-      debug("Could not check hosts routing table for default network interface: " + error.message);
-      return undefined;
+    const names = await promise;
+    const loopback = NetworkManager.getLoopbackInterface();
+
+    if (!names.includes(loopback)) {
+      names.unshift(loopback);
     }
 
-    const infos: NetworkInterfaceInfo[] = os.networkInterfaces()[interfaceName];
-    if (!infos) {
-      debug("The network interface advertised as the default interface could not be found by the os module!");
-      return undefined;
-    }
+    return promise;
+  }
 
-    let netaddress: IPv4Address | undefined = undefined;
-    for (const info of infos) {
-      if (info.family === "IPv4") {
-        netaddress = getNetAddress(info.address, info.netmask);
+  private static assumeNetworkInterfaceNames(): InterfaceName[] {
+    // this method is a fallback trying to calculate network related interfaces in an platform independent way
+
+    const names: InterfaceName[] = [];
+    Object.entries(os.networkInterfaces()).forEach(([name, infos]) => {
+      for (const info of infos) {
+        // we add the loopback interface or interfaces which got a unique (global or local) ipv6 address
+        // we currently don't just add all interfaces with ipv4 addresses as are often interfaces like VPNs, container/vms related
+
+        // unique global or unique local ipv6 addresses give an indication that we are truly connected to "the Internet"
+        // as something like SLAAC must be going on
+        if (info.internal || info.family === "IPv6" && info.scopeid === 0) {
+          if (!names.includes(name)) {
+            names.push(name);
+          }
+          break;
+        }
+      }
+    });
+
+    return names;
+  }
+
+  private static getLoopbackInterface(): InterfaceName {
+    for (const [name, infos] of Object.entries(os.networkInterfaces())) {
+      for (const info of infos) {
+        if (info.internal) {
+          return name;
+        }
       }
     }
 
-    if (!netaddress) {
-      debug("The network interface advertised as the default interface didn't have any ipv4 address records!");
-    }
-
-    return netaddress;
+    throw new Error("Could not detect loopback interface!");
   }
 
-  private static readonly WIN_CHAR_PATTERN = /[a-zA-Z]/;
-  private static readonly WIN_DEFAULT_IP_PATTERN = /0\.0\.0\.0[ ]+0\.0\.0\.0/;
-  private static getWinDefaultNetworkInterface(): Promise<InterfaceName> {
+  private static getWindowsNetworkInterfaces(): Promise<InterfaceName[]> {
+    // does not return loopback interface
     return new Promise((resolve, reject) => {
-      const command = "netstat -r";
-      childProcess.exec(command, (error, stdout) => {
+      childProcess.exec("arp -a | findstr /C:\"---\"", (error, stdout) => {
         if (error) {
           reject(error);
           return;
         }
 
-        let defaultIp;
-        const lines = stdout.split(os.EOL);
-        for (const line of lines) {
-          if (this.WIN_DEFAULT_IP_PATTERN.test(line) && !(this.WIN_CHAR_PATTERN.test(line))) {
-            const parts = line.split(/[ ]+/);
-            if (parts.length >= 5) {
-              defaultIp = parts[parts.length - 2];
+        const lines = stdout.split(os.EOL); // windows always appends one empty newline
+
+        const addresses: IPv4Address[] = [];
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim().split(" ");
+
+          if (line[line.length - 3]) {
+            addresses.push(line[line.length - 3]);
+          } else {
+            debug(`WINDOWS: Failed to parse windows arp line: '${line.join(" ")}'!`);
+          }
+        }
+
+        // 3. translate the ip address to the interface name
+        const names: InterfaceName[] = [];
+        for (const address of addresses) {
+          const name = NetworkManager.resolveInterface(address);
+          if (name) {
+            if (!names.includes(name)) {
+              names.push(name);
             }
+          } else {
+            debug(`WINDOWS: Couldn't resolve to an interface name from '${address}'`);
           }
         }
 
-        if (defaultIp) {
-          const interfaceName = this.resolveInterface(defaultIp);
-          if (interfaceName) {
-            resolve(interfaceName);
-            return;
-          }
-        }
-
-        reject(new Error("not found!"));
-      });
-    });
-  }
-
-  private static readonly SPACE_PATTERN = /\s+/;
-  private static getLinuxDefaultNetworkInterface(): Promise<InterfaceName> {
-    return new Promise((resolve, reject) => {
-      const command = "ip route 2> /dev/null | grep default";
-      childProcess.exec(command, (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        const parts = stdout.split(os.EOL)[0].split(this.SPACE_PATTERN);
-
-        let i = 0;
-        for (; i < parts.length; i++) {
-          if (parts[i] === "dev") {
-            // the next index marks the interface name
-            break;
-          }
-        }
-
-        if (i + 1 < parts.length) {
-          let interfaceName = parts[i + 1];
-          if (interfaceName.indexOf(":") !== -1) {
-            interfaceName = interfaceName.split(":")[1].trim();
-          }
-
-          resolve(interfaceName);
+        if (names.length) {
+          resolve(names);
         } else {
-          reject(new Error("not found!"));
+          reject(new Error("WINDOWS: No interfaces were found!"));
         }
       });
     });
   }
 
-  private static getDarwin_BSD_SUNOSDefaultNetworkInterface(): Promise<InterfaceName> {
+  private static getDarwinNetworkInterfaces(): Promise<InterfaceName[]> {
+    /*
+     * Previous efforts used the routing table to get all relevant network interfaces.
+     * Particularly using "netstat -r -f inet -n".
+     * First attempt was to use the "default" interface to the 0.0.0.0 catch all route using "route get 0.0.0.0".
+     * Though this fails when the router isn't connected to the internet, thus no "internet route" exists.
+     */
+
+    // does not return loopback interface
     return new Promise((resolve, reject) => {
-      // TODO darwin netstat -r -f inet
-      const command = os.platform() === "darwin"
-        ? "route get 0.0.0.0 2>/dev/null | grep interface: | awk '{print $2}'"
-        : "route get 0.0.0.0 | grep interface:";
-      childProcess.exec(command, (error, stdout) => {
+      // for ipv6 "ndp -a -n |grep -v permanent" with filtering for "expired"
+      childProcess.exec("arp -a -n -l | grep -iv expire", (error, stdout) => {
         if (error) {
           reject(error);
           return;
         }
 
-        let interfaceName = stdout.split(os.EOL)[0];
-        if (interfaceName.indexOf(":") > -1) {
-          interfaceName = interfaceName.split(":")[1].trim();
+        const lines = stdout.split(os.EOL);
+        const names: InterfaceName[] = [];
+
+        for (let i = 0; i < lines.length - 1; i++) {
+          const columns = lines[i].trim().split(NetworkManager.SPACE_PATTERN);
+          if (!names.includes(columns[4])) {
+            names.push(columns[4]);
+          }
         }
 
-        if (interfaceName) {
-          resolve(interfaceName);
+
+        if (names.length) {
+          resolve(names);
         } else {
-          reject(new Error("not found"));
+          reject(new Error("DARWIN: No interfaces were found!"));
+        }
+      });
+    });
+  }
+
+  private static getLinuxDefaultNetworkInterface(): Promise<InterfaceName[]> {
+    // does not return loopback interface
+    return new Promise((resolve, reject) => {
+      // for ipv6 something like "ip neighbour show | grep REACHABLE"
+      childProcess.exec("arp -n -H ether -a | grep -v incomplete", (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        const lines = stdout.split(os.EOL);
+        const names: InterfaceName[] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const interfaceName = lines[i].trim().split(" ")[6];
+          if (!interfaceName) {
+            debug(`LINUX: Failed to read interface name from line '${lines[i]}'`);
+            continue;
+          }
+
+          if (!names.includes(interfaceName)) {
+            names.push(interfaceName);
+          }
+        }
+
+        if (names.length) {
+          resolve(names);
+        } else {
+          reject(new Error("LINUX: No interfaces were found!"));
+        }
+      });
+    });
+  }
+
+  private static getBSD_SUNOS_DefaultNetworkInterface(): Promise<InterfaceName[]> {
+    // does not return loopback interface
+    return new Promise((resolve, reject) => {
+      // for ipv6 something like "ndp -a -n | grep R" (grep for reachable; maybe exclude permanent?)
+      childProcess.exec("arp -a -n | grep -v expired", (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        const lines = stdout.split(os.EOL);
+        const names: InterfaceName[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[2];
+          if (!interfaceName) {
+            debug(`${os.platform()}: Failed to read interface name from line '${lines[i]}'`);
+            continue;
+          }
+
+          if (!names.includes(interfaceName)) {
+            names.push(interfaceName);
+          }
+        }
+
+        if (names.length) {
+          resolve(names);
+        } else {
+          reject(new Error(os.platform().toUpperCase() + ": No interfaces were found!"));
         }
       });
     });

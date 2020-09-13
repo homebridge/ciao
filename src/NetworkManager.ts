@@ -308,7 +308,7 @@ export class NetworkManager extends EventEmitter {
       try {
         names = await NetworkManager.getNetworkInterfaceNames();
       } catch (error) {
-        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces!`);
+        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${error.message})`);
         // fallback way of gathering network interfaces
         names = NetworkManager.assumeNetworkInterfaceNames();
       }
@@ -581,7 +581,9 @@ export class NetworkManager extends EventEmitter {
         const names: InterfaceName[] = [];
 
         for (let i = 0; i < lines.length - 1; i++) {
-          const interfaceName = lines[i].trim().split(" ")[6];
+          const parts = lines[i].trim().split(" ");
+          const interfaceName = parts[parts.length - 1];
+
           if (!interfaceName) {
             debug(`LINUX: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;

@@ -86,7 +86,7 @@ export interface DecodedData<T> {
 export interface DNSQueryDefinition {
   questions: Question[];
   answers?: ResourceRecord[]; // list of known-answers
-  // TODO additionals section can contain the OPT record
+  additionals?: ResourceRecord[]; // only really used to include the OPT record
 }
 
 export interface DNSProbeQueryDefinition {
@@ -211,6 +211,7 @@ export class DNSPacket {
     const packet = new DNSPacket({
       type: PacketType.QUERY,
       questions: definition.questions,
+      additionals: isQuery(definition)? definition.additionals: undefined, // OPT record is included in additionals section
     });
     packets.push(packet);
 

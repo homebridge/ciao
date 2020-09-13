@@ -49,6 +49,7 @@ export class Announcer {
   private sentAnnouncements = 0;
   private sentLastAnnouncement = false;
   private nextInterval = 1000;
+  public nextAnnouncementTime = 0;
 
   constructor(server: MDNSServer, service: CiaoService, options: AnnouncerOptions) {
     assert(server, "server must be defined");
@@ -82,8 +83,9 @@ export class Announcer {
       this.promiseReject = reject;
 
       this.timer = setTimeout(this.sendAnnouncement.bind(this), 0);
-      // TODO next announcement time
       this.timer.unref();
+
+      this.nextAnnouncementTime = new Date().getTime();
     }));
   }
 
@@ -161,9 +163,8 @@ export class Announcer {
         this.timer = setTimeout(this.sendAnnouncement.bind(this), this.nextInterval);
         this.timer.unref();
 
+        this.nextAnnouncementTime = new Date().getTime() + this.nextInterval;
         this.nextInterval *= this.announceIntervalIncreaseFactor;
-        // TODO save next announcement TIME, when we have record updates which occur while announcing
-        //  we can check if it is appropriate to maybe send an updated record in between
       }
     });
   }

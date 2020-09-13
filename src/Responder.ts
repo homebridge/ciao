@@ -544,20 +544,11 @@ export class Responder implements PacketHandler {
 
       const time = new Date().getTime() - start;
 
-      // TODO To protect the network against excessive packet flooding due to
-      //    software bugs or malicious attack, a Multicast DNS responder MUST NOT
-      //    (except in the one special case of answering probe queries) multicast
-      //    a record on a given interface until at least one second has elapsed
-      //    since the last time that record was multicast on that particular
-      //    interface.
-
       if ((multicastResponse.containsSharedAnswer() || packet.questions.size > 1) && !isProbeQuery) {
         // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
         // This is also the case if there are multiple questions. If multiple questions are asked
         // we probably could not answer them all (because not all of them were directed to us).
         // All those conditions are overridden if this is a probe query. To those queries we must respond instantly!
-
-        // TODO duplicate answer suppression 7.4 (especially for the meta query)
 
         this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, time);
       } else {

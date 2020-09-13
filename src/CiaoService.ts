@@ -468,7 +468,6 @@ export class CiaoService extends EventEmitter {
     if (this.serviceState === ServiceState.UNANNOUNCED) {
       this.name = name;
       this.fqdn = this.formatFQDN();
-      // TODO update hostname if options didn't specify one? (do we even want to support this?)
       return Promise.resolve();
     } else {
       return this.end() // send goodbye packets for the current name

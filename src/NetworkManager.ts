@@ -503,7 +503,6 @@ export class NetworkManager extends EventEmitter {
           }
         }
 
-        // 3. translate the ip address to the interface name
         const names: InterfaceName[] = [];
         for (const address of addresses) {
           const name = NetworkManager.resolveInterface(address);
@@ -571,7 +570,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ip neighbour show | grep REACHABLE"
-      childProcess.exec("arp -n -H ether -a | grep -v incomplete", (error, stdout) => {
+      childProcess.exec("arp -n -a | grep -v incomplete", (error, stdout) => {
         if (error) {
           reject(error);
           return;

@@ -331,7 +331,6 @@ export class MDNSServer {
 
     let packet: DNSPacket;
     try {
-      // TODO parse packet on the fly, a lot of RESPONSE packets will never be used
       packet = DNSPacket.decode(buffer);
     } catch (error) {
       debug("Received malformed packet from %s: %s", JSON.stringify(rinfo), error.message);

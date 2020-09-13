@@ -63,9 +63,10 @@ export interface ServiceOptions {
    */
   subtypes?: (ServiceType | string)[];
   /**
-   * Port of the service
+   * Port of the service. Optional.
+   * If not supplied it must be set later via {@code updatePort} BEFORE advertising the service.
    */
-  port: number;
+  port?: number;
 
   /**
    * The protocol the service uses. Default is TCP.
@@ -259,7 +260,7 @@ export class CiaoService extends EventEmitter {
   private readonly subTypePTRs?: string[];
 
   private hostname: string; // formatted hostname
-  private readonly port: number;
+  private port?: number;
 
   private txt: Buffer[];
 
@@ -289,9 +290,7 @@ export class CiaoService extends EventEmitter {
     assert(options, "parameters options is required");
     assert(options.name, "service options parameter 'name' is required");
     assert(options.type, "service options parameter 'type' is required");
-    assert(options.port, "service options parameter 'port' is required");
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
-    // TODO port should be changeable after service creation (it's often only known, when the socket is bound sometime in the future)
 
     this.networkManager = networkManager;
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkInterfaceUpdate.bind(this));
@@ -326,7 +325,7 @@ export class CiaoService extends EventEmitter {
     this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
 
     // checks if hostname or name are already numbered and adjusts the numbers if necessary
-    this.incrementName(true); // must be done before the rebuildServiceRecords call
+    this.incrementName(true);
   }
 
   /**
@@ -341,6 +340,8 @@ export class CiaoService extends EventEmitter {
    *    - One of the announcement packets could not be sent successfully
    */
   public advertise(): Promise<void> {
+    assert(this.port, "Service port must be defined before advertising the service on the network!");
+
     if (this.listeners(ServiceEvent.NAME_CHANGED).length === 0) {
       debug("[%s] WARN: No listeners found for a potential name change on the 'name-change' event!", this.name);
     }
@@ -390,9 +391,10 @@ export class CiaoService extends EventEmitter {
 
   /**
    * @returns The port the service is advertising for.
+   * {@code -1} is returned when the port is not yet set.
    */
   public getPort(): number {
-    return this.port;
+    return this.port || -1;
   }
 
   /**
@@ -443,6 +445,18 @@ export class CiaoService extends EventEmitter {
         resolve();
       }
     });
+  }
+
+  /**
+   * Sets or updates the port of the service.
+   * A new port number can only be set when the service is still UNANNOUNCED.
+   * Otherwiese an assertion error will be thrown.
+   *
+   * @param {number} port - The new port number.
+   */
+  public updatePort(port: number): void {
+    assert(this.serviceState === ServiceState.UNANNOUNCED, "Port number cannot be changed when service is already advertised!");
+    this.port = port;
   }
 
   /**
@@ -669,6 +683,7 @@ export class CiaoService extends EventEmitter {
    * @internal called once the service data/state is updated and the records should be updated with the new data
    */
   rebuildServiceRecords(): void {
+    assert(this.port, "port must be set before building records");
     debug("[%s] Rebuilding service records...", this.name);
 
     const aRecordMap: Record<InterfaceName, ARecord> = {};
@@ -711,7 +726,7 @@ export class CiaoService extends EventEmitter {
       ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
       metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
-      srv: new SRVRecord(this.fqdn, this.hostname, this.port, true),
+      srv: new SRVRecord(this.fqdn, this.hostname, this.port!, true),
       txt: new TXTRecord(this.fqdn, this.txt, true),
       a: aRecordMap,
       aaaa: aaaaRecordMap,

@@ -21,7 +21,6 @@ const responder = ciao.getResponder({
 const service = responder.createService({
   name: "My Accessory2",
   type: ServiceType.HAP,
-  port: 1234,
   txt: txt,
 });
 /*const serviceCopy = responder.createService({
@@ -41,6 +40,8 @@ const service = responder.createService({
   },
 });
 */
+
+service.updatePort(1234);
 
 service.advertise().then(() => {
   console.log("Advertised service1");

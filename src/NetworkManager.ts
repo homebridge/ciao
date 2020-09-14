@@ -179,8 +179,6 @@ export class NetworkManager extends EventEmitter {
   }
 
   private async checkForNewInterfaces(): Promise<void> {
-    const start = new Date().getTime();
-
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
     if (!this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
       return;
@@ -291,7 +289,6 @@ export class NetworkManager extends EventEmitter {
       });
     }
 
-    debug("Checked for new networks. Took %d ms", new Date().getTime() - start); // TODO remove on stable
     this.scheduleNextJob();
   }
 

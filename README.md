@@ -1,4 +1,4 @@
-# ciao
+# @homebridge/ciao
 
 [![NPM-Version](https://badgen.net/npm/v/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Downloads](https://badgen.net/npm/dt/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
@@ -10,17 +10,19 @@ advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762))
 implemented in plain Typescript/JavaScript.
 
 It is used in [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) and is the successor of the 
-[bonjour-hap](https://github.com/homebridge/bonjour) library, 
-aiming to be more robust, more maintainable and RFC compliant.
+[bonjour-hap](https://github.com/homebridge/bonjour) (and [bonjour](https://github.com/watson/bonjour)) library, 
+aiming to be more robust, more maintainable and RFC compliant (read [Notice](https://github.com/homebridge/bonjour#notice)).
 
 `ciao` features a multicast dns responder to publish service on the local network.
-It will gain browser functionality in the future to also discover existing services on the local network
+It will eventually gain browsing functionality in the future to also discover services on the local network
 (There is currently no schedule when discover functionality will arrive. 
 A possible querier implementation is limited as explained in [RFC 6762 15.1.](https://tools.ietf.org/html/rfc6762#section-15.1)
 as it can't receive unicast responses).
 
 `ciao` [passes](BCT-Results-CIAO-PI-en0.txt) the [Bonjour Conformance Test](https://developer.apple.com/bonjour/)
 as defined and required by Apple.
+
+The full documentation can be found [here](https://developers.homebridge.io/ciao/globals.html).
 
 ## Installation
 
@@ -91,10 +93,11 @@ event, in oder to persist any changes happening to the service name resulting of
 The method [updateTxt](https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt) can be used
 to update the contest of the txt exposed by the service.
 
-Any application should ideally hook up a listener on events like SIGTERM or SIGINT and call the 
+Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the 
 [shutdown](https://developers.homebridge.io/ciao/classes/responder.html#shutdown) method of the responder object.
 This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
 on the network get instantly notified of the shutdown.
+Otherwise, stale data will remain in the caches of surrounding mdns browsers. 
 
 ### MTU
 

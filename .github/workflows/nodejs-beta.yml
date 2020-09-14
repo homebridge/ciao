@@ -1,11 +1,9 @@
-name: Node-CI
+name: Node-CI Beta
 
 on:
   push:
     branches:
-      - master
-  pull_request:
-  create: # Run when tag is created
+      - beta
 
 jobs:
   build:
@@ -31,27 +29,9 @@ jobs:
           npm run test-coverage
         env:
           CI: true
-      - name: Coveralls Parallel
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.github_token }}
-          parallel: true
-
-  finish:
-    needs: build
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Coveralls Finished
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.github_token }}
-          parallel-finished: true
 
   publish-npm:
-    # publish only if we are on our own repo, event was 'create' (a tag was created) and the tag starts with "v" (aka version tag)
-    if: github.repository == 'homebridge/ciao' && github.event_name == 'create' && startsWith(github.ref, 'refs/tags/v')
+    if: github.repository == 'homebridge/ciao' # publish only if we are on our own repo
 
     needs: build # only run if build succeeds
 
@@ -64,6 +44,8 @@ jobs:
           node-version: 10 # use the minimum required version
           registry-url: https://registry.npmjs.org/
       - run: npm ci
-      - run: npm publish --access public
+      - run: node .github/workflows/prerelease.js
+      - run: npm --no-git-tag-version version pre --preid=beta
+      - run: npm publish --access public --tag=beta
         env:
           NODE_AUTH_TOKEN: ${{ secrets.npm_token }}

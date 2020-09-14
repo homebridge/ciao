@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>@homebridge/ciao - v1.0.0-beta.53</title>
+	<title>@homebridge/ciao - v1.0.0</title>
 	<meta name="description" content="">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="stylesheet" href="assets/css/main.css">
@@ -22,7 +22,7 @@
 						<li class="state loading">Preparing search index...</li>
 						<li class="state failure">The search index is not available</li>
 					</ul>
-					<a href="index.html" class="title">@homebridge/ciao - v1.0.0-beta.53</a>
+					<a href="index.html" class="title">@homebridge/ciao - v1.0.0</a>
 				</div>
 				<div class="table-cell" id="tsd-widgets">
 					<div id="tsd-filter">
@@ -52,7 +52,7 @@
 					<a href="globals.html">Globals</a>
 				</li>
 			</ul>
-			<h1>@homebridge/ciao - v1.0.0-beta.53</h1>
+			<h1>@homebridge/ciao - v1.0.0</h1>
 		</div>
 	</div>
 </header>
@@ -60,8 +60,8 @@
 	<div class="row">
 		<div class="col-8 col-content">
 			<div class="tsd-panel tsd-typography">
-				<a href="#ciao" id="ciao" style="color: inherit; text-decoration: none;">
-					<h1>ciao</h1>
+				<a href="#homebridgeciao" id="homebridgeciao" style="color: inherit; text-decoration: none;">
+					<h1>@homebridge/ciao</h1>
 				</a>
 				<p><a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao" alt="NPM-Version"></a>
 					<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/dt/@homebridge/ciao" alt="NPM-Downloads"></a>
@@ -71,15 +71,16 @@
 					advertising on multicast dns (<a href="https://tools.ietf.org/html/rfc6762">RFC 6762</a>)
 				implemented in plain Typescript/JavaScript.</p>
 				<p>It is used in <a href="https://github.com/homebridge/HAP-NodeJS">HAP-NodeJS</a> and is the successor of the
-					<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> library,
-				aiming to be more robust, more maintainable and RFC compliant.</p>
+					<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> (and <a href="https://github.com/watson/bonjour">bonjour</a>) library,
+				aiming to be more robust, more maintainable and RFC compliant (read <a href="https://github.com/homebridge/bonjour#notice">Notice</a>).</p>
 				<p><code>ciao</code> features a multicast dns responder to publish service on the local network.
-					It will gain browser functionality in the future to also discover existing services on the local network
+					It will eventually gain browsing functionality in the future to also discover services on the local network
 					(There is currently no schedule when discover functionality will arrive.
 					A possible querier implementation is limited as explained in <a href="https://tools.ietf.org/html/rfc6762#section-15.1">RFC 6762 15.1.</a>
 				as it can&#39;t receive unicast responses).</p>
 				<p><code>ciao</code> <a href="BCT-Results-CIAO-PI-en0.txt">passes</a> the <a href="https://developer.apple.com/bonjour/">Bonjour Conformance Test</a>
 				as defined and required by Apple.</p>
+				<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/globals.html">here</a>.</p>
 				<a href="#installation" id="installation" style="color: inherit; text-decoration: none;">
 					<h2>Installation</h2>
 				</a>
@@ -141,10 +142,11 @@ service.end().then(<span class="hljs-function"><span class="hljs-params">()</spa
 					event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
 					The method <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt">updateTxt</a> can be used
 				to update the contest of the txt exposed by the service.</p>
-				<p>Any application should ideally hook up a listener on events like SIGTERM or SIGINT and call the
+				<p>Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the
 					<a href="https://developers.homebridge.io/ciao/classes/responder.html#shutdown">shutdown</a> method of the responder object.
 					This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
-				on the network get instantly notified of the shutdown.</p>
+					on the network get instantly notified of the shutdown.
+				Otherwise, stale data will remain in the caches of surrounding mdns browsers. </p>
 				<a href="#mtu" id="mtu" style="color: inherit; text-decoration: none;">
 					<h3>MTU</h3>
 				</a>

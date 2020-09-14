@@ -63,8 +63,8 @@ export interface ServiceOptions {
    */
   subtypes?: (ServiceType | string)[];
   /**
-   * Port of the service. Optional.
-   * If not supplied it must be set later via {@code updatePort} BEFORE advertising the service.
+   * Port of the service.
+   * If not supplied it must be set later via {@link updatePort} BEFORE advertising the service.
    */
   port?: number;
 
@@ -450,7 +450,7 @@ export class CiaoService extends EventEmitter {
   /**
    * Sets or updates the port of the service.
    * A new port number can only be set when the service is still UNANNOUNCED.
-   * Otherwiese an assertion error will be thrown.
+   * Otherwise an assertion error will be thrown.
    *
    * @param {number} port - The new port number.
    */

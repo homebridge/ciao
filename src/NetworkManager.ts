@@ -573,6 +573,12 @@ export class NetworkManager extends EventEmitter {
       // for ipv6 something like "ip neighbour show | grep REACHABLE"
       childProcess.exec("arp -n -a | grep -v incomplete", (error, stdout) => {
         if (error) {
+          if (error.message.includes("arp: not found")) {
+            debug("LINUX: arp was not found on the system. Falling back to assuming network interfaces!");
+            resolve(NetworkManager.assumeNetworkInterfaceNames());
+            return;
+          }
+
           reject(error);
           return;
         }

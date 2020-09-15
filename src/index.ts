@@ -14,10 +14,17 @@ if (version.includes("beta") || process.env.BCT) { // enable debug output if bet
 import "./coder/records/index";
 import { MDNSServerOptions } from "./MDNSServer";
 import { Responder } from "./Responder";
+import createDebug from "debug";
 
 export * from "./CiaoService";
 export * from "./Responder";
 export { MDNSServerOptions } from "./MDNSServer";
+
+function printInitInfo() {
+  const debug = createDebug("ciao:init");
+  debug("Loading ciao v" + version + "...");
+}
+printInitInfo();
 
 /**
  * Defines the transport protocol of a service.

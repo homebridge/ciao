@@ -286,7 +286,7 @@ export class MDNSServer {
     }
 
     return new Promise((resolve, reject) => {
-      const errorHandler = (error: Error | number): void => reject(error);
+      const errorHandler = (error: Error): void => reject(new Error("Failed to bind on interface " + name + ": " + error.message));
       socket.once("error", errorHandler);
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
@@ -295,7 +295,7 @@ export class MDNSServer {
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;
         const interfaceAddress = family === IPFamily.IPv4? networkInterface!.ipv4: networkInterface!.ipv6;
-        assert(interfaceAddress, "Interface address cannot be undefined!");
+        assert(interfaceAddress, "Interface address for " + name + " cannot be undefined!");
 
         socket.addMembership(multicastAddress, interfaceAddress!);
 
@@ -376,7 +376,7 @@ export class MDNSServer {
     }
 
     if (callback) {
-      callback(error.error);
+      callback(new Error("Encountered socket error on " + error.name + ": " + error.error.stack));
     } else {
       MDNSServer.handleSocketError(error.name, error.error);
     }

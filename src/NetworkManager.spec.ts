@@ -12,21 +12,20 @@ describe(NetworkManager, () => {
     it("should parse interfaces from arp cache", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        if (command !== "arp -n -a | grep -v incomplete") {
+        if (command !== "ip neighbour show | grep -iv incomplete") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 
-        callback(null, "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.2) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.3) at 00:00:00:00:00:00 [ether] on asdf\n" +
-          "? (192.168.1.4) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.5) at 00:00:00:00:00:00 [ether] on eth1\n" +
-          "? (192.168.1.6) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.7) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.8) at 00:00:00:00:00:00 [ether] on eth3\n" +
-          "? (192.168.1.9) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.10) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.11) at 00:00:00:00:00:00 [ether] on eth6\n", "");
+        callback(null, "192.168.0.1 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.2 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.3 dev asdf lladdr 00:00:00:00:00:00 REACHABLE\n" +
+          "192.168.0.4 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.5 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1 dev eth1 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1 dev eth0 lladdr 00:00:00:00:00:00 REACHABLE\n" +
+          "fe80::1 dev eth3 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "fd00::1 dev eth6 lladdr 00:00:00:00:00:00 STALE\n", "");
       });
 
       return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {
@@ -37,7 +36,7 @@ describe(NetworkManager, () => {
     it("should handle error caused by exec", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        callback(new Error("test"), "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n", "");
+        callback(new Error("test"), "192.168.0.3 dev asdf lladdr 00:00:00:00:00:00 REACHABLE\n", "");
       });
 
       return getLinuxNetworkInterfaces().then(() => {
@@ -50,21 +49,20 @@ describe(NetworkManager, () => {
     it("should handle double spaces correctly", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        if (command !== "arp -n -a | grep -v incomplete") {
+        if (command !== "ip neighbour show | grep -iv incomplete") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 
-        callback(null, "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.2) at 00:00:00:00:00:00 [ether]  on eth0\n" +
-          "? (192.168.1.3) at 00:00:00:00:00:00 [ether]  on asdf\n" +
-          "? (192.168.1.4) at 00:00:00:00:00:00 [ether]  on eth0\n" +
-          "? (192.168.1.5) at 00:00:00:00:00:00 [ether] on eth1\n" +
-          "? (192.168.1.6) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.7) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.8) at 00:00:00:00:00:00 [ether]  on eth3\n" +
-          "? (192.168.1.9) at 00:00:00:00:00:00 [ether] on eth0\n" +
-          "? (192.168.1.10) at 00:00:00:00:00:00 [ether]  on eth0\n" +
-          "? (192.168.1.11) at 00:00:00:00:00:00 [ether] on eth6\n", "");
+        callback(null, "192.168.0.1 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.2 dev   eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.3 dev asdf lladdr 00:00:00:00:00:00 REACHABLE\n" +
+          "192.168.0.4 dev  eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "192.168.0.5 dev eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1   dev eth1 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1 dev eth0 lladdr 00:00:00:00:00:00 REACHABLE\n" +
+          "fe80::1  dev eth3 lladdr 00:00:00:00:00:00 STALE\n" +
+          "2003::1 dev   eth0 lladdr 00:00:00:00:00:00 STALE\n" +
+          "fd00::1 dev eth6 lladdr 00:00:00:00:00:00 STALE\n", "");
       });
 
       return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {

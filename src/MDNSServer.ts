@@ -369,6 +369,9 @@ export class MDNSServer {
 
   private static forwardError(callback: SendCallback | undefined, error: SocketError): void {
     if (MDNSServer.isSilencedSocketError(error.error)) {
+      if (callback) {
+        callback();
+      }
       return;
     }
 

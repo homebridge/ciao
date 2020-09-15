@@ -570,11 +570,10 @@ export class NetworkManager extends EventEmitter {
   private static getLinuxNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      // for ipv6 something like "ip neighbour show | grep REACHABLE"
-      childProcess.exec("arp -n -a | grep -v incomplete", (error, stdout) => {
+      childProcess.exec("ip neighbour show | grep -iv incomplete", (error, stdout) => {
         if (error) {
-          if (error.message.includes("arp: not found")) {
-            debug("LINUX: arp was not found on the system. Falling back to assuming network interfaces!");
+          if (error.message.includes("ip: not found")) {
+            debug("LINUX: ip was not found on the system. Falling back to assuming network interfaces!");
             resolve(NetworkManager.assumeNetworkInterfaceNames());
             return;
           }
@@ -588,8 +587,21 @@ export class NetworkManager extends EventEmitter {
 
         for (let i = 0; i < lines.length - 1; i++) {
           const parts = lines[i].trim().split(NetworkManager.SPACE_PATTERN);
-          const interfaceName = parts[parts.length - 1];
 
+          let devIndex = 0;
+          for (; devIndex < parts.length; devIndex++) {
+            if (parts[devIndex] === "dev") {
+              // the next index marks the interface name
+              break;
+            }
+          }
+
+          if (devIndex >= parts.length) {
+            debug(`LINUX: Out of bounds when reading interface name from line ${i}: '${lines[i]}'`);
+            continue;
+          }
+
+          const interfaceName = parts[devIndex + 1];
           if (!interfaceName) {
             debug(`LINUX: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;

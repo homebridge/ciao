@@ -5,15 +5,15 @@ import childProcess, { ExecException } from "child_process";
 const execMock = jest.spyOn(childProcess, "exec");
 
 // @ts-expect-error
-const getLinuxDefaultNetworkInterface = NetworkManager.getLinuxDefaultNetworkInterface;
+const getLinuxNetworkInterfaces = NetworkManager.getLinuxNetworkInterfaces;
 
 describe(NetworkManager, () => {
-  describe(getLinuxDefaultNetworkInterface, () => {
+  describe(getLinuxNetworkInterfaces, () => {
     it("should parse interfaces from arp cache", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "arp -n -a | grep -v incomplete") {
-          console.warn("Command for getLinuxDefaultNetworkInterface differs from the expected input!");
+          console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 
         callback(null, "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n" +
@@ -29,7 +29,7 @@ describe(NetworkManager, () => {
           "? (192.168.1.11) at 00:00:00:00:00:00 [ether] on eth6\n", "");
       });
 
-      return getLinuxDefaultNetworkInterface().then((names: InterfaceName[]) => {
+      return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {
         expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
       });
     });
@@ -40,7 +40,7 @@ describe(NetworkManager, () => {
         callback(new Error("test"), "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n", "");
       });
 
-      return getLinuxDefaultNetworkInterface().then(() => {
+      return getLinuxNetworkInterfaces().then(() => {
         fail("Should not parse names when error is received!");
       }, reason => {
         expect(reason.message).toBe("test");
@@ -51,7 +51,7 @@ describe(NetworkManager, () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "arp -n -a | grep -v incomplete") {
-          console.warn("Command for getLinuxDefaultNetworkInterface differs from the expected input!");
+          console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 
         callback(null, "? (192.168.1.1) at 00:00:00:00:00:00 [ether] on eth0\n" +
@@ -67,7 +67,7 @@ describe(NetworkManager, () => {
           "? (192.168.1.11) at 00:00:00:00:00:00 [ether] on eth6\n", "");
       });
 
-      return getLinuxDefaultNetworkInterface().then((names: InterfaceName[]) => {
+      return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {
         expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
       });
     });
@@ -78,7 +78,7 @@ describe(NetworkManager, () => {
         callback(null, "", "");
       });
 
-      return getLinuxDefaultNetworkInterface().then(() => {
+      return getLinuxNetworkInterfaces().then(() => {
         fail("Should not parse names when error is received!");
       }, reason => {
         expect(reason).toBeDefined();

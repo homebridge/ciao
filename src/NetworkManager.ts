@@ -416,16 +416,19 @@ export class NetworkManager extends EventEmitter {
         promise = NetworkManager.getWindowsNetworkInterfaces();
         break;
       case "linux": {
-        promise = NetworkManager.getLinuxDefaultNetworkInterface();
+        promise = NetworkManager.getLinuxNetworkInterfaces();
         break;
       }
       case "darwin":
         promise = NetworkManager.getDarwinNetworkInterfaces();
         break;
+      case "freebsd": {
+        promise = NetworkManager.getFreeBSDNetworkInterfaces();
+        break;
+      }
       case "openbsd":
-      case "freebsd":
       case "sunos": {
-        promise = NetworkManager.getBSD_SUNOS_DefaultNetworkInterface();
+        promise = NetworkManager.getOpenBSD_SUNOS_NetworkInterfaces();
         break;
       }
       default:
@@ -563,7 +566,7 @@ export class NetworkManager extends EventEmitter {
     });
   }
 
-  private static getLinuxDefaultNetworkInterface(): Promise<InterfaceName[]> {
+  private static getLinuxNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ip neighbour show | grep REACHABLE"
@@ -577,7 +580,7 @@ export class NetworkManager extends EventEmitter {
         const names: InterfaceName[] = [];
 
         for (let i = 0; i < lines.length - 1; i++) {
-          const parts = lines[i].trim().split(" ");
+          const parts = lines[i].trim().split(NetworkManager.SPACE_PATTERN);
           const interfaceName = parts[parts.length - 1];
 
           if (!interfaceName) {
@@ -599,7 +602,41 @@ export class NetworkManager extends EventEmitter {
     });
   }
 
-  private static getBSD_SUNOS_DefaultNetworkInterface(): Promise<InterfaceName[]> {
+  private static getFreeBSDNetworkInterfaces(): Promise<InterfaceName[]> {
+    // does not return loopback interface
+    return new Promise((resolve, reject) => {
+      childProcess.exec("arp -a -n | grep -v expired", (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        const lines = stdout.split(os.EOL);
+        const names: InterfaceName[] = [];
+
+
+        for (let i = 0; i < lines.length - 1; i++) {
+          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[5];
+          if (!interfaceName) {
+            debug(`FreeBSD: Failed to read interface name from line ${i}: '${lines[i]}'`);
+            continue;
+          }
+
+          if (!names.includes(interfaceName)) {
+            names.push(interfaceName);
+          }
+        }
+
+        if (names.length) {
+          resolve(names);
+        } else {
+          reject(new Error("FreeBSD: No interfaces were found!"));
+        }
+      });
+    });
+  }
+
+  private static getOpenBSD_SUNOS_NetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ndp -a -n | grep R" (grep for reachable; maybe exclude permanent?)

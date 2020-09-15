@@ -306,7 +306,7 @@ export class NetworkManager extends EventEmitter {
         names = await NetworkManager.getNetworkInterfaceNames();
       } catch (error) {
         debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${error.message})`);
-        // fallback way of gathering network interfaces
+        // fallback way of gathering network interfaces (remember, there are docker images where the arp command is not installed)
         names = NetworkManager.assumeNetworkInterfaceNames();
       }
     }
@@ -457,7 +457,8 @@ export class NetworkManager extends EventEmitter {
 
         // unique global or unique local ipv6 addresses give an indication that we are truly connected to "the Internet"
         // as something like SLAAC must be going on
-        if (info.internal || info.family === "IPv6" && info.scopeid === 0) {
+        // in the end
+        if (info.internal || info.family === "IPv4" || info.family === "IPv6" && info.scopeid === 0) {
           if (!names.includes(name)) {
             names.push(name);
           }

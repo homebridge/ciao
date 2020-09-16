@@ -23,7 +23,89 @@ export interface EndpointInfo {
   interface: string;
 }
 
+export interface SendFulfilledResult<T> {
+  status: "fulfilled",
+  interface: InterfaceName,
+  value: T,
+}
+
+export interface SendRejectedResult {
+  status: "rejected",
+  interface: InterfaceName,
+  reason: Error,
+}
+
+export type SendResult<T> = SendFulfilledResult<T> | SendRejectedResult;
+
 export type SendCallback = (error?: Error | null) => void;
+
+/**
+ * Returns the ration of rejected SendResults in the array.
+ * A ratio of 0 indicates all sends were successful.
+ * A ration of 1 indicates all sends failed.
+ * A number in between signals that some of the sends failed.
+ *
+ * @param results - Array of {@link SendResult}
+ */
+export function SendResultFailedRatio<T>(results: SendResult<T>[]): number {
+  if (results.length === 0) {
+    return 0;
+  }
+
+  let failedCount = 0;
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failedCount++;
+    }
+  }
+
+  return failedCount / results.length;
+}
+
+export function SendResultFormatError<T>(results: SendResult<T>[], prefix?: string, includeStack = false): string {
+  let failedCount = 0;
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failedCount++;
+    }
+  }
+
+  if (!prefix) {
+    prefix = "Failed to send packets";
+  }
+
+  if (failedCount < results.length) {
+    prefix += ` (${failedCount}/${results.length}):`;
+  } else {
+    prefix += ":";
+  }
+
+  if (includeStack) {
+    let string = "=============================\n" + prefix;
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        string += "\n--------------------\n" +
+          "Failed to send packet on interface " + result.interface + ": " + result.reason.stack;
+      }
+    }
+
+    string += "\n=============================";
+
+    return string;
+  } else {
+    let string = prefix;
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        string += "\n- Failed to send packet on interface " + result.interface + ": " + result.reason.message;
+      }
+    }
+
+    return string;
+  }
+}
 
 /**
  * Defines the options passed to the underlying mdns server.
@@ -45,11 +127,6 @@ export interface PacketHandler {
 
   handleResponse(packet: DNSPacket, rinfo: EndpointInfo): void;
 
-}
-
-interface SocketError {
-  name: string;
-  error: Error;
 }
 
 /**
@@ -90,26 +167,14 @@ export class MDNSServer {
       excludeIpv6Only: true,
     });
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
-
-    this.networkManager.waitForInit().then(() => {
-      for (const name of this.networkManager.getInterfaceMap().keys()) {
-        const multicast = this.createDgramSocket(name, true);
-
-        this.sockets.set(name, multicast);
-      }
-    });
   }
 
   public getNetworkManager(): NetworkManager {
     return this.networkManager;
   }
 
-  public getInterfaceNames(): IterableIterator<InterfaceName> {
-    return this.networkManager.getInterfaceMap().keys();
-  }
-
-  public getNetworkCount(): number {
-    return this.sockets.size;
+  public getBoundInterfaceNames(): IterableIterator<InterfaceName> {
+    return this.sockets.keys();
   }
 
   public async bind(): Promise<void> {
@@ -122,10 +187,22 @@ export class MDNSServer {
     // As it only affects probe queries, impact isn't that big.
     this.suppressUnicastResponseFlag = true;
 
+    // wait for the first network interfaces to be discovered
     await this.networkManager.waitForInit();
+
     const promises: Promise<void>[] = [];
-    for (const [name, socket] of this.sockets) {
-      promises.push(this.bindSocket(socket, name, IPFamily.IPv4));
+
+    for (const name of this.networkManager.getInterfaceMap().keys()) {
+      const socket = this.createDgramSocket(name, true);
+
+      const promise = this.bindSocket(socket, name, IPFamily.IPv4)
+        .then(() => {
+          this.sockets.set(name, socket);
+        }, reason => {
+          // TODO if bind errors we probably will never bind again
+          console.log("Could not bind detected network interface: " + reason.stack);
+        });
+      promises.push(promise);
     }
 
     return Promise.all(promises).then(() => {
@@ -147,71 +224,82 @@ export class MDNSServer {
     this.sockets.clear();
   }
 
-  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, callback?: SendCallback): void {
+  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition): Promise<SendResult<void>[]> {
     const packets = DNSPacket.createDNSQueryPackets(query);
     if (packets.length > 1) {
       debug("Query broadcast is split into %d packets!", packets.length);
     }
 
-    const promises: Promise<void>[] = [];
+    const promises: Promise<SendResult<void>[]>[] = [];
     for (const packet of packets) {
       promises.push(this.sendOnAllNetworks(packet));
     }
 
-    Promise.all(promises).then(() => {
-      if (callback) {
-        callback();
+    return Promise.all(promises).then((values: SendResult<void>[][]) => {
+      const results: SendResult<void>[] = [];
+
+      for (const value of values) { // replace with .flat method when we have node >= 11.0.0 requirement
+        results.concat(value);
       }
-    }, MDNSServer.forwardError.bind(MDNSServer, callback));
+
+      return results;
+    });
   }
 
-  public sendResponseBroadcast(response: DNSResponseDefinition, callback?: SendCallback): void {
+  public sendResponseBroadcast(response: DNSResponseDefinition): Promise<SendResult<void>[]> {
     const packet = DNSPacket.createDNSResponsePacketsFromRRSet(response);
-
-    this.sendOnAllNetworks(packet).then(() => {
-      if (callback) {
-        callback();
-      }
-    }, MDNSServer.forwardError.bind(MDNSServer, callback));
+    return this.sendOnAllNetworks(packet);
   }
 
   public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
   public sendResponse(response: DNSPacket, interfaceName: InterfaceName, callback?: SendCallback): void;
   public sendResponse(response: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
-    this.send(response, endpointOrInterface).then(() => {
-      if (callback) {
+    this.send(response, endpointOrInterface).then(result => {
+      if (result.status === "rejected") {
+        if (callback) {
+          callback(new Error("Encountered socket error on " + result.reason.name + ": " + result.reason.message));
+        } else {
+          MDNSServer.logSocketError(result.interface, result.reason);
+        }
+      } else if (callback) {
         callback();
       }
-    }, MDNSServer.forwardError.bind(MDNSServer, callback));
+    });
   }
 
-  private sendOnAllNetworks(packet: DNSPacket): Promise<void> {
+  private sendOnAllNetworks(packet: DNSPacket): Promise<SendResult<void>[]> {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
     this.assertBeforeSend(message, IPFamily.IPv4);
 
-    const promises: Promise<void>[] = [];
+    const promises: Promise<SendResult<void>>[] = [];
     for (const [name, socket] of this.sockets) {
-      const promise = new Promise<void>((resolve, reject) => {
+      const promise = new Promise<SendResult<void>>(resolve => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
-          if (error) {
-            const socketError: SocketError = { name: name, error: error };
-            reject(socketError);
+          if (error && !MDNSServer.isSilencedSocketError(error)) {
+            resolve({
+              status: "rejected",
+              interface: name,
+              reason: error,
+            });
           } else {
-            resolve();
+            resolve({
+              status: "fulfilled",
+              interface: name,
+              value: undefined,
+            });
           }
         });
       });
+
       promises.push(promise);
     }
 
-    return Promise.all(promises).then(() => {
-      // map void[] to void
-    });
+    return Promise.all(promises);
   }
 
-  private send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<void> {
+  public send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<SendResult<void>> {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
@@ -236,13 +324,20 @@ export class MDNSServer {
       throw new InterfaceNotFoundError(`Could not find socket for given network interface '${name}'`);
     }
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<SendResult<void>>(resolve => {
       socket!.send(message, port, address, error => {
-        if (error) {
-          const socketError: SocketError = { name: name, error: error };
-          reject(socketError);
+        if (error && !MDNSServer.isSilencedSocketError(error)) {
+          resolve({
+            status: "rejected",
+            interface: name,
+            reason: error,
+          });
         } else {
-          resolve();
+          resolve({
+            status: "fulfilled",
+            interface: name,
+            value: undefined,
+          });
         }
       });
     });
@@ -274,7 +369,11 @@ export class MDNSServer {
     });
 
     socket.on("message", this.handleMessage.bind(this, name));
-    socket.on("error", MDNSServer.handleSocketError.bind(MDNSServer, name));
+    socket.on("error", error => {
+      if (!MDNSServer.isSilencedSocketError(error)) {
+        MDNSServer.logSocketError(name, error);
+      }
+    });
 
     return socket;
   }
@@ -297,16 +396,25 @@ export class MDNSServer {
         const interfaceAddress = family === IPFamily.IPv4? networkInterface!.ipv4: networkInterface!.ipv6;
         assert(interfaceAddress, "Interface address for " + name + " cannot be undefined!");
 
-        socket.addMembership(multicastAddress, interfaceAddress!);
+        try {
+          socket.addMembership(multicastAddress, interfaceAddress!);
 
-        socket.setMulticastInterface(interfaceAddress!);
+          socket.setMulticastInterface(interfaceAddress!);
 
-        socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
-        socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
+          socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
+          socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
-        socket.setMulticastLoopback(true);
+          socket.setMulticastLoopback(true);
 
-        resolve();
+          resolve();
+        } catch (error) {
+          try {
+            socket.close();
+          } catch (error) {
+            debug("Error while closing socket which failed to bind. Error may be expected: " + error.message);
+          }
+          reject(new Error("Error binding socket on " + name + ": " + error.stack));
+        }
       });
     });
   }
@@ -367,34 +475,19 @@ export class MDNSServer {
     }
   }
 
-  private static forwardError(callback: SendCallback | undefined, error: SocketError): void {
-    if (MDNSServer.isSilencedSocketError(error.error)) {
-      if (callback) {
-        callback();
-      }
-      return;
-    }
-
-    if (callback) {
-      callback(new Error("Encountered socket error on " + error.name + ": " + error.error.stack));
-    } else {
-      MDNSServer.handleSocketError(error.name, error.error);
-    }
-  }
-
   private static isSilencedSocketError(error: Error): boolean {
     // silence those errors
     // they happen when the host is not reachable (EADDRNOTAVAIL for 224.0.0.251 or EHOSTDOWN for any unicast traffic)
     // caused by yet undetected network changes.
     // as we listen to 0.0.0.0 and the socket stays valid, this is not a problem
-    return error.name === "EADDRNOTAVAIL" || error.name === "EHOSTDOWN";
+    const silenced = error.name === "EADDRNOTAVAIL" || error.name === "EHOSTDOWN" || error.name === "ENETUNREACH";
+    if (silenced) {
+      debug ("Silenced and ignored error (This is/should not be a problem, this message is only for informational purposes): " + error.message);
+    }
+    return silenced;
   }
 
-  private static handleSocketError(name: InterfaceName, error: Error): void {
-    if (MDNSServer.isSilencedSocketError(error)) {
-      return;
-    }
-
+  private static logSocketError(name: InterfaceName, error: Error): void {
     console.warn(`Encountered MDNS socket error on socket '${name}' : ${error.message}`);
     console.warn(error.stack);
     return;
@@ -445,8 +538,12 @@ export class MDNSServer {
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
         const socket = this.createDgramSocket(networkInterface.name, true);
+
         this.bindSocket(socket, networkInterface.name, IPFamily.IPv4).then(() => {
           this.sockets.set(networkInterface.name, socket);
+        }, reason => {
+          // TODO if bind errors we probably will never bind again
+          console.log("Could not bind detected network interface: " + reason.stack);
         });
       }
     }

@@ -4,7 +4,7 @@ import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { MDNSServer } from "../MDNSServer";
+import { MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
 import dnsEqual from "../util/dns-equal";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
@@ -160,12 +160,21 @@ export class Prober {
         new Question(this.service.getHostname(), QType.ANY, true),
       ],
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-    }, error => {
-      if (error) {
-        debug("Failed to send probe query for '%s'. Encountered error: " + error.stack, this.service.getFQDN());
+    }).then(results => {
+      const failRatio = SendResultFailedRatio(results);
+      if (failRatio === 1) {
+        console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);
         this.endProbing(false);
-        this.promiseReject!(error);
-        return;
+        this.promiseReject!(new Error("Probing failed as of socket errors!"));
+        return; // all failed => thus probing failed
+      }
+
+      if (failRatio > 0) {
+        // some queries on some interfaces failed, but not all. We log that but consider that to be a success
+        // at this point we are not responsible for removing stale network interfaces or something
+
+        debug(SendResultFormatError(results, `Some of the probe queries for '${this.service.getFQDN()}' encountered an error`));
+        // SEE no return here
       }
 
       if (this.service.serviceState !== ServiceState.PROBING) {

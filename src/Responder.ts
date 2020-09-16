@@ -18,7 +18,14 @@ import { PTRRecord } from "./coder/records/PTRRecord";
 import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
-import { EndpointInfo, MDNSServer, MDNSServerOptions, PacketHandler } from "./MDNSServer";
+import {
+  EndpointInfo,
+  MDNSServer,
+  MDNSServerOptions,
+  PacketHandler,
+  SendResultFailedRatio,
+  SendResultFormatError,
+} from "./MDNSServer";
 import { InterfaceName } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
@@ -27,6 +34,7 @@ import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
 import { dnsLowerCase } from "./util/dns-equal";
 import { ERR_INTERFACE_NOT_FOUND, ERR_SERVER_CLOSED } from "./util/errors";
+import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
 
 const debug = createDebug("ciao:Responder");
@@ -182,26 +190,27 @@ export class Responder implements PacketHandler {
 
     this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
-      .then(() => this.probe(service));
+      .then(() => this.probe(service), reason => {
+        // handle probe error
+        if (reason === Prober.CANCEL_REASON) {
+          callback();
+        } else { // other errors are only thrown when sockets error occur
+          console.log(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+          return PromiseTimeout(2000).then(() => this.advertiseService(service, callback));
+        }
+      });
 
     return this.promiseChain.then(() => {
       // we are not returning the promise returned by announced here, only PROBING is synchronized
       this.announce(service).catch(reason => {
-        console.log("[" + service.getFQDN() + "] failed announcing with reason: " + reason + ". Trying again!");
-        return this.advertiseService(service, () => {
+        // handle announce errors
+        console.log(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
+        return PromiseTimeout(2000).then(() => this.advertiseService(service, () => {
           // empty
-        });
+        }));
       });
 
       callback(); // service is considered announced. After the call to the announce() method the service state is set to ANNOUNCING
-    }, reason => {
-      // handle probe error
-      if (reason === Prober.CANCEL_REASON) {
-        callback();
-      } else {
-        callback(new Error("Failed probing for " + service.getFQDN() +": " + reason));
-        return Promise.reject(reason);
-      }
     });
   }
 
@@ -254,7 +263,10 @@ export class Responder implements PacketHandler {
 
       let promise = this.goodbye(service);
       if (callback) {
-        promise = promise.then(() => callback(), reason => callback(reason));
+        promise = promise.then(() => callback(), reason => {
+          console.log(`[${service.getFQDN()}] failed goodbye with reason: ${reason}.`);
+          callback();
+        });
       }
       return promise;
     } else if (service.serviceState === ServiceState.PROBING) {
@@ -386,7 +398,27 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
-    this.server.sendResponseBroadcast( { answers: records }, callback);
+    this.server.sendResponseBroadcast( { answers: records }).then(results => {
+      const failRatio = SendResultFailedRatio(results);
+      if (failRatio === 1) {
+        console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
+        if (callback) {
+          callback(new Error("Updating records failed as of socket errors!"));
+        }
+        return; // all failed => updating failed
+      }
+
+      if (failRatio > 0) {
+        // some queries on some interfaces failed, but not all. We log that but consider that to be a success
+        // at this point we are not responsible for removing stale network interfaces or something
+        debug(SendResultFormatError(results, `Some of the record updates for '${service.getFQDN()}' failed`));
+        // SEE no return here
+      }
+
+      if (callback) {
+        callback();
+      }
+    });
   }
 
   private handleServiceRecordUpdateOnInterface(service: CiaoService, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {

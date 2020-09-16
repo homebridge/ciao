@@ -3,7 +3,7 @@ import createDebug from "debug";
 import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket } from "../coder/DNSPacket";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { MDNSServer, SendCallback } from "../MDNSServer";
+import { MDNSServer, SendResult, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Announcer");
@@ -144,11 +144,19 @@ export class Announcer {
       this.sentLastAnnouncement = true;
     }
 
-    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, false, error => {
-      if (error) {
-        debug("[%s] Failed to send %s request. Encountered error: " + error.stack, this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
-        this.promiseReject!(error);
-        return;
+    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye).then(results => {
+      const failRatio = SendResultFailedRatio(results);
+      if (failRatio === 1) {
+        console.error(SendResultFormatError(results, `[${this.service.getFQDN()}] Failed to send ${this.goodbye? "goodbye": "announcement"} requests`), true);
+        this.promiseReject!(new Error(`${this.goodbye? "Goodbye": "Announcement"} failed as of socket errors!`));
+        return; // all failed => thus announcement failed
+      }
+
+      if (failRatio > 0) {
+        // some queries on some interfaces failed, but not all. We log that but consider that to be a success
+        // at this point we are not responsible for removing stale network interfaces or something
+        debug(SendResultFormatError(results, `Some of the ${this.goodbye? "goodbye": "announcement"} requests for '${this.service.getFQDN()}' encountered an error`));
+        // SEE no return here
       }
 
       if (this.service.serviceState !== ServiceState.ANNOUNCING) {
@@ -169,11 +177,10 @@ export class Announcer {
     });
   }
 
-  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean, callback?: SendCallback): void {
-    let iterations = server.getNetworkCount();
-    const encounteredErrors: Error[] = [];
+  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean): Promise<SendResult<void>[]> {
+    const promises: Promise<SendResult<void>>[] = [];
 
-    for (const name of server.getInterfaceNames()) {
+    for (const name of server.getBoundInterfaceNames()) {
       const answer: ResourceRecord[] = records.concat([]);
 
       const aRecord = service.aRecord(name);
@@ -224,24 +231,11 @@ export class Announcer {
       answer.push(nsecRecord);
 
       const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: answer });
-      if (!callback) {
-        server.sendResponse(packet, name);
-      } else {
-        server.sendResponse(packet, name, error => {
-          if (error) {
-            encounteredErrors.push(error);
-          }
 
-          if (--iterations <= 0) {
-            if (encounteredErrors.length > 0) {
-              callback(new Error("Socket errors: " + encounteredErrors.map(error => error.stack).join(";")));
-            } else {
-              callback();
-            }
-          }
-        });
-      }
+      promises.push(server.send(packet, name));
     }
+
+    return Promise.all(promises);
   }
 
 }

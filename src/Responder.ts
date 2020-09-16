@@ -190,15 +190,7 @@ export class Responder implements PacketHandler {
 
     this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
-      .then(() => this.probe(service), reason => {
-        // handle probe error
-        if (reason === Prober.CANCEL_REASON) {
-          callback();
-        } else { // other errors are only thrown when sockets error occur
-          console.log(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
-          return PromiseTimeout(2000).then(() => this.advertiseService(service, callback));
-        }
-      });
+      .then(() => this.probe(service)); // probe errors are catch below
 
     return this.promiseChain.then(() => {
       // we are not returning the promise returned by announced here, only PROBING is synchronized
@@ -211,6 +203,23 @@ export class Responder implements PacketHandler {
       });
 
       callback(); // service is considered announced. After the call to the announce() method the service state is set to ANNOUNCING
+    }, reason => {
+      /*
+       * I know seems unintuitive to place the probe error handling below here, miles away from the probe method call.
+       * Trust me it makes sense (encountered regression now two times in a row).
+       * 1. We can't put it in the THEN call above, since then errors simply won't be handled from the probe method call.
+       *  (CANCEL error would be passed through and would result in some unwanted stack trace)
+       * 2. We can't add a catch call above, since otherwise we would silence the CANCEL would be silenced and announce
+       *  would be called anyways.
+       */
+
+      // handle probe error
+      if (reason === Prober.CANCEL_REASON) {
+        callback();
+      } else { // other errors are only thrown when sockets error occur
+        console.log(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+        return PromiseTimeout(2000).then(() => this.advertiseService(service, callback));
+      }
     });
   }
 
@@ -400,7 +409,7 @@ export class Responder implements PacketHandler {
 
     this.server.sendResponseBroadcast( { answers: records }).then(results => {
       const failRatio = SendResultFailedRatio(results);
-      if (failRatio === 1) {
+      if (failRatio === 1) {  // TODO loopback will most likely always succeed
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
         if (callback) {
           callback(new Error("Updating records failed as of socket errors!"));

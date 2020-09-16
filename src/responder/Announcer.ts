@@ -31,7 +31,7 @@ export interface AnnouncerOptions {
  */
 export class Announcer {
 
-  public static readonly CANCEL_REASON = "cancelled";
+  public static readonly CANCEL_REASON = "CIAO ANNOUNCEMENT CANCELLED";
 
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
@@ -146,7 +146,7 @@ export class Announcer {
 
     Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye).then(results => {
       const failRatio = SendResultFailedRatio(results);
-      if (failRatio === 1) {
+      if (failRatio === 1) { // TODO loopback will most likely always succeed
         console.error(SendResultFormatError(results, `[${this.service.getFQDN()}] Failed to send ${this.goodbye? "goodbye": "announcement"} requests`), true);
         this.promiseReject!(new Error(`${this.goodbye? "Goodbye": "Announcement"} failed as of socket errors!`));
         return; // all failed => thus announcement failed

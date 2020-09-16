@@ -23,7 +23,7 @@ const debug = createDebug("ciao:Prober");
  */
 export class Prober {
 
-  public static readonly CANCEL_REASON = "cancelled";
+  public static readonly CANCEL_REASON = "CIAO PROBING CANCELLED";
 
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
@@ -162,7 +162,7 @@ export class Prober {
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
     }).then(results => {
       const failRatio = SendResultFailedRatio(results);
-      if (failRatio === 1) {
+      if (failRatio === 1) {  // TODO loopback will most likely always succeed
         console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);
         this.endProbing(false);
         this.promiseReject!(new Error("Probing failed as of socket errors!"));

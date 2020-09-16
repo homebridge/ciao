@@ -356,6 +356,10 @@ export class CiaoService extends EventEmitter {
    *
    */
   public end(): Promise<void> {
+    if (this.serviceState === ServiceState.UNANNOUNCED) {
+      return Promise.resolve();
+    }
+
     return new Promise((resolve, reject) => {
       this.emit(InternalServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
     });

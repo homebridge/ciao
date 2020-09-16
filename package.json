@@ -1,6 +1,6 @@
 {
   "name": "@homebridge/ciao",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "ciao is a RFC 6763 compliant dns-sd library, advertising on multicast dns (RFC 6762) implemented in plain Typescript/JavaScript",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

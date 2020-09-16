@@ -260,15 +260,6 @@ export class DNSLabelCoder {
         }
       }
 
-      if ((length & DNSLabelCoder.POINTER_MASK_ONE_BYTE) === DNSLabelCoder.POINTER_MASK_ONE_BYTE) {
-        // we got a pointer here
-        const pointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK; // extract the offset
-        offset++; // increment for the second byte of the pointer
-
-        name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name
-        break; // pointer marks end of name
-      }
-
       const label = this.buffer.toString("utf-8", offset, offset + length);
       offset += length;
 

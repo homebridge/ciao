@@ -537,7 +537,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 "ndp -a -n |grep -v permanent" with filtering for "expired"
-      childProcess.exec("arp -a -n -l | grep -iv expire", (error, stdout) => {
+      childProcess.exec("arp -a -n -l", (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -546,7 +546,7 @@ export class NetworkManager extends EventEmitter {
         const lines = stdout.split(os.EOL);
         const names: InterfaceName[] = [];
 
-        for (let i = 0; i < lines.length - 1; i++) {
+        for (let i = 1; i < lines.length - 1; i++) {
           const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[4];
           if (!interfaceName) {
             debug(`DARWIN: Failed to read interface name from line ${i}: '${lines[i]}'`);
@@ -571,7 +571,7 @@ export class NetworkManager extends EventEmitter {
   private static getLinuxNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("ip neighbour show | grep -iv incomplete", (error, stdout) => {
+      childProcess.exec("ip neighbour show", (error, stdout) => {
         if (error) {
           if (error.message.includes("ip: not found")) {
             debug("LINUX: ip was not found on the system. Falling back to assuming network interfaces!");
@@ -625,7 +625,7 @@ export class NetworkManager extends EventEmitter {
   private static getFreeBSDNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("arp -a -n | grep -v expired", (error, stdout) => {
+      childProcess.exec("arp -a -n", (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -660,7 +660,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ndp -a -n | grep R" (grep for reachable; maybe exclude permanent?)
-      childProcess.exec("arp -a -n | grep -v expired", (error, stdout) => {
+      childProcess.exec("arp -a -n", (error, stdout) => {
         if (error) {
           reject(error);
           return;

@@ -528,28 +528,28 @@ export class CiaoService extends EventEmitter {
 
         if (change.outdatedIpv4) {
           records.push(new ARecord(this.hostname, change.outdatedIpv4, true, 0));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv4), this.hostname, false, 0));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv4), this.hostname, false, 0));
         }
         if (change.outdatedIpv6) {
           records.push(new AAAARecord(this.hostname, change.outdatedIpv6, true, 0));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv6), this.hostname, false, 0));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv6), this.hostname, false, 0));
         }
         if (change.outdatedGloballyRoutableIpv6) {
           records.push(new AAAARecord(this.hostname, change.outdatedGloballyRoutableIpv6, true, 0));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedGloballyRoutableIpv6), this.hostname, false, 0));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedGloballyRoutableIpv6), this.hostname, false, 0));
         }
 
         if (change.updatedIpv4) {
           records.push(new ARecord(this.hostname, change.updatedIpv4, true));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv4), this.hostname));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv4), this.hostname));
         }
         if (change.updatedIpv6) {
           records.push(new AAAARecord(this.hostname, change.updatedIpv6, true));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv6), this.hostname));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv6), this.hostname));
         }
         if (change.updatedGloballyRoutableIpv6) {
           records.push(new AAAARecord(this.hostname, change.updatedGloballyRoutableIpv6, true));
-          records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedGloballyRoutableIpv6), this.hostname));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedGloballyRoutableIpv6), this.hostname));
         }
 
         this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);

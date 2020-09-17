@@ -22,6 +22,13 @@ export const enum IPFamily {
   IPv6 = "IPv6",
 }
 
+export const enum WifiState {
+  UNDEFINED,
+  NOT_A_WIFI_INTERFACE,
+  NOT_ASSOCIATED,
+  CONNECTED,
+}
+
 export interface NetworkInterface {
   name: InterfaceName;
   loopback: boolean;
@@ -537,7 +544,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 "ndp -a -n |grep -v permanent" with filtering for "expired"
-      childProcess.exec("arp -a -n -l", (error, stdout) => {
+      childProcess.exec("arp -a -n -l", async (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -558,6 +565,22 @@ export class NetworkManager extends EventEmitter {
           }
         }
 
+        const promises: Promise<void>[] = [];
+        for (const name of names) {
+          const promise = NetworkManager.getDarwinWifiNetworkState(name).then(state => {
+            if (state !== WifiState.NOT_A_WIFI_INTERFACE && state !== WifiState.CONNECTED) {
+              // removing wifi networks which are not connected to any networks
+              const index = names.indexOf(name);
+              if (index !== -1) {
+                names.splice(index, 1);
+              }
+            }
+          });
+
+          promises.push(promise);
+        }
+
+        await Promise.all(promises);
 
         if (names.length) {
           resolve(names);
@@ -686,6 +709,53 @@ export class NetworkManager extends EventEmitter {
         } else {
           reject(new Error(os.platform().toUpperCase() + ": No interfaces were found!"));
         }
+      });
+    });
+  }
+
+  private static getDarwinWifiNetworkState(name: InterfaceName): Promise<WifiState> {
+    return new Promise(resolve => {
+      /*
+         * networksetup outputs the following in the listed scenarios:
+         *
+         * executed for an interface which is not a Wi-Fi interface:
+         * "<name> is not a Wi-Fi interface.
+         * Error: Error obtaining wireless information."
+         *
+         * executed for a turned off Wi-Fi interface:
+         * "You are not associated with an AirPort network.
+         * Wi-Fi power is currently off."
+         *
+         * executed for a turned on Wi-Fi interface which is not connected:
+         * "You are not associated with an AirPort network."
+         *
+         * executed for a connected Wi-Fi interface:
+         * "Current Wi-Fi Network: <network name>"
+         */
+      childProcess.exec("networksetup -getairportnetwork " + name, (error, stdout) => {
+        if (error) {
+          if (stdout.includes("not a Wi-Fi interface")) {
+            resolve(WifiState.NOT_A_WIFI_INTERFACE);
+            return;
+          }
+
+          console.log(`CIAO WARN: While checking networksetup for ${name} encountered an error (${error.message}) with output: ${stdout.replace(os.EOL, "; ")}`);
+          resolve(WifiState.UNDEFINED);
+          return;
+        }
+
+        let wifiState = WifiState.UNDEFINED;
+        if (stdout.includes("not a Wi-Fi interface")) {
+          wifiState = WifiState.NOT_A_WIFI_INTERFACE;
+        } else if (stdout.includes("Current Wi-Fi Network")) {
+          wifiState = WifiState.CONNECTED;
+        } else if (stdout.includes("not associated")) {
+          wifiState = WifiState.NOT_ASSOCIATED;
+        } else {
+          console.log(`CIAO WARN: While checking networksetup for ${name} encountered an unknown output: ${stdout.replace(os.EOL, "; ")}`);
+        }
+
+        resolve(wifiState);
       });
     });
   }

@@ -234,6 +234,7 @@ export class NetworkManager extends EventEmitter {
             }
           }
 
+          this.currentInterfaces.set(name, networkInterface);
           (changes || (changes = [])) // get or create array
             .push(change);
         }

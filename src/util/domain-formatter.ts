@@ -137,7 +137,7 @@ export function enlargeIPv6(address: string): string {
   assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
 
   const split = address.split(":");
-  assert(split.length <= 8, "Encountered invalid ipv6 with more than 8 sections!");
+  assert(split.length <= 8, `Encountered invalid ipv6 with more than 8 sections (${address})!`);
 
   if (split[0] === "") {
     while (split.length < 8) {
@@ -235,7 +235,7 @@ export function formatReverseAddressPTRName(address: string): string {
     address = enlargeIPv6(address).toUpperCase();
 
     const nibbleSplit = address.replace(/:/g, "").split("").reverse();
-    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length!" + nibbleSplit.length);
+    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length! " + nibbleSplit.length);
 
     return nibbleSplit.join(".") + ".ip6.arpa";
   } else {

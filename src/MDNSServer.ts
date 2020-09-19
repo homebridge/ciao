@@ -463,7 +463,11 @@ export class MDNSServer {
     };
 
     if (packet.type === PacketType.QUERY) {
-      this.handler.handleQuery(packet, endpoint);
+      try {
+        this.handler.handleQuery(packet, endpoint);
+      } catch (error) {
+        console.warn("Error occurred handling incoming (on " + name + ") dns query packet: " + error.stack);
+      }
     } else if (packet.type === PacketType.RESPONSE) {
       if (rinfo.port !== MDNSServer.MDNS_PORT) {
         // RFC 6762 6.  Multicast DNS implementations MUST silently ignore any Multicast DNS responses
@@ -471,7 +475,11 @@ export class MDNSServer {
         return;
       }
 
-      this.handler.handleResponse(packet, endpoint);
+      try {
+        this.handler.handleResponse(packet, endpoint);
+      } catch (error) {
+        console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + error.stack);
+      }
     }
   }
 

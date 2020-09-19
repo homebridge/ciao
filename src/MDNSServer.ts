@@ -488,7 +488,8 @@ export class MDNSServer {
     // they happen when the host is not reachable (EADDRNOTAVAIL for 224.0.0.251 or EHOSTDOWN for any unicast traffic)
     // caused by yet undetected network changes.
     // as we listen to 0.0.0.0 and the socket stays valid, this is not a problem
-    const silenced = error.name === "EADDRNOTAVAIL" || error.name === "EHOSTDOWN" || error.name === "ENETUNREACH";
+    const silenced = error.message.includes("EADDRNOTAVAIL") || error.message.includes("EHOSTDOWN")
+      || error.message.includes("ENETUNREACH") || error.message.includes("EHOSTUNREACH");
     if (silenced) {
       debug ("Silenced and ignored error (This is/should not be a problem, this message is only for informational purposes): " + error.message);
     }
@@ -496,8 +497,7 @@ export class MDNSServer {
   }
 
   private static logSocketError(name: InterfaceName, error: Error): void {
-    console.warn(`Encountered MDNS socket error on socket '${name}' : ${error.message}`);
-    console.warn(error.stack);
+    console.warn(`Encountered MDNS socket error on socket '${name}' : ${error.stack}`);
     return;
   }
 

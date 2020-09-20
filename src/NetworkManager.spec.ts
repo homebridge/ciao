@@ -12,7 +12,7 @@ describe(NetworkManager, () => {
     it("should parse interfaces from arp cache", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        if (command !== "ip neighbour show | grep -iv incomplete") {
+        if (command !== "ip neigh show") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 
@@ -49,7 +49,7 @@ describe(NetworkManager, () => {
     it("should handle double spaces correctly", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        if (command !== "ip neighbour show | grep -iv incomplete") {
+        if (command !== "ip neigh show") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
 

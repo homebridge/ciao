@@ -733,6 +733,9 @@ export class NetworkManager extends EventEmitter {
          *
          * executed for a connected Wi-Fi interface:
          * "Current Wi-Fi Network: <network name>"
+         *
+         * Other messages handled here.
+         * "All Wi-Fi network services are disabled": encountered on macOS VM machines
          */
       childProcess.exec("networksetup -getairportnetwork " + name, (error, stdout) => {
         if (error) {
@@ -753,6 +756,9 @@ export class NetworkManager extends EventEmitter {
           wifiState = WifiState.CONNECTED;
         } else if (stdout.includes("not associated")) {
           wifiState = WifiState.NOT_ASSOCIATED;
+        } else if (stdout.includes("All Wi-Fi network services are disabled")) {
+          // typically encountered on a macOS VM or something not having a WiFi card
+          wifiState = WifiState.NOT_A_WIFI_INTERFACE;
         } else {
           console.log(`CIAO WARN: While checking networksetup for ${name} encountered an unknown output: ${stdout.replace(os.EOL, "; ")}`);
         }

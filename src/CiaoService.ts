@@ -14,6 +14,7 @@ import { InterfaceName, IPAddress, NetworkManager, NetworkManagerEvent, NetworkU
 import { Announcer } from "./responder/Announcer";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
+import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:CiaoService");
 
@@ -222,7 +223,7 @@ export declare interface CiaoService {
   /**
    * @internal
    */
-  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback: (error?: Error | null) => void): boolean;
+  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback?: (error?: Error | null) => void): boolean;
   /**
    * @internal
    */
@@ -263,6 +264,7 @@ export class CiaoService extends EventEmitter {
   private port?: number;
 
   private txt: Buffer[];
+  private txtTimer?: Timeout;
 
   /**
    * this field is entirely controlled by the Responder class
@@ -414,41 +416,51 @@ export class CiaoService extends EventEmitter {
    *
    * @param {ServiceTxt} txt - The updated txt record.
    * @param {boolean} silent - If set to true no announcement is sent for the updated record.
-   * @returns Promise which resolves once the updated record was send out to the network.
    */
-  public updateTxt(txt: ServiceTxt, silent = false): Promise<void> {
+  public updateTxt(txt: ServiceTxt, silent = false): void {
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);
     debug("[%s] Updating txt record%s...", this.name, silent? " silently": "");
 
-    return new Promise((resolve, reject) => {
-      if (this.serviceState === ServiceState.ANNOUNCING) {
-        this.rebuildServiceRecords();
+    if (this.serviceState === ServiceState.ANNOUNCING) {
+      this.rebuildServiceRecords();
 
-        if (silent) {
-          return;
-        }
-
-        if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
-          // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
-          // result in updated records on the next announcement. Otherwise we still need to announce the updated records
-          this.currentAnnouncer!.awaitAnnouncement().then(() => {
-            this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
-          });
-        }
-      } else if (this.serviceState === ServiceState.ANNOUNCED) {
-        this.rebuildServiceRecords();
-
-        if (silent) {
-          return;
-        }
-
-        this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()], error => error? reject(error): resolve());
-      } else {
-        resolve();
+      if (silent) {
+        return;
       }
-    });
+
+      if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
+        // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
+        // result in updated records on the next announcement. Otherwise we still need to announce the updated records
+        this.currentAnnouncer!.awaitAnnouncement().then(() => {
+          this.queueTxtUpdate();
+        });
+      }
+    } else if (this.serviceState === ServiceState.ANNOUNCED) {
+      this.rebuildServiceRecords();
+
+      if (silent) {
+        return;
+      }
+
+      this.queueTxtUpdate();
+    }
+  }
+
+  private queueTxtUpdate(): void {
+    if (this.txtTimer) {
+      return;
+    } else {
+      // we debounce txt updates, otherwise if api users would spam txt updates, we would receive the txt record
+      // while we already update our txt to the next call, thus causing a conflict being detected.
+      // We would then continue with Probing (to ensure uniqueness) and could then receive following spammed updates as conflicts
+      // and we would change our name without it being necessary
+      this.txtTimer = setTimeout(() => {
+        this.txtTimer = undefined;
+        this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()]);
+      }, 50);
+    }
   }
 
   /**

@@ -139,11 +139,18 @@ export class NetworkManager extends EventEmitter {
       this.getCurrentNetworkInterfaces().then(map => {
         this.currentInterfaces = map;
 
+        const otherInterfaces: InterfaceName[] = Object.keys(os.networkInterfaces());
+
         const interfaceNames: InterfaceName[] = [];
         for (const name of this.currentInterfaces.keys()) {
           interfaceNames.push(name);
+
+          const index = otherInterfaces.indexOf(name);
+          if (index !== -1) {
+            otherInterfaces.splice(index, 1);
+          }
         }
-        debug("Initial networks [%s]", interfaceNames.join(", "));
+        debug("Initial networks [%s] ignoring [%s]", interfaceNames.join(", "), otherInterfaces.join(", "));
 
         this.initPromise = undefined;
         resolve();

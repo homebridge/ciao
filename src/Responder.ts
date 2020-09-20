@@ -223,7 +223,7 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private republishService(service: CiaoService, callback: PublishCallback): Promise<void> {
+  private republishService(service: CiaoService, callback: PublishCallback, delayAnnounce = false): Promise<void> {
     if (service.serviceState !== ServiceState.ANNOUNCED && service.serviceState !== ServiceState.ANNOUNCING) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -245,7 +245,12 @@ export class Responder implements PacketHandler {
     service.serviceState = ServiceState.UNANNOUNCED; // the service is now considered unannounced
 
     // and now we basically just announce the service by doing probing and the announce step
-    return this.advertiseService(service, callback);
+    if (delayAnnounce) {
+      return PromiseTimeout(1000)
+        .then(() => this.advertiseService(service, callback));
+    } else {
+      return this.advertiseService(service, callback);
+    }
   }
 
   private unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void> {
@@ -662,7 +667,7 @@ export class Responder implements PacketHandler {
             // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
             // for situations where it makes sense
           }
-        });
+        }, true);
       }
     }
   }
@@ -712,7 +717,7 @@ export class Responder implements PacketHandler {
         const txt = service.getTXT();
 
         if (txt.length !== txtRecord.txt.length) { // length differs, can't be the same data
-          debug("[%s] Noticed conflicting record on the network. TXT with differing data: %s", service.getFQDN());
+          debug("[%s] Noticed conflicting record on the network. TXT with differing data length", service.getFQDN());
           return true;
         }
 
@@ -721,7 +726,7 @@ export class Responder implements PacketHandler {
           const buffer1 = txtRecord.txt[i];
 
           if (buffer0.length !== buffer1.length || buffer0.toString("hex") !== buffer1.toString("hex")) {
-            debug("[%s] Noticed conflicting record on the network. TXT with differing data: %s", service.getFQDN());
+            debug("[%s] Noticed conflicting record on the network. TXT with differing data.", service.getFQDN());
             return true;
           }
         }

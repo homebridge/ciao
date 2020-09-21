@@ -101,6 +101,7 @@ export declare interface NetworkManager {
 export class NetworkManager extends EventEmitter {
 
   private static readonly SPACE_PATTERN = /\s+/g;
+  private static readonly NOTHING_FOUND_MESSAGE = "no interfaces found";
 
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
@@ -451,7 +452,15 @@ export class NetworkManager extends EventEmitter {
         return Promise.reject(new Error("unsupported platform!"));
     }
 
-    const names = await promise;
+    let names: InterfaceName[];
+    try {
+      names = await promise;
+    } catch (error) {
+      if (error.message !== NetworkManager.NOTHING_FOUND_MESSAGE) {
+        throw error;
+      }
+      names = [];
+    }
     const loopback = NetworkManager.getLoopbackInterface();
 
     if (!names.includes(loopback)) {
@@ -534,7 +543,7 @@ export class NetworkManager extends EventEmitter {
         if (names.length) {
           resolve(names);
         } else {
-          reject(new Error("WINDOWS: No interfaces were found!"));
+          reject(new Error(NetworkManager.NOTHING_FOUND_MESSAGE));
         }
       });
     });
@@ -592,7 +601,7 @@ export class NetworkManager extends EventEmitter {
         if (names.length) {
           resolve(names);
         } else {
-          reject(new Error("DARWIN: No interfaces were found!"));
+          reject(new Error(NetworkManager.NOTHING_FOUND_MESSAGE));
         }
       });
     });
@@ -648,7 +657,7 @@ export class NetworkManager extends EventEmitter {
         if (names.length) {
           resolve(names);
         } else {
-          reject(new Error("LINUX: No interfaces were found!"));
+          reject(new Error(NetworkManager.NOTHING_FOUND_MESSAGE));
         }
       });
     });
@@ -682,7 +691,7 @@ export class NetworkManager extends EventEmitter {
         if (names.length) {
           resolve(names);
         } else {
-          reject(new Error("FreeBSD: No interfaces were found!"));
+          reject(new Error(NetworkManager.NOTHING_FOUND_MESSAGE));
         }
       });
     });
@@ -716,7 +725,7 @@ export class NetworkManager extends EventEmitter {
         if (names.length) {
           resolve(names);
         } else {
-          reject(new Error(os.platform().toUpperCase() + ": No interfaces were found!"));
+          reject(new Error(NetworkManager.NOTHING_FOUND_MESSAGE));
         }
       });
     });

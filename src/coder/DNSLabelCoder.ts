@@ -238,7 +238,7 @@ export class DNSLabelCoder {
     let name = "";
 
     for (;;) {
-      const length = this.buffer.readUInt8(offset++);
+      const length: number = this.buffer.readUInt8(offset++);
       if (length === 0) { // zero byte to terminate the name
         name += ".";
         break; // root label marks end of name
@@ -256,7 +256,8 @@ export class DNSLabelCoder {
           name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name
           break; // pointer marks end of name
         } else {
-          assert.fail("Encountered unknown pointer type: " + Buffer.from([labelTypePattern >> 6]).toString("binary"));
+          assert.fail("Encountered unknown pointer type: " + Buffer.from([labelTypePattern >> 6]).toString("hex") + " (with original byte " +
+            Buffer.from([length]).toString("hex") + ")");
         }
       }
 

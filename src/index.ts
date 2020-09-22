@@ -1,3 +1,5 @@
+import "source-map-support/register"; // registering node-source-map-support for typescript stack traces
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const version: string = require("../package.json").version;
 if (version.includes("beta") || process.env.BCT) { // enable debug output if beta version or running bonjour conformance testing

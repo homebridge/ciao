@@ -26,7 +26,7 @@ import {
   SendResultFailedRatio,
   SendResultFormatError,
 } from "./MDNSServer";
-import { InterfaceName } from "./NetworkManager";
+import { InterfaceName, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
@@ -104,6 +104,8 @@ export class Responder implements PacketHandler {
   private constructor(options?: MDNSServerOptions) {
     this.server = new MDNSServer(this, options);
     this.promiseChain = this.start();
+
+    this.server.getNetworkManager().on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkUpdate.bind(this));
   }
 
   /**
@@ -393,7 +395,7 @@ export class Responder implements PacketHandler {
       service.serviceState = ServiceState.UNANNOUNCED;
       service.currentAnnouncer = undefined;
 
-      this.clearService(service);
+      this.clearService(service); // also removes entry from announcedServices
 
       if (reason !== Announcer.CANCEL_REASON) {
         // forward reason if it is not a cancellation.
@@ -467,6 +469,12 @@ export class Responder implements PacketHandler {
       service.currentAnnouncer = undefined;
       return Promise.reject(reason);
     });
+  }
+
+  private handleNetworkUpdate(change: NetworkUpdate): void {
+    for (const service of this.announcedServices.values()) {
+      service.handleNetworkInterfaceUpdate(change);
+    }
   }
 
   /**

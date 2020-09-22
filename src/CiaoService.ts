@@ -10,7 +10,7 @@ import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { Protocol, Responder } from "./index";
-import { InterfaceName, IPAddress, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
@@ -280,6 +280,8 @@ export class CiaoService extends EventEmitter {
   currentAnnouncer?: Announcer;
   private serviceRecords?: ServiceRecords;
 
+  private destroyed = false;
+
   /**
    * Constructs a new service. Please use {@link Responder.createService} to create new service.
    * When calling the constructor a callee must listen to certain events in order to provide
@@ -295,7 +297,6 @@ export class CiaoService extends EventEmitter {
     assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
 
     this.networkManager = networkManager;
-    this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkInterfaceUpdate.bind(this));
 
     this.name = options.name;
     this.type = options.type;
@@ -342,6 +343,7 @@ export class CiaoService extends EventEmitter {
    *    - One of the announcement packets could not be sent successfully
    */
   public advertise(): Promise<void> {
+    assert(!this.destroyed, "Cannot publish destroyed service!");
     assert(this.port, "Service port must be defined before advertising the service on the network!");
 
     if (this.listeners(ServiceEvent.NAME_CHANGED).length === 0) {
@@ -356,8 +358,10 @@ export class CiaoService extends EventEmitter {
    * This method will remove the advertisement for the service on all connected network interfaces.
    * If the service is still in the Probing state, probing will simply be cancelled.
    *
+   * @returns Promise will resolve once the last goodbye packet was sent out
    */
   public end(): Promise<void> {
+    assert(!this.destroyed, "Cannot end destroyed service!");
     if (this.serviceState === ServiceState.UNANNOUNCED) {
       return Promise.resolve();
     }
@@ -365,6 +369,22 @@ export class CiaoService extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.emit(InternalServiceEvent.UNPUBLISH, error => error? reject(error): resolve());
     });
+  }
+
+  /**
+   * This method must be called if you want to free the memory used by this service.
+   * The service instance is not usable anymore after this call.
+   *
+   * If the service is still announced, the service will first be removed
+   * from the network by calling {@link end}.
+   *
+   * @returns
+   */
+  public async destroy(): Promise<void> {
+    await this.end();
+
+    this.destroyed = true;
+    this.removeAllListeners();
   }
 
   /**
@@ -418,6 +438,7 @@ export class CiaoService extends EventEmitter {
    * @param {boolean} silent - If set to true no announcement is sent for the updated record.
    */
   public updateTxt(txt: ServiceTxt, silent = false): void {
+    assert(!this.destroyed, "Cannot update destroyed service!");
     assert(txt, "txt cannot be undefined");
 
     this.txt = CiaoService.txtBuffersFromRecord(txt);
@@ -508,7 +529,14 @@ export class CiaoService extends EventEmitter {
     return result;
   }
 
-  private handleNetworkInterfaceUpdate(networkUpdate: NetworkUpdate): void {
+  /**
+   * @param networkUpdate
+   * @private
+   */
+  handleNetworkInterfaceUpdate(networkUpdate: NetworkUpdate): void {
+    assert(!this.destroyed, "Cannot update network of destroyed service!");
+    // this will currently only be called when service is ANNOUNCED or in ANNOUNCING state
+
     if (this.serviceState !== ServiceState.ANNOUNCED) {
       if (this.serviceState === ServiceState.ANNOUNCING) {
         this.rebuildServiceRecords();

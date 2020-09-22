@@ -173,6 +173,7 @@ export class MDNSServer {
       excludeIpv6: options && options.disableIpv6,
       excludeIpv6Only: true, // we currently have no udp6 sockets advertising anything, thus no need to manage interface which only have ipv6
     });
+
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
   }
 

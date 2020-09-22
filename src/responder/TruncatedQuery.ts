@@ -64,6 +64,8 @@ export class TruncatedQuery extends EventEmitter {
       return TruncatedQueryResult.AGAIN_TRUNCATED;
     } else {
       clearTimeout(this.timer);
+      this.removeAllListeners();
+
       return TruncatedQueryResult.FINISHED;
     }
   }
@@ -79,6 +81,7 @@ export class TruncatedQuery extends EventEmitter {
 
   private timeout(): void {
     this.emit(TruncatedQueryEvent.TIMEOUT);
+    this.removeAllListeners();
   }
 
 }

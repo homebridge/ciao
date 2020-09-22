@@ -117,6 +117,7 @@ export class NetworkManager extends EventEmitter {
 
   constructor(options?: NetworkManagerOptions) {
     super();
+    this.setMaxListeners(100); // one listener for every active service (+ Responder)
 
     if (options && options.interface) {
       if (typeof options.interface === "string" && net.isIP(options.interface)) {
@@ -129,6 +130,7 @@ export class NetworkManager extends EventEmitter {
             "Going to fallback to bind on all available interfaces.", options.interface);
         }
       } else {
+        // TODO support list of ip addresses?
         this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
       }
     }
@@ -175,6 +177,8 @@ export class NetworkManager extends EventEmitter {
       clearTimeout(this.currentTimer);
       this.currentTimer = undefined;
     }
+
+    this.removeAllListeners();
   }
 
   public getInterfaceMap(): Map<InterfaceName, NetworkInterface> {

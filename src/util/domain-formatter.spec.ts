@@ -136,6 +136,25 @@ describe("domain-formatter", () => {
       expect(enlargeIPv6("::1")).toBe("0000:0000:0000:0000:0000:0000:0000:0001");
       expect(enlargeIPv6("2001:db8::ff00:42:8329")).toBe("2001:0db8:0000:0000:0000:ff00:0042:8329");
     });
+
+    it("should properly enlarge ipv6 with ending double colon", () => {
+      expect(enlargeIPv6("2001:db8:aaaa:a4c:305:ff:fe00::")).toBe("2001:0db8:aaaa:0a4c:0305:00ff:fe00:0000");
+      expect(enlargeIPv6("2001:db8:aaaa:a4c:305:ff::")).toBe("2001:0db8:aaaa:0a4c:0305:00ff:0000:0000");
+      expect(enlargeIPv6("2001:db8:aaaa:a4c:305::")).toBe("2001:0db8:aaaa:0a4c:0305:0000:0000:0000");
+    });
+
+    it("should properly enlarge ipv6 with starting double colon", () => {
+      expect(enlargeIPv6("::db8:aaaa:a4c:305:ff:fe00:0")).toBe("0000:0db8:aaaa:0a4c:0305:00ff:fe00:0000");
+      expect(enlargeIPv6("::aaaa:a4c:305:ff:fe00:0")).toBe("0000:0000:aaaa:0a4c:0305:00ff:fe00:0000");
+      expect(enlargeIPv6("::a4c:305:ff:fe00:0")).toBe("0000:0000:0000:0a4c:0305:00ff:fe00:0000");
+    });
+
+    it("should enlarged RFC 3513 examples", () => {
+      expect(enlargeIPv6("1080::8:800:200c:417a")).toBe("1080:0000:0000:0000:0008:0800:200c:417a");
+      expect(enlargeIPv6("ff01::101")).toBe("ff01:0000:0000:0000:0000:0000:0000:0101");
+      expect(enlargeIPv6("::1")).toBe("0000:0000:0000:0000:0000:0000:0000:0001");
+      expect(enlargeIPv6("::")).toBe("0000:0000:0000:0000:0000:0000:0000:0000");
+    });
   });
 
   describe(shortenIPv6, () => {
@@ -144,6 +163,8 @@ describe("domain-formatter", () => {
       expect(shortenIPv6("fe80:0000:0000:0000:72ee:50ff:fe63:d1a0")).toBe("fe80::72ee:50ff:fe63:d1a0");
       expect(shortenIPv6("0000:0000:0000:0000:0000:0000:0000:0001")).toBe("::1");
       expect(shortenIPv6("2001:0db8:0000:0000:0000:ff00:0042:8329")).toBe("2001:db8::ff00:42:8329");
+      expect(shortenIPv6("2001:0db8:0:73c8:0305:00ff:fe00:0aaa")).toBe("2001:db8::73c8:305:ff:fe00:aaa");
+      expect(shortenIPv6("2001:0db8:aaaa:0a4c:0305:00ff:fe00:0000")).toBe("2001:db8:aaaa:a4c:305:ff:fe00::");
     });
 
     it("should shorten the longest consecutive block of zeros (and only one)", () => {
@@ -153,6 +174,13 @@ describe("domain-formatter", () => {
 
     it("should shorten the first if there are more than one with the same length", () => {
       expect(shortenIPv6("ffff:0000:0000:ffff:ffff:0000:0000:ffff")).toBe("ffff::ffff:ffff:0:0:ffff");
+    });
+
+    it("should shorten RFC 3513 examples", () => {
+      expect(shortenIPv6("1080:0:0:0:8:800:200c:417a")).toBe("1080::8:800:200c:417a");
+      expect(shortenIPv6("ff01:0:0:0:0:0:0:101")).toBe("ff01::101");
+      expect(shortenIPv6("0:0:0:0:0:0:0:1")).toBe("::1");
+      expect(shortenIPv6("0:0:0:0:0:0:0:0")).toBe("::");
     });
   });
 
@@ -202,7 +230,7 @@ describe("domain-formatter", () => {
 
     it("should calc netAddress for ipv6", () => {
       expect(getNetAddress("fe80::803:bfee:be23:93a8", "ffff:ffff:ffff:ffff::")).toBe("fe80::");
-      expect(getNetAddress("2003:f2:8725:ee00:1817:778e:aa58:4237", "ffff:ffff:ffff:ffff::")).toBe("2003:f2:8725:ee00::");
+      expect(getNetAddress("2001:db8:8725:ee00:1817:778e:aa58:4237", "ffff:ffff:ffff:ffff::")).toBe("2001:db8:8725:ee00::");
     });
 
     it("should catch illegal ip address format", () => {

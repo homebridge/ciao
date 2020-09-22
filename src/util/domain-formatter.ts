@@ -137,13 +137,16 @@ export function enlargeIPv6(address: string): string {
   assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
 
   const split = address.split(":");
-  assert(split.length <= 8, `Encountered invalid ipv6 with more than 8 sections (${address})!`);
 
   if (split[0] === "") {
+    split.splice(0, 1);
+
     while (split.length < 8) {
       split.unshift("0000");
     }
   } else if (split[split.length - 1] === "") {
+    split.splice(split.length -1, 1);
+
     while (split.length < 8) {
       split.push("0000");
     }
@@ -167,7 +170,9 @@ export function enlargeIPv6(address: string): string {
     }
   }
 
-  return split.join(":");
+  const result = split.join(":");
+  assert(split.length <= 8, `Resulting ipv6 address has more than 8 sections (${result})!`);
+  return result;
 }
 
 export function shortenIPv6(address: string | string[]): string {
@@ -223,7 +228,13 @@ export function shortenIPv6(address: string | string[]): string {
     }
   }
 
-  return address.join(":");
+  const result = address.join(":");
+
+  if (result === ":") { // special case for the unspecified address
+    return "::";
+  }
+
+  return result;
 }
 
 export function formatReverseAddressPTRName(address: string): string {

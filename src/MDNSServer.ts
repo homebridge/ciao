@@ -119,6 +119,12 @@ export interface MDNSServerOptions {
    * by specifying an ip address.
    */
   interface?: string | string[];
+  /**
+   * If specified, the mdns server will not include any ipv6 address records
+   * and not bind any udp6 sockets.
+   * This is handy if you want to "bind" on 0.0.0.0 only.
+   */
+  disableIpv6?: boolean;
 }
 
 export interface PacketHandler {
@@ -164,7 +170,8 @@ export class MDNSServer {
 
     this.networkManager = new NetworkManager({
       interface: options && options.interface,
-      excludeIpv6Only: true,
+      excludeIpv6: options && options.disableIpv6,
+      excludeIpv6Only: true, // we currently have no udp6 sockets advertising anything, thus no need to manage interface which only have ipv6
     });
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
   }

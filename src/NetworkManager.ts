@@ -72,6 +72,7 @@ export interface InterfaceChange {
 
 export interface NetworkManagerOptions {
   interface?: string | string[];
+  excludeIpv6?: boolean;
   excludeIpv6Only?: boolean;
 }
 
@@ -106,6 +107,7 @@ export class NetworkManager extends EventEmitter {
   private static readonly POLLING_TIME = 15 * 1000; // 15 seconds
 
   private readonly restrictedInterfaces?: InterfaceName[];
+  private readonly excludeIpv6: boolean; // if defined, we only pick ipv4 address records from an available network interface
   private readonly excludeIpv6Only: boolean;
 
   private currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
@@ -130,7 +132,8 @@ export class NetworkManager extends EventEmitter {
         this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
       }
     }
-    this.excludeIpv6Only = !!(options && options.excludeIpv6Only);
+    this.excludeIpv6 = !!(options && options.excludeIpv6);
+    this.excludeIpv6Only = this.excludeIpv6 || !!(options && options.excludeIpv6Only);
 
     if (options) {
       debug("Created NetworkManager with options: %s", JSON.stringify(options));
@@ -351,6 +354,10 @@ export class NetworkManager extends EventEmitter {
         if (info.family === "IPv4" && !ipv4Info) {
           ipv4Info = info;
         } else if (info.family === "IPv6") {
+          if (this.excludeIpv6) {
+            continue;
+          }
+
           if (info.scopeid && !ipv6Info) { // we only care about non zero scope (aka link-local ipv6)
             ipv6Info = info;
           } else if (info.scopeid === 0) { // global routable ipv6

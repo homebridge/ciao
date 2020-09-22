@@ -1,4 +1,5 @@
 import "source-map-support/register"; // registering node-source-map-support for typescript stack traces
+import createDebug from "debug";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const version: string = require("../package.json").version;
@@ -6,9 +7,9 @@ if (version.includes("beta") || process.env.BCT) { // enable debug output if bet
   const debug = process.env.DEBUG;
   if (!debug || !debug.includes("ciao")) {
     if (!debug) {
-      process.env.DEBUG = "ciao:*";
+      createDebug.enable("ciao:*");
     } else {
-      process.env.DEBUG = debug + ",ciao:*";
+      createDebug.enable(debug + ",ciao:*");
     }
   }
 }
@@ -16,7 +17,6 @@ if (version.includes("beta") || process.env.BCT) { // enable debug output if bet
 import "./coder/records/index";
 import { MDNSServerOptions } from "./MDNSServer";
 import { Responder } from "./Responder";
-import createDebug from "debug";
 
 export * from "./CiaoService";
 export * from "./Responder";

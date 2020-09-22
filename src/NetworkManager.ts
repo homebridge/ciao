@@ -71,7 +71,7 @@ export interface InterfaceChange {
 }
 
 export interface NetworkManagerOptions {
-  interface?: string | string[];
+  interface?: (InterfaceName | IPAddress) | (InterfaceName | IPAddress)[];
   excludeIpv6?: boolean;
   excludeIpv6Only?: boolean;
 }
@@ -117,21 +117,37 @@ export class NetworkManager extends EventEmitter {
 
   constructor(options?: NetworkManagerOptions) {
     super();
-    this.setMaxListeners(100); // one listener for every active service (+ Responder)
 
     if (options && options.interface) {
-      if (typeof options.interface === "string" && net.isIP(options.interface)) {
-        const interfaceName = NetworkManager.resolveInterface(options.interface);
+      let interfaces: (InterfaceName | IPAddress)[];
 
-        if (interfaceName) {
-          this.restrictedInterfaces = [interfaceName];
-        } else {
-          console.log("CIAO: Interface was specified as ip (%s), though couldn't find a matching interface for the given address. " +
-            "Going to fallback to bind on all available interfaces.", options.interface);
-        }
+      if (typeof options.interface === "string") {
+        interfaces = [options.interface];
+      } else if (Array.isArray(options.interface)) {
+        interfaces = options.interface;
       } else {
-        // TODO support list of ip addresses?
-        this.restrictedInterfaces = Array.isArray(options.interface)? options.interface: [options.interface];
+        throw new Error("Found invalid type for 'interfaces' NetworkManager option!");
+      }
+
+      const restrictedInterfaces: InterfaceName[] = [];
+
+      for (const iface of interfaces) {
+        if (net.isIP(iface)) {
+          const interfaceName = NetworkManager.resolveInterface(iface);
+          if (interfaceName) {
+            restrictedInterfaces.push(interfaceName);
+          } else {
+            console.log("CIAO: Interface was specified as ip (%s), though couldn't find a matching interface for the given address.", options.interface);
+          }
+        } else {
+          restrictedInterfaces.push(iface);
+        }
+      }
+
+      if (restrictedInterfaces.length === 0) {
+        console.log("CIAO: 'restrictedInterfaces' array was empty. Going to fallback to bind on all available interfaces.");
+      } else {
+        this.restrictedInterfaces = restrictedInterfaces;
       }
     }
     this.excludeIpv6 = !!(options && options.excludeIpv6);

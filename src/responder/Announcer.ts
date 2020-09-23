@@ -181,6 +181,10 @@ export class Announcer {
     const promises: Promise<SendResult<void>>[] = [];
 
     for (const name of server.getBoundInterfaceNames()) {
+      if (!service.advertisesOnInterface(name)) {
+        continue;
+      }
+
       const answer: ResourceRecord[] = records.concat([]);
 
       const aRecord = service.aRecord(name);

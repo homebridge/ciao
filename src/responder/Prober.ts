@@ -4,7 +4,7 @@ import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
+import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
 import dnsEqual from "../util/dns-equal";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
@@ -160,7 +160,7 @@ export class Prober {
         new Question(this.service.getHostname(), QType.ANY, true),
       ],
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-    }).then(results => {
+    }, this.service).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {  // TODO loopback will most likely always succeed
         console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);
@@ -191,8 +191,8 @@ export class Prober {
     });
   }
 
-  handleResponse(packet: DNSPacket): void {
-    if (!this.sentFirstProbeQuery) {
+  handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
+    if (!this.sentFirstProbeQuery || !this.service.advertisesOnInterface(endpoint.interface)) {
       return;
     }
 
@@ -224,8 +224,8 @@ export class Prober {
     }
   }
 
-  handleQuery(packet: DNSPacket): void {
-    if (!this.sentFirstProbeQuery) { // ignore queries if we are not sending
+  handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
+    if (!this.sentFirstProbeQuery || !this.service.advertisesOnInterface(endpoint.interface)) {
       return;
     }
 

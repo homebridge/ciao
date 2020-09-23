@@ -186,7 +186,7 @@ export class Responder implements PacketHandler {
       }
     }
 
-    debug("[%s] Going to advertise service...", service.getFQDN());
+    debug("[%s] Going to advertise service...", service.getFQDN()); // TODO include restricted addresses and stuff
 
     // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
 
@@ -414,7 +414,7 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
 
-    this.server.sendResponseBroadcast( { answers: records }).then(results => {
+    this.server.sendResponseBroadcast( { answers: records }, service).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {  // TODO loopback will most likely always succeed
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
@@ -544,7 +544,7 @@ export class Responder implements PacketHandler {
     });
 
     if (this.currentProber) {
-      this.currentProber.handleQuery(packet);
+      this.currentProber.handleQuery(packet, endpoint);
     }
 
     if (isUnicastQuerier) {
@@ -643,14 +643,14 @@ export class Responder implements PacketHandler {
     // any questions in a response must be ignored RFC 6762 6.
 
     if (this.currentProber) { // if there is a probing process running currently, just forward all messages to it
-      this.currentProber.handleResponse(packet);
+      this.currentProber.handleResponse(packet, endpoint);
     }
 
     for (const service of this.announcedServices.values()) {
       let conflictingRecord: ResourceRecord | undefined = undefined;
 
       for (const record of packet.answers.values()) {
-        if (Responder.hasConflict(service, record)) {
+        if (Responder.hasConflict(service, record, endpoint)) {
           conflictingRecord = record;
           break;
         }
@@ -658,7 +658,7 @@ export class Responder implements PacketHandler {
 
       if (!conflictingRecord) {
         for (const record of packet.additionals.values()) {
-          if (Responder.hasConflict(service, record)) {
+          if (Responder.hasConflict(service, record, endpoint)) {
             conflictingRecord = record;
             break;
           }
@@ -680,7 +680,7 @@ export class Responder implements PacketHandler {
     }
   }
 
-  private static hasConflict(service: CiaoService, record: ResourceRecord): boolean {
+  private static hasConflict(service: CiaoService, record: ResourceRecord, endpoint: EndpointInfo): boolean {
     // RFC 6762 9. Conflict Resolution:
     //    A conflict occurs when a Multicast DNS responder has a unique record
     //    for which it is currently authoritative, and it receives a Multicast
@@ -707,6 +707,9 @@ export class Responder implements PacketHandler {
     //    Section 8, "Probing and Announcing on Startup".  The protocol used in
     //    the Probing phase will determine a winner and a loser, and the loser
     //    MUST cease using the name, and reconfigure.
+    if (!service.advertisesOnInterface(endpoint.interface)) {
+      return false;
+    }
 
     const recordName = dnsLowerCase(record.name);
 
@@ -852,15 +855,19 @@ export class Responder implements PacketHandler {
           const service = this.announcedServices.get(dnsLowerCase(data));
 
           if (service) {
-            // call the method for original question, so additionals get added properly
-            const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
-            if (response.hasAnswers()) {
-              serviceResponses.push(response);
+            if (service.advertisesOnInterface(endpoint.interface)) {
+              // call the method for original question, so additionals get added properly
+              const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
+              if (response.hasAnswers()) {
+                serviceResponses.push(response);
+              }
             }
           } else {
             // it's probably question for PTR '_services._dns-sd._udp.local'
             // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
             mainResponse.addAnswer(new PTRRecord(question.name, data));
+            // TODO we may send out meta queries on interfaces where there aren't any services, because they are
+            //  restricted to other interfaces.
           }
         }
 
@@ -881,6 +888,10 @@ export class Responder implements PacketHandler {
     }
 
     for (const service of this.announcedServices.values()) {
+      if (!service.advertisesOnInterface(endpoint.interface)) {
+        continue;
+      }
+
       const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
       if (response.hasAnswers()) {
         serviceResponses.push(response);

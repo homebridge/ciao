@@ -2,6 +2,7 @@ import assert from "assert";
 import createDebug from "debug";
 import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
+import { CiaoService } from "./CiaoService";
 import {
   DNSPacket,
   DNSProbeQueryDefinition,
@@ -232,7 +233,7 @@ export class MDNSServer {
     this.sockets.clear();
   }
 
-  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition): Promise<SendResult<void>[]> {
+  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, service: CiaoService): Promise<SendResult<void>[]> {
     const packets = DNSPacket.createDNSQueryPackets(query);
     if (packets.length > 1) {
       debug("Query broadcast is split into %d packets!", packets.length);
@@ -240,7 +241,7 @@ export class MDNSServer {
 
     const promises: Promise<SendResult<void>[]>[] = [];
     for (const packet of packets) {
-      promises.push(this.sendOnAllNetworks(packet));
+      promises.push(this.sendOnAllNetworksForService(packet, service));
     }
 
     return Promise.all(promises).then((values: SendResult<void>[][]) => {
@@ -254,9 +255,9 @@ export class MDNSServer {
     });
   }
 
-  public sendResponseBroadcast(response: DNSResponseDefinition): Promise<SendResult<void>[]> {
+  public sendResponseBroadcast(response: DNSResponseDefinition, service: CiaoService): Promise<SendResult<void>[]> {
     const packet = DNSPacket.createDNSResponsePacketsFromRRSet(response);
-    return this.sendOnAllNetworks(packet);
+    return this.sendOnAllNetworksForService(packet, service);
   }
 
   public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
@@ -275,7 +276,7 @@ export class MDNSServer {
     });
   }
 
-  private sendOnAllNetworks(packet: DNSPacket): Promise<SendResult<void>[]> {
+  private sendOnAllNetworksForService(packet: DNSPacket, service: CiaoService): Promise<SendResult<void>[]> {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
@@ -283,6 +284,12 @@ export class MDNSServer {
 
     const promises: Promise<SendResult<void>>[] = [];
     for (const [name, socket] of this.sockets) {
+      if (!service.advertisesOnInterface(name)) {
+        // i don't like the fact that we put the check inside the MDNSServer, as it should be independent of the above layer.
+        // Though I think this is currently the easiest approach.
+        continue;
+      }
+
       const promise = new Promise<SendResult<void>>(resolve => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
           if (error && !MDNSServer.isSilencedSocketError(error)) {

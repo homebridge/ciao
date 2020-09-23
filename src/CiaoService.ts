@@ -1,6 +1,7 @@
 import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";
+import net from "net";
 import { RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { ARecord } from "./coder/records/ARecord";
@@ -89,6 +90,28 @@ export interface ServiceOptions {
    * The domain will also be automatically appended to the hostname.
    */
   domain?: string;
+
+  /**
+   * If defined it restricts the service to be advertised on the specified
+   * ip addresses or interface names.
+   *
+   * If a interface name is specified, ANY address on that given interface will be advertised
+   * (if a IP address of the given interface is also given in the array, it will be overridden).
+   * If a IP address is specified, the service will only be advertised for the given addresses.
+   *
+   * Interface names and addresses can be mixed in the array.
+   * If an ip address is given, the ip address must be valid at the time of service creation.
+   *
+   * If the service is set to advertise on a given interface, though the MDNSServer is
+   * configured to ignore this interface, the service won't be advertised on the interface.
+   */
+  restrictedAddresses?: (InterfaceName | IPAddress)[];
+  /**
+   * The service won't advertise ipv6 address records.
+   * This can be used to simulate binding on 0.0.0.0.
+   * May be combined with {@link restrictedAddresses}.
+   */
+  disabledIpv6?: boolean;
 }
 
 /**
@@ -263,6 +286,9 @@ export class CiaoService extends EventEmitter {
   private hostname: string; // formatted hostname
   private port?: number;
 
+  private readonly restrictedAddresses?: Map<InterfaceName, IPAddress[]>;
+  private readonly disableIpv6?: boolean;
+
   private txt: Buffer[];
   private txtTimer?: Timeout;
 
@@ -324,6 +350,36 @@ export class CiaoService extends EventEmitter {
     this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.port = options.port;
+
+    if (options.restrictedAddresses) {
+      this.restrictedAddresses = new Map();
+
+      for (const entry of options.restrictedAddresses) {
+        if (net.isIP(entry)) {
+          if (entry === "0.0.0.0" || entry === "::") {
+            throw new Error(`[${this.fqdn}] Unspecified ip address (${entry}) cannot be used to restrict on to!`);
+          }
+
+          const interfaceName = NetworkManager.resolveInterface(entry);
+          if (!interfaceName) {
+            throw new Error(`[${this.fqdn}] Could not restrict service to address ${entry} as we could not resolve it to an interface name!`);
+          }
+
+          const current = this.restrictedAddresses.get(interfaceName);
+          if (current) {
+            // empty interface signals "catch all" was already configured for this
+            if (current.length && !current.includes(entry)) {
+              current.push(entry);
+            }
+          } else {
+            this.restrictedAddresses.set(interfaceName, [entry]);
+          }
+        } else {
+          this.restrictedAddresses.set(entry, []); // empty array signals "use all addresses for interface"
+        }
+      }
+    }
+    this.disableIpv6 = options.disabledIpv6;
 
     this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
 
@@ -531,7 +587,7 @@ export class CiaoService extends EventEmitter {
 
   /**
    * @param networkUpdate
-   * @private
+   * @internal
    */
   handleNetworkInterfaceUpdate(networkUpdate: NetworkUpdate): void {
     assert(!this.destroyed, "Cannot update network of destroyed service!");
@@ -564,32 +620,48 @@ export class CiaoService extends EventEmitter {
       // Though probing will take at least 750 ms and thus sending it out immediately will get the information out faster.
 
       for (const change of networkUpdate.changes) {
+        if (!this.advertisesOnInterface(change.name)) {
+          continue;
+        }
+
+        let restrictedAddresses: IPAddress[] | undefined = this.restrictedAddresses? this.restrictedAddresses.get(change.name): undefined;
+        if (restrictedAddresses && restrictedAddresses.length === 0) {
+          restrictedAddresses = undefined;
+        }
         const records: ResourceRecord[] = [];
 
-        if (change.outdatedIpv4) {
+        if (change.outdatedIpv4 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedIpv4))) {
           records.push(new ARecord(this.hostname, change.outdatedIpv4, true, 0));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv4), this.hostname, false, 0));
         }
-        if (change.outdatedIpv6) {
+        if (change.outdatedIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedIpv6))) {
           records.push(new AAAARecord(this.hostname, change.outdatedIpv6, true, 0));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv6), this.hostname, false, 0));
         }
-        if (change.outdatedGloballyRoutableIpv6) {
+        if (change.outdatedGloballyRoutableIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedGloballyRoutableIpv6))) {
           records.push(new AAAARecord(this.hostname, change.outdatedGloballyRoutableIpv6, true, 0));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedGloballyRoutableIpv6), this.hostname, false, 0));
         }
+        if (change.outdatedUniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedUniqueLocalIpv6))) {
+          records.push(new AAAARecord(this.hostname, change.outdatedUniqueLocalIpv6, true, 0));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedUniqueLocalIpv6), this.hostname, false, 0));
+        }
 
-        if (change.updatedIpv4) {
+        if (change.updatedIpv4 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedIpv4))) {
           records.push(new ARecord(this.hostname, change.updatedIpv4, true));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv4), this.hostname));
         }
-        if (change.updatedIpv6) {
+        if (change.updatedIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedIpv6))) {
           records.push(new AAAARecord(this.hostname, change.updatedIpv6, true));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv6), this.hostname));
         }
-        if (change.updatedGloballyRoutableIpv6) {
+        if (change.updatedGloballyRoutableIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedGloballyRoutableIpv6))) {
           records.push(new AAAARecord(this.hostname, change.updatedGloballyRoutableIpv6, true));
           // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedGloballyRoutableIpv6), this.hostname));
+        }
+        if (change.updatedUniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedUniqueLocalIpv6))) {
+          records.push(new AAAARecord(this.hostname, change.updatedUniqueLocalIpv6, true));
+          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedUniqueLocalIpv6), this.hostname));
         }
 
         this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);
@@ -737,22 +809,31 @@ export class CiaoService extends EventEmitter {
     let subtypePTRs: PTRRecord[] | undefined = undefined;
 
     for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
-      if (networkInterface.ipv4) {
+      if (!this.advertisesOnInterface(name)) {
+        continue;
+      }
+
+      let restrictedAddresses: IPAddress[] | undefined = this.restrictedAddresses? this.restrictedAddresses.get(name): undefined;
+      if (restrictedAddresses && restrictedAddresses.length === 0) {
+        restrictedAddresses = undefined;
+      }
+
+      if (networkInterface.ipv4 && (!restrictedAddresses || restrictedAddresses.includes(networkInterface.ipv4))) {
         aRecordMap[name] = new ARecord(this.hostname, networkInterface.ipv4, true);
         reverseAddressMap[networkInterface.ipv4] = new PTRRecord(formatReverseAddressPTRName(networkInterface.ipv4), this.hostname);
       }
 
-      if (networkInterface.ipv6) {
+      if (networkInterface.ipv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(networkInterface.ipv6))) {
         aaaaRecordMap[name] = new AAAARecord(this.hostname, networkInterface.ipv6, true);
         reverseAddressMap[networkInterface.ipv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.ipv6), this.hostname);
       }
 
-      if (networkInterface.globallyRoutableIpv6) {
+      if (networkInterface.globallyRoutableIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(networkInterface.globallyRoutableIpv6))) {
         aaaaRoutableRecordMap[name] = new AAAARecord(this.hostname, networkInterface.globallyRoutableIpv6, true);
         reverseAddressMap[networkInterface.globallyRoutableIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.globallyRoutableIpv6), this.hostname);
       }
 
-      if (networkInterface.uniqueLocalIpv6) {
+      if (networkInterface.uniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(networkInterface.uniqueLocalIpv6))) {
         aaaaUniqueLocalRecordMap[name] = new AAAARecord(this.hostname, networkInterface.uniqueLocalIpv6, true);
         reverseAddressMap[networkInterface.uniqueLocalIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.uniqueLocalIpv6), this.hostname);
       }
@@ -778,6 +859,17 @@ export class CiaoService extends EventEmitter {
       reverseAddressPTRs: reverseAddressMap,
       nsec: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
     };
+  }
+
+  /**
+   * @internal returns if the service should be advertised on the given service
+   */
+  advertisesOnInterface(name: InterfaceName): boolean {
+    return !this.restrictedAddresses || this.restrictedAddresses.has(name) && (
+      // must have at least one address record on the given interface
+      !!this.serviceRecords?.a[name] || !!this.serviceRecords?.aaaa[name]
+      || !!this.serviceRecords?.aaaaR[name] || !!this.serviceRecords?.aaaaULA[name]
+    );
   }
 
   /**
@@ -818,32 +910,32 @@ export class CiaoService extends EventEmitter {
   /**
    * @internal used to get a copy of the A record
    */
-  aRecord(id: InterfaceName): ARecord | undefined {
-    const record = this.serviceRecords!.a[id];
+  aRecord(name: InterfaceName): ARecord | undefined {
+    const record = this.serviceRecords!.a[name];
     return record? record.clone(): undefined;
   }
 
   /**
    * @internal used to get a copy of the AAAA record for the link-local ipv6 address
    */
-  aaaaRecord(id: InterfaceName): AAAARecord | undefined {
-    const record = this.serviceRecords!.aaaa[id];
+  aaaaRecord(name: InterfaceName): AAAARecord | undefined {
+    const record = this.serviceRecords!.aaaa[name];
     return record? record.clone(): undefined;
   }
 
   /**
    * @internal used to get a copy of the AAAA record for the routable ipv6 address
    */
-  aaaaRoutableRecord(id: InterfaceName): AAAARecord | undefined {
-    const record = this.serviceRecords!.aaaaR[id];
+  aaaaRoutableRecord(name: InterfaceName): AAAARecord | undefined {
+    const record = this.serviceRecords!.aaaaR[name];
     return record? record.clone(): undefined;
   }
 
   /**
    * @internal used to get a copy of the AAAA fore the unique local ipv6 address
    */
-  aaaaUniqueLocalRecord(id: InterfaceName): AAAARecord | undefined {
-    const record = this.serviceRecords!.aaaaULA[id];
+  aaaaUniqueLocalRecord(name: InterfaceName): AAAARecord | undefined {
+    const record = this.serviceRecords!.aaaaULA[name];
     return record? record.clone(): undefined;
   }
 

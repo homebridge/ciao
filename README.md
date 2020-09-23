@@ -44,7 +44,7 @@ const responder = ciao.getResponder();
 const service = responder.createService({
     name: 'My Web Server',
     type: 'http',
-    port: 3000,
+    port: 3000, // optional, can also be set via updatePort() before advertising
     txt: { // optional
       key: "value",
     }
@@ -58,7 +58,7 @@ service.advertise().then(() => {
 
 // ....
 
-service.updateTxt({
+service.updateTxt({ // replaces current txt
     newKey: "newValue",
 });
 
@@ -67,6 +67,12 @@ service.updateTxt({
 service.end().then(() => {
   // service is now UNANNOUNCED and can be published again
 });
+
+// ....
+
+// frees the service objects (and calls end() if still announced).
+// The service object cannot be used again afterwards.
+service.destroy();
 ```
 
 ## Documentation 
@@ -85,7 +91,10 @@ to configure the underlying mdns server.
 The [createService](https://developers.homebridge.io/ciao/classes/responder.html#createservice) method of the `Responder`
 object can now be used to create a new [CiaoService](https://developers.homebridge.io/ciao/classes/ciaoservice.html) 
 supplying the desired [configuration](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html)
-as the first parameter.
+as the first parameter. You might have a look at the 
+_[restrictedAddresses](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses)_
+(and _[disableIpv6](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6)_) configuration
+if you don't want to advertise on all available addresses/network interfaces.
 
 The [advertise](https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise) method can now be called
 on the `service` object to start advertising the service on the network.

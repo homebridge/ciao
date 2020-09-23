@@ -84,6 +84,7 @@
 						<section class="tsd-index-section ">
 							<h3>Properties</h3>
 							<ul class="tsd-index-list">
+								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="mdnsserveroptions.html#disableipv6" class="tsd-kind-icon">disable<wbr>Ipv6</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="mdnsserveroptions.html#interface" class="tsd-kind-icon">interface</a></li>
 							</ul>
 						</section>
@@ -93,12 +94,29 @@
 			<section class="tsd-panel-group tsd-member-group ">
 				<h2>Properties</h2>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
+					<a name="disableipv6" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> disable<wbr>Ipv6</h3>
+					<div class="tsd-signature tsd-kind-icon">disable<wbr>Ipv6<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">false</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">true</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/MDNSServer.ts#L128">src/MDNSServer.ts:128</a></li>
+						</ul>
+					</aside>
+					<div class="tsd-comment tsd-typography">
+						<div class="lead">
+							<p>If specified, the mdns server will not include any ipv6 address records
+								and not bind any udp6 sockets.
+							This is handy if you want to &quot;bind&quot; on 0.0.0.0 only.</p>
+						</div>
+					</div>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
 					<a name="interface" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagOptional">Optional</span> interface</h3>
 					<div class="tsd-signature tsd-kind-icon">interface<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/MDNSServer.ts#L121">src/MDNSServer.ts:121</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/MDNSServer.ts#L122">src/MDNSServer.ts:122</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -143,6 +161,9 @@
 					<li class="current tsd-kind-interface">
 						<a href="mdnsserveroptions.html" class="tsd-kind-icon">MDNSServer<wbr>Options</a>
 						<ul>
+							<li class=" tsd-kind-property tsd-parent-kind-interface">
+								<a href="mdnsserveroptions.html#disableipv6" class="tsd-kind-icon">disable<wbr>Ipv6</a>
+							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-interface">
 								<a href="mdnsserveroptions.html#interface" class="tsd-kind-icon">interface</a>
 							</li>

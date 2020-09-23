@@ -84,11 +84,13 @@
 						<section class="tsd-index-section ">
 							<h3>Properties</h3>
 							<ul class="tsd-index-list">
+								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#disabledipv6" class="tsd-kind-icon">disabled<wbr>Ipv6</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#domain" class="tsd-kind-icon">domain</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#hostname" class="tsd-kind-icon">hostname</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#name" class="tsd-kind-icon">name</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#port" class="tsd-kind-icon">port</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#protocol" class="tsd-kind-icon">protocol</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#restrictedaddresses" class="tsd-kind-icon">restricted<wbr>Addresses</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#subtypes" class="tsd-kind-icon">subtypes</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#txt" class="tsd-kind-icon">txt</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="serviceoptions.html#type" class="tsd-kind-icon">type</a></li>
@@ -100,12 +102,29 @@
 			<section class="tsd-panel-group tsd-member-group ">
 				<h2>Properties</h2>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
+					<a name="disabledipv6" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> disabled<wbr>Ipv6</h3>
+					<div class="tsd-signature tsd-kind-icon">disabled<wbr>Ipv6<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">false</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">true</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L114">src/CiaoService.ts:114</a></li>
+						</ul>
+					</aside>
+					<div class="tsd-comment tsd-typography">
+						<div class="lead">
+							<p>The service won&#39;t advertise ipv6 address records.
+								This can be used to simulate binding on 0.0.0.0.
+							May be combined with <a href="serviceoptions.html#restrictedaddresses">restrictedAddresses</a>.</p>
+						</div>
+					</div>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
 					<a name="domain" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagOptional">Optional</span> domain</h3>
 					<div class="tsd-signature tsd-kind-icon">domain<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L91">src/CiaoService.ts:91</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L92">src/CiaoService.ts:92</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -121,7 +140,7 @@
 					<div class="tsd-signature tsd-kind-icon">hostname<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L81">src/CiaoService.ts:81</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L82">src/CiaoService.ts:82</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -138,7 +157,7 @@
 					<div class="tsd-signature tsd-kind-icon">name<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L56">src/CiaoService.ts:56</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L57">src/CiaoService.ts:57</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -153,7 +172,7 @@
 					<div class="tsd-signature tsd-kind-icon">port<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">number</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L70">src/CiaoService.ts:70</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L71">src/CiaoService.ts:71</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -169,7 +188,7 @@
 					<div class="tsd-signature tsd-kind-icon">protocol<span class="tsd-signature-symbol">:</span> <a href="../enums/protocol.html" class="tsd-signature-type">Protocol</a></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L75">src/CiaoService.ts:75</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L76">src/CiaoService.ts:76</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -179,12 +198,35 @@
 					</div>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
+					<a name="restrictedaddresses" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> restricted<wbr>Addresses</h3>
+					<div class="tsd-signature tsd-kind-icon">restricted<wbr>Addresses<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L108">src/CiaoService.ts:108</a></li>
+						</ul>
+					</aside>
+					<div class="tsd-comment tsd-typography">
+						<div class="lead">
+							<p>If defined it restricts the service to be advertised on the specified
+							ip addresses or interface names.</p>
+						</div>
+						<p>If a interface name is specified, ANY address on that given interface will be advertised
+							(if a IP address of the given interface is also given in the array, it will be overridden).
+						If a IP address is specified, the service will only be advertised for the given addresses.</p>
+						<p>Interface names and addresses can be mixed in the array.
+						If an ip address is given, the ip address must be valid at the time of service creation.</p>
+						<p>If the service is set to advertise on a given interface, though the MDNSServer is
+						configured to ignore this interface, the service won&#39;t be advertised on the interface.</p>
+					</div>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
 					<a name="subtypes" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagOptional">Optional</span> subtypes</h3>
 					<div class="tsd-signature tsd-kind-icon">subtypes<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L65">src/CiaoService.ts:65</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L66">src/CiaoService.ts:66</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -200,7 +242,7 @@
 					<div class="tsd-signature tsd-kind-icon">txt<span class="tsd-signature-symbol">:</span> <a href="../globals.html#servicetxt" class="tsd-signature-type">ServiceTxt</a></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L85">src/CiaoService.ts:85</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L86">src/CiaoService.ts:86</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -215,7 +257,7 @@
 					<div class="tsd-signature tsd-kind-icon">type<span class="tsd-signature-symbol">:</span> <a href="../enums/servicetype.html" class="tsd-signature-type">ServiceType</a><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L60">src/CiaoService.ts:60</a></li>
+							<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L61">src/CiaoService.ts:61</a></li>
 						</ul>
 					</aside>
 					<div class="tsd-comment tsd-typography">
@@ -260,6 +302,9 @@
 						<a href="serviceoptions.html" class="tsd-kind-icon">Service<wbr>Options</a>
 						<ul>
 							<li class=" tsd-kind-property tsd-parent-kind-interface">
+								<a href="serviceoptions.html#disabledipv6" class="tsd-kind-icon">disabled<wbr>Ipv6</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-interface">
 								<a href="serviceoptions.html#domain" class="tsd-kind-icon">domain</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-interface">
@@ -273,6 +318,9 @@
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-interface">
 								<a href="serviceoptions.html#protocol" class="tsd-kind-icon">protocol</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-interface">
+								<a href="serviceoptions.html#restrictedaddresses" class="tsd-kind-icon">restricted<wbr>Addresses</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-interface">
 								<a href="serviceoptions.html#subtypes" class="tsd-kind-icon">subtypes</a>

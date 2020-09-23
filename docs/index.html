@@ -64,6 +64,7 @@
 					<h1>@homebridge/ciao</h1>
 				</a>
 				<p><a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao" alt="NPM-Version"></a>
+					<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao/beta" alt="NPM-Version Beta"></a>
 					<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/dt/@homebridge/ciao" alt="NPM-Downloads"></a>
 					<a href="https://github.com/homebridge/ciao/actions?query=workflow%3ANode-CI"><img src="https://github.com/homebridge/ciao/workflows/Node-CI/badge.svg" alt="Node-CI"></a>
 				<a href="https://coveralls.io/github/homebridge/ciao?branch=master"><img src="https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master" alt="Coverage Status"></a></p>
@@ -97,7 +98,7 @@
 <span class="hljs-keyword">const</span> service = responder.createService({
     name: <span class="hljs-string">'My Web Server'</span>,
     <span class="hljs-keyword">type</span>: <span class="hljs-string">'http'</span>,
-    port: <span class="hljs-number">3000</span>,
+    port: <span class="hljs-number">3000</span>, <span class="hljs-comment">// optional, can also be set via updatePort() before advertising</span>
     txt: { <span class="hljs-comment">// optional</span>
       key: <span class="hljs-string">"value"</span>,
     }
@@ -111,7 +112,7 @@ service.advertise().then(<span class="hljs-function"><span class="hljs-params">(
 
 <span class="hljs-comment">// ....</span>
 
-service.updateTxt({
+service.updateTxt({ <span class="hljs-comment">// replaces current txt</span>
     newKey: <span class="hljs-string">"newValue"</span>,
 });
 
@@ -119,7 +120,13 @@ service.updateTxt({
 
 service.end().then(<span class="hljs-function"><span class="hljs-params">()</span> =&gt;</span> {
   <span class="hljs-comment">// service is now UNANNOUNCED and can be published again</span>
-});</code></pre>
+});
+
+<span class="hljs-comment">// ....</span>
+
+<span class="hljs-comment">// frees the service objects (and calls end() if still announced).</span>
+<span class="hljs-comment">// The service object cannot be used again afterwards.</span>
+service.destroy();</code></pre>
 				<a href="#documentation" id="documentation" style="color: inherit; text-decoration: none;">
 					<h2>Documentation</h2>
 				</a>
@@ -135,7 +142,10 @@ service.end().then(<span class="hljs-function"><span class="hljs-params">()</spa
 				<p>The <a href="https://developers.homebridge.io/ciao/classes/responder.html#createservice">createService</a> method of the <code>Responder</code>
 					object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a>
 					supplying the desired <a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html">configuration</a>
-				as the first parameter.</p>
+					as the first parameter. You might have a look at the
+					<em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses">restrictedAddresses</a></em>
+					(and <em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6">disableIpv6</a></em>) configuration
+				if you don&#39;t want to advertise on all available addresses/network interfaces.</p>
 				<p>The <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise">advertise</a> method can now be called
 					on the <code>service</code> object to start advertising the service on the network.
 					An application should ideally listen to the <a href="https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed">NAME_CHANGE</a>

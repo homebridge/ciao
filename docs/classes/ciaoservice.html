@@ -105,6 +105,7 @@
 							<ul class="tsd-index-list">
 								<li class="tsd-kind-method tsd-parent-kind-class tsd-is-overwrite tsd-is-inherited"><a href="ciaoservice.html#addlistener" class="tsd-kind-icon">add<wbr>Listener</a></li>
 								<li class="tsd-kind-method tsd-parent-kind-class"><a href="ciaoservice.html#advertise" class="tsd-kind-icon">advertise</a></li>
+								<li class="tsd-kind-method tsd-parent-kind-class"><a href="ciaoservice.html#destroy" class="tsd-kind-icon">destroy</a></li>
 								<li class="tsd-kind-method tsd-parent-kind-class"><a href="ciaoservice.html#end" class="tsd-kind-icon">end</a></li>
 								<li class="tsd-kind-method tsd-parent-kind-class tsd-is-overwrite tsd-is-inherited"><a href="ciaoservice.html#eventnames" class="tsd-kind-icon">event<wbr>Names</a></li>
 								<li class="tsd-kind-method tsd-parent-kind-class"><a href="ciaoservice.html#getfqdn" class="tsd-kind-icon">getFQDN</a></li>
@@ -204,7 +205,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L344">src/CiaoService.ts:344</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L402">src/CiaoService.ts:402</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -228,6 +229,31 @@
 					</ul>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class">
+					<a name="destroy" class="tsd-anchor"></a>
+					<h3>destroy</h3>
+					<ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
+						<li class="tsd-signature tsd-kind-icon">destroy<span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></li>
+					</ul>
+					<ul class="tsd-descriptions">
+						<li class="tsd-description">
+							<aside class="tsd-sources">
+								<ul>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L440">src/CiaoService.ts:440</a></li>
+								</ul>
+							</aside>
+							<div class="tsd-comment tsd-typography">
+								<div class="lead">
+									<p>This method must be called if you want to free the memory used by this service.
+									The service instance is not usable anymore after this call.</p>
+								</div>
+								<p>If the service is still announced, the service will first be removed
+								from the network by calling <a href="ciaoservice.html#end">end</a>.</p>
+							</div>
+							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4>
+						</li>
+					</ul>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class">
 					<a name="end" class="tsd-anchor"></a>
 					<h3>end</h3>
 					<ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
@@ -237,7 +263,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L360">src/CiaoService.ts:360</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L420">src/CiaoService.ts:420</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -247,6 +273,7 @@
 								</div>
 							</div>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4>
+							<p>Promise will resolve once the last goodbye packet was sent out</p>
 						</li>
 					</ul>
 				</section>
@@ -279,7 +306,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L373">src/CiaoService.ts:373</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L450">src/CiaoService.ts:450</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -299,7 +326,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L394">src/CiaoService.ts:394</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L471">src/CiaoService.ts:471</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -338,7 +365,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L402">src/CiaoService.ts:402</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L479">src/CiaoService.ts:479</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -359,7 +386,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L387">src/CiaoService.ts:387</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L464">src/CiaoService.ts:464</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -379,7 +406,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L380">src/CiaoService.ts:380</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L457">src/CiaoService.ts:457</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -497,7 +524,7 @@
 							<aside class="tsd-sources">
 								<p>Overrides EventEmitter.on</p>
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L178">src/CiaoService.ts:178</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L201">src/CiaoService.ts:201</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
@@ -533,7 +560,7 @@
 							<aside class="tsd-sources">
 								<p>Overrides EventEmitter.on</p>
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L179">src/CiaoService.ts:179</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L202">src/CiaoService.ts:202</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
@@ -836,7 +863,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L473">src/CiaoService.ts:473</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L551">src/CiaoService.ts:551</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -869,7 +896,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/60b6a24/src/CiaoService.ts#L420">src/CiaoService.ts:420</a></li>
+									<li>Defined in <a href="https://github.com/homebridge/ciao/blob/af2b05e/src/CiaoService.ts#L497">src/CiaoService.ts:497</a></li>
 								</ul>
 							</aside>
 							<div class="tsd-comment tsd-typography">
@@ -964,6 +991,9 @@
 							</li>
 							<li class=" tsd-kind-method tsd-parent-kind-class">
 								<a href="ciaoservice.html#advertise" class="tsd-kind-icon">advertise</a>
+							</li>
+							<li class=" tsd-kind-method tsd-parent-kind-class">
+								<a href="ciaoservice.html#destroy" class="tsd-kind-icon">destroy</a>
 							</li>
 							<li class=" tsd-kind-method tsd-parent-kind-class">
 								<a href="ciaoservice.html#end" class="tsd-kind-icon">end</a>

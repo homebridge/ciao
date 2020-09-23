@@ -352,6 +352,7 @@ export class CiaoService extends EventEmitter {
     this.port = options.port;
 
     if (options.restrictedAddresses) {
+      assert(options.restrictedAddresses, "The service property 'restrictedAddresses' cannot be an empty array!");
       this.restrictedAddresses = new Map();
 
       for (const entry of options.restrictedAddresses) {

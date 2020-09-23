@@ -621,7 +621,7 @@ export class CiaoService extends EventEmitter {
       // Though probing will take at least 750 ms and thus sending it out immediately will get the information out faster.
 
       for (const change of networkUpdate.changes) {
-        if (!this.advertisesOnInterface(change.name)) {
+        if (!this.advertisesOnInterface(change.name, true)) {
           continue;
         }
 
@@ -810,7 +810,7 @@ export class CiaoService extends EventEmitter {
     let subtypePTRs: PTRRecord[] | undefined = undefined;
 
     for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
-      if (!this.advertisesOnInterface(name)) {
+      if (!this.advertisesOnInterface(name, true)) {
         continue;
       }
 
@@ -863,10 +863,16 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
+   * Returns if the given service is advertising on the provided network interface.
+   *
+   * @param name - The desired interface name.
+   * @param skipAddressCheck - If true it is not checked if the service actually has
+   *   an address record for the given interface.
    * @internal returns if the service should be advertised on the given service
    */
-  advertisesOnInterface(name: InterfaceName): boolean {
+  advertisesOnInterface(name: InterfaceName, skipAddressCheck?: boolean): boolean {
     return !this.restrictedAddresses || this.restrictedAddresses.has(name) && (
+      skipAddressCheck ||
       // must have at least one address record on the given interface
       !!this.serviceRecords?.a[name] || !!this.serviceRecords?.aaaa[name]
       || !!this.serviceRecords?.aaaaR[name] || !!this.serviceRecords?.aaaaULA[name]

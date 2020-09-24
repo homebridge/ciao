@@ -441,8 +441,9 @@ export class MDNSServer {
     try {
       packet = DNSPacket.decode(buffer);
     } catch (error) {
-      debug("Received malformed packet from %s: %s", JSON.stringify(rinfo), error.message);
-      debug(error.stack); // might be a bit spammy, but not having the error cause when it's maybe needed is not better
+      debug("Received a malformed packet from %o on interface %s. This might or might not be a problem. " +
+        "Here is the received packet for debugging purposes '%s'. " +
+        "Packet decoding failed with %s", rinfo, name, buffer.toString("base64"), error.stack);
       return;
     }
 

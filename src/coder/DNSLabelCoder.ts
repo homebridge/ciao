@@ -14,6 +14,8 @@ interface NameLength {
 
 export class DNSLabelCoder {
 
+  private static readonly DISABLE_COMPRESSION = true;
+
   // RFC 1035 4.1.4. Message compression:
   //  In order to reduce the size of messages, the domain system utilizes a
   //   compression scheme which eliminates the repetition of domain names in a
@@ -87,6 +89,10 @@ export class DNSLabelCoder {
   }
 
   public getNameLength(name: string): number {
+    if (DNSLabelCoder.DISABLE_COMPRESSION) {
+      return this.getUncompressedNameLength(name);
+    }
+
     if (name === ".") {
       return 1; // root label takes one zero byte and is not compressible
     }
@@ -179,6 +185,10 @@ export class DNSLabelCoder {
   }
 
   public encodeName(name: string, offset: number): number {
+    if (DNSLabelCoder.DISABLE_COMPRESSION) {
+      return this.encodeUncompressedName(name, offset);
+    }
+
     if (!this.buffer) {
       assert.fail("Illegal state. Buffer not initialized!");
     }

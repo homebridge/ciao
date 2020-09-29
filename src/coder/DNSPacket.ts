@@ -615,7 +615,7 @@ export class DNSPacket {
 
     const optionsString = optionsStrings.length !== 0? ` (${optionsStrings})`: "";
 
-    return `[${answerString}] answers and [${additionalsString}] additionals${optionsString}`;
+    return `[${answerString}] answers and [${additionalsString}] additionals with size ${this.getEncodingLength()}B${optionsString}`;
   }
 
 }

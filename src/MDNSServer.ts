@@ -467,7 +467,10 @@ export class MDNSServer {
       // This isn't a problem on macOS (it seems like to respect the desired interface we supply for our membership)
       // On Linux based system such filtering seems to not happen :thinking: we just get any traffic and it's like
       // we are just bound to 0.0.0.0
-      debug("Received packet on " + name + " which is coming from the same subnet. %o", {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
+      if (!name.includes("lo")) { // exclude the loopback interface for this error
+        debug("Received packet on " + name + " which is not coming from the same subnet. %o",
+          {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
+      }
       return;
     }
 

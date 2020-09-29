@@ -19,6 +19,8 @@ describe(DNSLabelCoder, () => {
   describe("name compression", () => {
     it("should encode name compression", () => {
       const coder = new DNSLabelCoder();
+      const previous = DNSLabelCoder.DISABLE_COMPRESSION;
+      DNSLabelCoder.DISABLE_COMPRESSION = false;
 
       let length = 0;
 
@@ -50,6 +52,8 @@ describe(DNSLabelCoder, () => {
         0,
       ]);
       expect(buffer.toString("hex")).toBe(expected.toString("hex"));
+
+      DNSLabelCoder.DISABLE_COMPRESSION = previous;
     });
 
     it("should decode name compression", () => {

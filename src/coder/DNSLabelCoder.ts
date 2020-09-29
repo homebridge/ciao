@@ -14,7 +14,7 @@ interface NameLength {
 
 export class DNSLabelCoder {
 
-  private static readonly DISABLE_COMPRESSION = true;
+  static DISABLE_COMPRESSION = true;
 
   // RFC 1035 4.1.4. Message compression:
   //  In order to reduce the size of messages, the domain system utilizes a

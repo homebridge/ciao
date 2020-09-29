@@ -536,6 +536,9 @@ export class CiaoService extends EventEmitter {
       // and we would change our name without it being necessary
       this.txtTimer = setTimeout(() => {
         this.txtTimer = undefined;
+        if (this.serviceState !== ServiceState.ANNOUNCED) { // stuff changed in the last 50 milliseconds
+          return;
+        }
         this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()]);
       }, 50);
     }

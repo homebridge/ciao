@@ -163,9 +163,13 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
     const header = decodedHeader.data;
     const rrDecoder = this.typeToRecordDecoder.get(header.type) || this.unsupportedRecordDecoder;
 
+    coder.initRRLocation(oldOffset, offset, header.rDataLength); // defines record offset and rdata offset for local compression
+
     // we slice the buffer (below), so out of bounds error are instantly detected
     const decodedRecord = rrDecoder(coder, header, buffer.slice(0, offset + header.rDataLength), offset);
     offset += decodedRecord.readBytes;
+
+    coder.clearRRLocation();
 
     return {
       data: decodedRecord.data,

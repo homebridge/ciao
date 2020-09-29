@@ -31,10 +31,14 @@ export class DNSLabelCoder {
 
   private static readonly POINTER_MASK = 0xC000; // 2 bytes, starting with 11
   private static readonly POINTER_MASK_ONE_BYTE = 0xC0; // same deal as above, just on a 1 byte level
+  private static readonly POINTER_LOCAL_COMPRESSION_ONE_BYTE = 0x80; // "10" label type https://tools.ietf.org/html/draft-ietf-dnsind-local-compression-05#section-4
   private static readonly NOT_POINTER_MASK = 0x3FFF;
 
   private buffer?: Buffer;
   readonly legacyUnicastEncoding: boolean;
+  private startOfRR?: number;
+  private startOfRData?: number;
+  private rDataLength?: number;
 
   private readonly trackedLengths: NameLength[] = [];
   private readonly writtenNames: WrittenName[] = [];
@@ -45,6 +49,18 @@ export class DNSLabelCoder {
 
   public initBuf(buffer?: Buffer): void {
     this.buffer = buffer;
+  }
+
+  public initRRLocation(recordOffset: number, rDataOffset: number, rDataLength: number): void {
+    this.startOfRR = recordOffset;
+    this.startOfRData = rDataOffset;
+    this.rDataLength = rDataLength;
+  }
+
+  public clearRRLocation(): void {
+    this.startOfRR = undefined;
+    this.startOfRData = undefined;
+    this.rDataLength = undefined;
   }
 
   public getUncompressedNameLength(name: string): number {
@@ -251,9 +267,37 @@ export class DNSLabelCoder {
           const pointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK; // extract the offset
           offset++; // increment for the second byte of the pointer
 
+          // if we would allow pointers to a later location, we MUST ensure that we don't end up in a endless loop
           assert(pointer < oldOffset, "Pointer MUST point to a prior location!");
 
           name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name
+          break; // pointer marks end of name
+        }  else if (labelTypePattern === DNSLabelCoder.POINTER_LOCAL_COMPRESSION_ONE_BYTE) {
+          let localPointer = this.buffer.readUInt16BE(offset - 1) && DNSLabelCoder.NOT_POINTER_MASK;
+          offset++; // increment for the second byte of the pointer;
+
+          // if we would allow pointers to a later location, we MUST ensure that we don't end up in a endless loop
+          assert(localPointer < oldOffset, "Local pointer MUST point to a prior location!");
+
+          if (localPointer >= 0 && localPointer < 255) { // 255 is reserved
+            assert(this.startOfRR !== undefined, "Cannot decompress locally compressed name as record is not initialized!");
+            localPointer += this.startOfRR!;
+
+            name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
+          } else if (localPointer >= 256) {
+            assert(this.startOfRData !== undefined && this.rDataLength !== undefined, "Cannot decompress locally compressed name as record is not initialized!");
+            localPointer -= -256; // subtract the offset 256
+            if (localPointer >= this.rDataLength!) {
+              assert.fail("Local decompression pointer points out of bounds " + (localPointer + this.startOfRData!) + " >= " + (this.startOfRData! + this.rDataLength!));
+            }
+
+            localPointer += this.startOfRData!;
+
+            name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
+          } else {
+            assert.fail("Encountered unknown pointer range " + localPointer);
+          }
+
           break; // pointer marks end of name
         } else {
           assert.fail("Encountered unknown pointer type: " + Buffer.from([labelTypePattern >> 6]).toString("hex") + " (with original byte " +

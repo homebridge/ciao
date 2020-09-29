@@ -3,7 +3,14 @@ import createDebug from "debug";
 import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket } from "../coder/DNSPacket";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { MDNSServer, SendResult, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
+import {
+  MDNSServer,
+  SendResultFailedRatio,
+  SendResultFormatError,
+  SendTimeoutResult,
+  TimedSendResult,
+} from "../MDNSServer";
+import { PromiseTimeout } from "../util/promise-utils";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Announcer");
@@ -177,8 +184,8 @@ export class Announcer {
     });
   }
 
-  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean): Promise<SendResult<void>[]> {
-    const promises: Promise<SendResult<void>>[] = [];
+  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean): Promise<TimedSendResult[]> {
+    const promises: Promise<TimedSendResult>[] = [];
 
     for (const name of server.getBoundInterfaceNames()) {
       if (!service.advertisesOnInterface(name)) {
@@ -236,7 +243,14 @@ export class Announcer {
 
       const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: answer });
 
-      promises.push(server.send(packet, name));
+      promises.push(Promise.race([
+        server.send(packet, name),
+        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
+          <SendTimeoutResult>{
+            status: "timeout",
+            interface: name,
+          }),
+      ]));
     }
 
     return Promise.all(promises);

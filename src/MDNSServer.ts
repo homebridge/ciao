@@ -15,6 +15,7 @@ import {
 import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
 import { InterfaceNotFoundError, ServerClosedError } from "./util/errors";
+import { PromiseTimeout } from "./util/promise-utils";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -24,10 +25,9 @@ export interface EndpointInfo {
   interface: string;
 }
 
-export interface SendFulfilledResult<T> {
+export interface SendFulfilledResult {
   status: "fulfilled",
   interface: InterfaceName,
-  value: T,
 }
 
 export interface SendRejectedResult {
@@ -36,7 +36,13 @@ export interface SendRejectedResult {
   reason: Error,
 }
 
-export type SendResult<T> = SendFulfilledResult<T> | SendRejectedResult;
+export interface SendTimeoutResult {
+  status: "timeout",
+  interface: InterfaceName,
+}
+
+export type SendResult = SendFulfilledResult | SendRejectedResult;
+export type TimedSendResult = SendFulfilledResult | SendRejectedResult | SendTimeoutResult;
 
 export type SendCallback = (error?: Error | null) => void;
 
@@ -48,7 +54,7 @@ export type SendCallback = (error?: Error | null) => void;
  *
  * @param results - Array of {@link SendResult}
  */
-export function SendResultFailedRatio<T>(results: SendResult<T>[]): number {
+export function SendResultFailedRatio(results: SendResult[] | TimedSendResult[]): number {
   if (results.length === 0) {
     return 0;
   }
@@ -56,7 +62,7 @@ export function SendResultFailedRatio<T>(results: SendResult<T>[]): number {
   let failedCount = 0;
 
   for (const result of results) {
-    if (result.status === "rejected") {
+    if (result.status !== "fulfilled") {
       failedCount++;
     }
   }
@@ -64,10 +70,10 @@ export function SendResultFailedRatio<T>(results: SendResult<T>[]): number {
   return failedCount / results.length;
 }
 
-export function SendResultFormatError<T>(results: SendResult<T>[], prefix?: string, includeStack = false): string {
+export function SendResultFormatError(results: SendResult[] | TimedSendResult[], prefix?: string, includeStack = false): string {
   let failedCount = 0;
   for (const result of results) {
-    if (result.status === "rejected") {
+    if (result.status !== "fulfilled") {
       failedCount++;
     }
   }
@@ -89,6 +95,9 @@ export function SendResultFormatError<T>(results: SendResult<T>[], prefix?: stri
       if (result.status === "rejected") {
         string += "\n--------------------\n" +
           "Failed to send packet on interface " + result.interface + ": " + result.reason.stack;
+      } else if (result.status === "timeout") {
+        string += "\n--------------------\n" +
+          "Sending packet on interface " + result.interface + " timed out!";
       }
     }
 
@@ -101,6 +110,8 @@ export function SendResultFormatError<T>(results: SendResult<T>[], prefix?: stri
     for (const result of results) {
       if (result.status === "rejected") {
         string += "\n- Failed to send packet on interface " + result.interface + ": " + result.reason.message;
+      } else if (result.status === "timeout") {
+        string += "\n- Sending packet on interface " + result.interface + " timed out!";
       }
     }
 
@@ -151,6 +162,8 @@ export class MDNSServer {
   public static readonly MDNS_TTL = 255;
   public static readonly MULTICAST_IPV4 = "224.0.0.251";
   public static readonly MULTICAST_IPV6 = "FF02::FB";
+
+  public static readonly SEND_TIMEOUT = 200; // milliseconds
 
   private readonly handler: PacketHandler;
   private readonly networkManager: NetworkManager;
@@ -233,19 +246,19 @@ export class MDNSServer {
     this.sockets.clear();
   }
 
-  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, service: CiaoService): Promise<SendResult<void>[]> {
+  public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, service: CiaoService): Promise<TimedSendResult[]> {
     const packets = DNSPacket.createDNSQueryPackets(query);
     if (packets.length > 1) {
       debug("Query broadcast is split into %d packets!", packets.length);
     }
 
-    const promises: Promise<SendResult<void>[]>[] = [];
+    const promises: Promise<TimedSendResult[]>[] = [];
     for (const packet of packets) {
       promises.push(this.sendOnAllNetworksForService(packet, service));
     }
 
-    return Promise.all(promises).then((values: SendResult<void>[][]) => {
-      const results: SendResult<void>[] = [];
+    return Promise.all(promises).then((values: TimedSendResult[][]) => {
+      const results: TimedSendResult[] = [];
 
       for (const value of values) { // replace with .flat method when we have node >= 11.0.0 requirement
         results.concat(value);
@@ -255,7 +268,7 @@ export class MDNSServer {
     });
   }
 
-  public sendResponseBroadcast(response: DNSResponseDefinition, service: CiaoService): Promise<SendResult<void>[]> {
+  public sendResponseBroadcast(response: DNSResponseDefinition, service: CiaoService): Promise<TimedSendResult[]> {
     const packet = DNSPacket.createDNSResponsePacketsFromRRSet(response);
     return this.sendOnAllNetworksForService(packet, service);
   }
@@ -276,13 +289,13 @@ export class MDNSServer {
     });
   }
 
-  private sendOnAllNetworksForService(packet: DNSPacket, service: CiaoService): Promise<SendResult<void>[]> {
+  private sendOnAllNetworksForService(packet: DNSPacket, service: CiaoService): Promise<TimedSendResult[]> {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
     this.assertBeforeSend(message, IPFamily.IPv4);
 
-    const promises: Promise<SendResult<void>>[] = [];
+    const promises: Promise<TimedSendResult>[] = [];
     for (const [name, socket] of this.sockets) {
       if (!service.advertisesOnInterface(name)) {
         // i don't like the fact that we put the check inside the MDNSServer, as it should be independent of the above layer.
@@ -290,7 +303,7 @@ export class MDNSServer {
         continue;
       }
 
-      const promise = new Promise<SendResult<void>>(resolve => {
+      const promise = new Promise<SendResult>(resolve => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
           if (error && !MDNSServer.isSilencedSocketError(error)) {
             resolve({
@@ -302,19 +315,25 @@ export class MDNSServer {
             resolve({
               status: "fulfilled",
               interface: name,
-              value: undefined,
             });
           }
         });
       });
 
-      promises.push(promise);
+      promises.push(Promise.race([
+        promise,
+        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
+          <SendTimeoutResult>{
+            status: "timeout",
+            interface: name,
+          }),
+      ]));
     }
 
     return Promise.all(promises);
   }
 
-  public send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<SendResult<void>> {
+  public send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<SendResult> {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
@@ -339,7 +358,7 @@ export class MDNSServer {
       throw new InterfaceNotFoundError(`Could not find socket for given network interface '${name}'`);
     }
 
-    return new Promise<SendResult<void>>(resolve => {
+    return new Promise<SendResult>(resolve => {
       socket!.send(message, port, address, error => {
         if (error && !MDNSServer.isSilencedSocketError(error)) {
           resolve({
@@ -351,7 +370,6 @@ export class MDNSServer {
           resolve({
             status: "fulfilled",
             interface: name,
-            value: undefined,
           });
         }
       });

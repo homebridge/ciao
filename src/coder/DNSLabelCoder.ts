@@ -256,7 +256,7 @@ export class DNSLabelCoder {
     return offset - oldOffset; // written bytes
   }
 
-  public decodeName(offset: number): DecodedData<string> {
+  public decodeName(offset: number, resolvePointers = true): DecodedData<string> {
     if (!this.buffer) {
       assert.fail("Illegal state. Buffer not initialized!");
     }
@@ -279,6 +279,11 @@ export class DNSLabelCoder {
           const pointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK; // extract the offset
           offset++; // increment for the second byte of the pointer
 
+          if (!resolvePointers) {
+            name += name? ".~": "~";
+            break;
+          }
+
           // if we would allow pointers to a later location, we MUST ensure that we don't end up in a endless loop
           assert(pointer < oldOffset, "Pointer at " + (offset - 2) + " MUST point to a prior location!");
 
@@ -287,6 +292,11 @@ export class DNSLabelCoder {
         }  else if (labelTypePattern === DNSLabelCoder.LOCAL_COMPRESSION_ONE_BYTE) {
           let localPointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK;
           offset++; // increment for the second byte of the pointer;
+
+          if (!resolvePointers) {
+            name += name? ".~": "~";
+            break;
+          }
 
           if (localPointer >= 0 && localPointer < 255) { // 255 is reserved
             assert(this.startOfRR !== undefined, "Cannot decompress locally compressed name as record is not initialized!");

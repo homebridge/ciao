@@ -86,7 +86,15 @@ export class NSECRecord extends ResourceRecord {
   public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<NSECRecord> {
     const oldOffset = offset;
 
-    const decodedNextDomainName = coder.decodeName(offset);
+    /**
+     * Quick note to the line below. We base "false" as the second argument to decodeName, telling
+     * it to not resolve pointers.
+     * We discovered that especially UniFi routers with a VLAN setup and mdns forwarding enabled,
+     * fail to properly encode pointers inside the nextDomainName field.
+     * Those pointers simply point to random points in the record data, resulting in decoding to fail.
+     * As the field doesn't have any meaning and we simply don't use it, we just skip decoding for now.
+     */
+    const decodedNextDomainName = coder.decodeName(offset, false);
     offset += decodedNextDomainName.readBytes;
 
     const rrTypes: RType[] = [];

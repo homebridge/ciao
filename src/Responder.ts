@@ -711,6 +711,13 @@ export class Responder implements PacketHandler {
       return false;
     }
 
+    if (record.ttl === 0) {
+      // we currently don't care about goodbye packets.
+      // we could someday add a logic, to handle the case, where a goodbye packet was incorrectly send
+      // and we need to immediately correct that by sending out our records
+      return false;
+    }
+
     const recordName = dnsLowerCase(record.name);
 
     if (recordName === dnsLowerCase(service.getFQDN())) {

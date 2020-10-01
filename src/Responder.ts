@@ -534,8 +534,8 @@ export class Responder implements PacketHandler {
 
     // responses must not include questions RFC 6762 6.
     // known answer suppression according to RFC 6762 7.1.
-    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
-    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
+    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers, false, endpoint) ];
+    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers, true, endpoint) ];
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
@@ -913,7 +913,7 @@ export class Responder implements PacketHandler {
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const response = new QueryResponse(mainResponse.knownAnswers);
+    const response = new QueryResponse(mainResponse.knownAnswers, mainResponse.unicast, mainResponse.endpoint);
 
     const questionName = dnsLowerCase(question.name);
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
@@ -934,30 +934,31 @@ export class Responder implements PacketHandler {
           // only add additionals if answer is not suppressed by the known answer section
 
           // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-          response.addAdditional(service.srvRecord(), service.txtRecord(), service.addressNSECRecord(), service.serviceNSECRecord());
+          response.addAdditional(service.txtRecord(), service.srvRecord());
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+          response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
         }
       }
     } else if (questionName === dnsLowerCase(service.getFQDN())) {
       if (askingAny) {
-        const addedSrv = response.addAnswer(service.srvRecord());
         response.addAnswer(service.txtRecord());
+        const addedSrv = response.addAnswer(service.srvRecord());
 
         if (addedSrv) {
           // RFC 6763 12.2: include additionals: a, aaaa
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
-          response.addAdditional(service.addressNSECRecord(), service.serviceNSECRecord());
+          response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
         }
       } else if (question.type === QType.SRV) {
         const added = response.addAnswer(service.srvRecord());
 
         if (added) {
           // RFC 6763 12.2: include additionals: a, aaaa
-          response.addAdditional(service.serviceNSECRecord(true), service.addressNSECRecord());
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+          response.addAdditional(service.serviceNSECRecord(true), service.addressNSECRecord());
         }
       } else if (question.type === QType.TXT) {
         response.addAnswer(service.txtRecord());
@@ -1005,9 +1006,10 @@ export class Responder implements PacketHandler {
           const added = response.addAnswer(record);
           if (added) {
             // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-            response.addAdditional(service.srvRecord(), service.txtRecord());
+            response.addAdditional(service.txtRecord(), service.srvRecord());
             this.addAddressRecords(service, endpoint, RType.A, addAdditional);
             this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+            response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
           }
         }
       }

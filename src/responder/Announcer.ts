@@ -199,7 +199,8 @@ export class Announcer {
       const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
       const aaaaUniqueLocalRecord = service.aaaaUniqueLocalRecord(name);
       //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
-      const nsecRecord = service.nsecRecord();
+      const nsecRecord = service.addressNSECRecord();
+      const serviceNsecRecord = service.serviceNSECRecord();
 
       if (aRecord) {
         if (goodbye) {
@@ -238,8 +239,9 @@ export class Announcer {
 
       if (goodbye) {
         nsecRecord.ttl = 0;
+        serviceNsecRecord.ttl = 0;
       }
-      answer.push(nsecRecord);
+      answer.push(nsecRecord, serviceNsecRecord);
 
       const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: answer });
 

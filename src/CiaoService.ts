@@ -139,14 +139,17 @@ export interface ServiceRecords {
   ptr: PTRRecord; // this is the main type ptr record
   subtypePTRs?: PTRRecord[];
   metaQueryPtr: PTRRecord; // pointer for the "_services._dns-sd._udp.local" meta query
+
   srv: SRVRecord;
   txt: TXTRecord;
+  serviceNSEC: NSECRecord;
+
   a: Record<InterfaceName, ARecord>;
   aaaa: Record<InterfaceName, AAAARecord>; // link-local
   aaaaR: Record<InterfaceName, AAAARecord>; // routable AAAA
   aaaaULA: Record<InterfaceName, AAAARecord>; // unique local address
   reverseAddressPTRs: Record<IPAddress, PTRRecord>; // indexed by address
-  nsec: NSECRecord;
+  addressNSEC: NSECRecord;
 }
 
 /**
@@ -854,14 +857,17 @@ export class CiaoService extends EventEmitter {
       ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
       metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
+
       srv: new SRVRecord(this.fqdn, this.hostname, this.port!, true),
       txt: new TXTRecord(this.fqdn, this.txt, true),
+      serviceNSEC: new NSECRecord(this.fqdn, this.fqdn, [RType.TXT, RType.SRV], 4500, true), // 4500 ttl of src and txt
+
       a: aRecordMap,
       aaaa: aaaaRecordMap,
       aaaaR: aaaaRoutableRecordMap,
       aaaaULA: aaaaUniqueLocalRecordMap,
       reverseAddressPTRs: reverseAddressMap,
-      nsec: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
+      addressNSEC: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
     };
   }
 
@@ -972,10 +978,21 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
-   * @internal used to get a copy of the NSEC record
+   * @internal used to get a copy of the address NSEC record
    */
-  nsecRecord(): NSECRecord {
-    return this.serviceRecords!.nsec.clone();
+  addressNSECRecord(): NSECRecord {
+    return this.serviceRecords!.addressNSEC.clone();
+  }
+
+  /**
+   * @internal user to get a copy of the service NSEC record
+   */
+  serviceNSECRecord(shortenTTL = false): NSECRecord {
+    const record = this.serviceRecords!.serviceNSEC.clone();
+    if (shortenTTL) {
+      record.ttl = 120;
+    }
+    return record;
   }
 
   /**

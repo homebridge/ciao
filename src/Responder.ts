@@ -934,7 +934,7 @@ export class Responder implements PacketHandler {
           // only add additionals if answer is not suppressed by the known answer section
 
           // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
-          response.addAdditional(service.srvRecord(), service.txtRecord());
+          response.addAdditional(service.srvRecord(), service.txtRecord(), service.addressNSECRecord(), service.serviceNSECRecord());
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
         }
@@ -948,12 +948,14 @@ export class Responder implements PacketHandler {
           // RFC 6763 12.2: include additionals: a, aaaa
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+          response.addAdditional(service.addressNSECRecord(), service.serviceNSECRecord());
         }
       } else if (question.type === QType.SRV) {
         const added = response.addAnswer(service.srvRecord());
 
         if (added) {
           // RFC 6763 12.2: include additionals: a, aaaa
+          response.addAdditional(service.serviceNSECRecord(true), service.addressNSECRecord());
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
         }
@@ -966,7 +968,7 @@ export class Responder implements PacketHandler {
       if (askingAny) {
         this.addAddressRecords(service, endpoint, RType.A, addAnswer);
         this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
-        response.addAnswer(service.nsecRecord());
+        response.addAdditional(service.addressNSECRecord());
       } else if (question.type === QType.A) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
@@ -977,7 +979,7 @@ export class Responder implements PacketHandler {
           this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
         }
 
-        response.addAnswer(service.nsecRecord()); // always add the negative response, always assert dominance
+        response.addAdditional(service.addressNSECRecord()); // always add the negative response, always assert dominance
       } else if (question.type === QType.AAAA) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
@@ -988,7 +990,7 @@ export class Responder implements PacketHandler {
           this.addAddressRecords(service, endpoint, RType.A, addAdditional);
         }
 
-        response.addAnswer(service.nsecRecord()); // always add the negative response, always assert dominance
+        response.addAdditional(service.addressNSECRecord()); // always add the negative response, always assert dominance
       }
     } else if (service.getSubtypePTRs()) {
       if (askingAny || question.type === QType.PTR) {

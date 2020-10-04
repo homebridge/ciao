@@ -534,8 +534,8 @@ export class Responder implements PacketHandler {
 
     // responses must not include questions RFC 6762 6.
     // known answer suppression according to RFC 6762 7.1.
-    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers, false, endpoint) ];
-    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers, true, endpoint) ];
+    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
+    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
@@ -913,7 +913,7 @@ export class Responder implements PacketHandler {
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const response = new QueryResponse(mainResponse.knownAnswers, mainResponse.unicast, mainResponse.endpoint);
+    const response = new QueryResponse(mainResponse.knownAnswers);
 
     const questionName = dnsLowerCase(question.name);
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;

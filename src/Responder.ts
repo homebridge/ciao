@@ -965,7 +965,7 @@ export class Responder implements PacketHandler {
 
         // RFC 6763 12.3: no not any other additionals
       }
-    } else if (questionName === dnsLowerCase(service.getHostname())) {
+    } else if (questionName === dnsLowerCase(service.getHostname()) || questionName + "local." === dnsLowerCase(service.getHostname())) {
       if (askingAny) {
         this.addAddressRecords(service, endpoint, RType.A, addAnswer);
         this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);

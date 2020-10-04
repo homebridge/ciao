@@ -54,6 +54,8 @@ export function dnsTypeToString(type: RType | QType): string {
       return "AAAA";
     case 33:
       return "SRV";
+    case 41:
+      return "OPT";
     case 47:
       return "NSEC";
     case 255:

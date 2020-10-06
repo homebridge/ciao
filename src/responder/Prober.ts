@@ -5,6 +5,7 @@ import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
 import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
+import { Responder } from "../Responder";
 import dnsEqual from "../util/dns-equal";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
@@ -25,6 +26,7 @@ export class Prober {
 
   public static readonly CANCEL_REASON = "CIAO PROBING CANCELLED";
 
+  private readonly responder: Responder;
   private readonly server: MDNSServer;
   private readonly service: CiaoService;
 
@@ -41,9 +43,11 @@ export class Prober {
   private sentQueriesForCurrentTry = 0;
   private sentQueries = 0;
 
-  constructor(server: MDNSServer, service: CiaoService) {
+  constructor(responder: Responder, server: MDNSServer, service: CiaoService) {
+    assert(responder, "responder must be defined");
     assert(server, "server must be defined");
     assert(service, "service must be defined");
+    this.responder = responder;
     this.server = server;
     this.service = service;
   }
@@ -152,13 +156,16 @@ export class Prober {
 
     assert(this.records.length > 0, "Tried sending probing request for zero record length!");
 
+    const questions = [
+      // probes SHOULD be send with unicast response flag as of the RFC
+      // MDNServer might overwrite the QU flag to false, as we can't use unicast if there is another responder on the machine
+      new Question(this.service.getFQDN(), QType.ANY, true),
+      new Question(this.service.getHostname(), QType.ANY, true),
+    ];
+
     this.server.sendQueryBroadcast({
-      questions: [
-        // probes SHOULD be send with unicast response flag as of the RFC
-        // MDNServer might overwrite the QU flag to false, as we can't use unicast if there is another responder on the machine
-        new Question(this.service.getFQDN(), QType.ANY, true),
-        new Question(this.service.getHostname(), QType.ANY, true),
-      ],
+      questions: questions,
+      // TODO certified homekit accessories only include the main service PTR record
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
     }, this.service).then(results => {
       const failRatio = SendResultFailedRatio(results);
@@ -188,7 +195,24 @@ export class Prober {
 
       this.timer = setTimeout(this.sendProbeRequest.bind(this), this.currentInterval);
       this.timer.unref();
+
+      this.checkLocalConflicts();
     });
+  }
+
+  private checkLocalConflicts() {
+    let containsAnswer = false;
+    for (const service of this.responder.getAnnouncedServices()) {
+      if (dnsEqual(service.getFQDN(), this.service.getFQDN()) || dnsEqual(service.getHostname(), this.service.getHostname())) {
+        containsAnswer = true;
+        break;
+      }
+    }
+
+    if (containsAnswer) {
+      debug("Probing for '%s' failed as of local service. Doing a name change", this.service.getFQDN());
+      this.handleNameChange();
+    }
   }
 
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
@@ -198,30 +222,35 @@ export class Prober {
 
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
-    packet.answers.forEach(record => {
+    for (const record of packet.answers.values()) {
       if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         containsAnswer = true;
+        break;
       }
-    });
-    packet.additionals.forEach(record => {
+    }
+    for (const record of packet.additionals.values()) {
       if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
         containsAnswer = true;
+        break;
       }
-    });
+    }
 
     if (containsAnswer) { // abort and cancel probes
       debug("Probing for '%s' failed. Doing a name change", this.service.getFQDN());
-
-      this.endProbing(false); // reset the prober
-      this.service.serviceState = ServiceState.UNANNOUNCED;
-      this.service.incrementName();
-      this.service.serviceState = ServiceState.PROBING;
-
-      this.serviceEncounteredNameChange = true;
-
-      this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
-      this.timer.unref();
+      this.handleNameChange();
     }
+  }
+
+  private handleNameChange() {
+    this.endProbing(false); // reset the prober
+    this.service.serviceState = ServiceState.UNANNOUNCED;
+    this.service.incrementName();
+    this.service.serviceState = ServiceState.PROBING;
+
+    this.serviceEncounteredNameChange = true;
+
+    this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
+    this.timer.unref();
   }
 
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {

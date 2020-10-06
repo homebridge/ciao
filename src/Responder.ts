@@ -159,6 +159,10 @@ export class Responder implements PacketHandler {
     });
   }
 
+  public getAnnouncedServices(): IterableIterator<CiaoService> {
+    return this.announcedServices.values();
+  }
+
   private start(): Promise<void> {
     if (this.bound) {
       throw new Error("Server is already bound!");
@@ -188,7 +192,11 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Going to advertise service...", service.getFQDN()); // TODO include restricted addresses and stuff
 
-    // we have multicast loopback enabled, if there where any conflicting names, they would be resolved by the Prober
+    // multicast loopback is not enabled for our sockets, though we do some stuff, so Prober will handle potential
+    // name conflicts with our own services:
+    //  - One Responder will always run ONE prober: no need to handle simultaneous probe tiebreaking
+    //  - Prober will call the Responder to generate responses to its queries to
+    //      resolve name conflicts the same way as with other services on the network
 
     this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
       .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
@@ -349,7 +357,7 @@ export class Responder implements PacketHandler {
     service.serviceState = ServiceState.PROBING;
 
     assert(this.currentProber === undefined, "Tried creating new Prober when there already was one active!");
-    this.currentProber = new Prober(this.server, service);
+    this.currentProber = new Prober(this, this.server, service);
     return this.currentProber.probe()
       .then(() => {
         this.currentProber = undefined;

@@ -241,9 +241,14 @@ export class Announcer {
         nsecRecord.ttl = 0;
         serviceNsecRecord.ttl = 0;
       }
-      answer.push(nsecRecord, serviceNsecRecord);
 
-      const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: answer });
+      const additionals: ResourceRecord[] = [];
+      additionals.push(nsecRecord, serviceNsecRecord);
+
+      const packet = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: answer,
+        additionals: additionals,
+      });
 
       promises.push(Promise.race([
         server.send(packet, name),

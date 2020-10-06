@@ -174,6 +174,7 @@ export class MDNSServer {
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
   // Probe queries should be sent with QU set, though can't be sent with QU when we can't receive unicast responses.
   private suppressUnicastResponseFlag = false;
+  private readonly multicastLoopbackEnabled = false;
 
   private bound = false;
   private closed = false;
@@ -437,7 +438,7 @@ export class MDNSServer {
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
           socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
-          socket.setMulticastLoopback(true);
+          socket.setMulticastLoopback(this.multicastLoopbackEnabled);
 
           resolve();
         } catch (error) {

@@ -1,4 +1,8 @@
-import dnsEqual from "./dns-equal";
+import { dnsLowerCase } from "./dns-equal";
+
+function dnsEqual(string0: string, string1: string) {
+  return dnsLowerCase(string0) === dnsLowerCase(string1);
+}
 
 describe(dnsEqual, () => {
   it("should run positive tests", () => {

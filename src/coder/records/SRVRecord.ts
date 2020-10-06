@@ -1,4 +1,5 @@
 import assert from "assert";
+import { dnsLowerCase } from "../../util/dns-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
@@ -6,6 +7,7 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 export class SRVRecord extends ResourceRecord {
 
   readonly hostname: string;
+  private lowerCasedHostname?: string;
   readonly port: number;
   private readonly priority: number;
   private readonly weight: number;
@@ -30,6 +32,10 @@ export class SRVRecord extends ResourceRecord {
     // priority and weight are not supported to encode or read
     this.priority = 0;
     this.weight = 0;
+  }
+
+  public getLowerCasedHostname(): string {
+    return this.lowerCasedHostname || (this.lowerCasedHostname = dnsLowerCase(this.hostname));
   }
 
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {

@@ -32,7 +32,6 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
-import { dnsLowerCase } from "./util/dns-equal";
 import { ERR_INTERFACE_NOT_FOUND, ERR_SERVER_CLOSED } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
@@ -67,12 +66,13 @@ export class Responder implements PacketHandler {
 
   // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
   private readonly announcedServices: Map<string, CiaoService> = new Map();
-  /*
+  /**
    * map representing all our shared PTR records.
    * Typically we hold stuff like '_services._dns-sd._udp.local' (RFC 6763 9.), '_hap._tcp.local'.
    * Also pointers for every subtype like '_printer._sub._http._tcp.local' are inserted here.
    *
    * For every pointer we may hold multiple entries (like multiple services can advertise on _hap._tcp.local).
+   * The key as well as all values are {@link dnsLowerCase}
    */
   private readonly servicePointer: Map<string, string[]> = new Map();
 
@@ -308,22 +308,25 @@ export class Responder implements PacketHandler {
   }
 
   private clearService(service: CiaoService): void {
-    const serviceFQDN = service.getFQDN();
-    const typePTR = service.getTypePTR();
-    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+    const serviceFQDN = service.getLowerCasedFQDN();
+    const typePTR = service.getLowerCasedTypePTR();
+    const subtypePTRs = service.getLowerCasedSubtypePTRs(); // possibly undefined
 
     this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-    this.removePTR(dnsLowerCase(typePTR), serviceFQDN);
+    this.removePTR(typePTR, serviceFQDN);
     if (subtypePTRs) {
       for (const ptr of subtypePTRs) {
-        this.removePTR(dnsLowerCase(ptr), serviceFQDN);
+        this.removePTR(ptr, serviceFQDN);
       }
     }
 
-    this.announcedServices.delete(dnsLowerCase(serviceFQDN));
+    this.announcedServices.delete(service.getLowerCasedFQDN());
   }
 
   private addPTR(ptr: string, name: string): void {
+    // we don't call lower case here, as we expect the caller to have done that already
+    // name = dnsLowerCase(name); // worst case is that the meta query ptr record contains lower cased destination
+
     const names = this.servicePointer.get(ptr);
     if (names) {
       if (!names.includes(name)) {
@@ -382,19 +385,19 @@ export class Responder implements PacketHandler {
     });
     service.currentAnnouncer = announcer;
 
-    const serviceFQDN = service.getFQDN();
-    const typePTR = service.getTypePTR();
-    const subtypePTRs = service.getSubtypePTRs(); // possibly undefined
+    const serviceFQDN = service.getLowerCasedFQDN();
+    const typePTR = service.getLowerCasedTypePTR();
+    const subtypePTRs = service.getLowerCasedSubtypePTRs(); // possibly undefined
 
     this.addPTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
-    this.addPTR(dnsLowerCase(typePTR), serviceFQDN);
+    this.addPTR(typePTR, serviceFQDN);
     if (subtypePTRs) {
       for (const ptr of subtypePTRs) {
-        this.addPTR(dnsLowerCase(ptr), serviceFQDN);
+        this.addPTR(ptr, serviceFQDN);
       }
     }
 
-    this.announcedServices.set(dnsLowerCase(serviceFQDN), service);
+    this.announcedServices.set(serviceFQDN, service);
 
     return announcer.announce().then(() => {
       service.serviceState = ServiceState.ANNOUNCED;
@@ -425,7 +428,7 @@ export class Responder implements PacketHandler {
     // TODO we should do a announcement at this point "in theory"
     this.server.sendResponseBroadcast(response, service).then(results => {
       const failRatio = SendResultFailedRatio(results);
-      if (failRatio === 1) {  // TODO loopback will most likely always succeed
+      if (failRatio === 1) {
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
         if (callback) {
           callback(new Error("Updating records failed as of socket errors!"));
@@ -605,14 +608,13 @@ export class Responder implements PacketHandler {
         continue;
       }
 
-      const time = new Date().getTime() - start;
-
       if ((multicastResponse.containsSharedAnswer() || packet.questions.size > 1) && !isProbeQuery) {
         // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
         // This is also the case if there are multiple questions. If multiple questions are asked
         // we probably could not answer them all (because not all of them were directed to us).
         // All those conditions are overridden if this is a probe query. To those queries we must respond instantly!
 
+        const time = new Date().getTime() - start;
         this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, time);
       } else {
         // otherwise the response is sent immediately, if there isn't any packet in the queue
@@ -630,6 +632,7 @@ export class Responder implements PacketHandler {
           }
 
           if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
+            const time = new Date().getTime() - start;
             sentWithLaterPacket = true;
             debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later", endpoint.interface, time);
             break;
@@ -638,6 +641,7 @@ export class Responder implements PacketHandler {
 
         if (!sentWithLaterPacket) {
           this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
+          const time = new Date().getTime() - start;
           debug("Sending response via multicast on network %s (took %d ms): %s", endpoint.interface, time, multicastResponse.asString(udpPayloadSize));
         }
       }
@@ -727,12 +731,12 @@ export class Responder implements PacketHandler {
       return false;
     }
 
-    const recordName = dnsLowerCase(record.name);
+    const recordName = record.getLowerCasedName();
 
-    if (recordName === dnsLowerCase(service.getFQDN())) {
+    if (recordName === service.getLowerCasedFQDN()) {
       if (record.type === RType.SRV) {
         const srvRecord = record as SRVRecord;
-        if (dnsLowerCase(srvRecord.hostname) !== dnsLowerCase(service.getHostname())) {
+        if (srvRecord.getLowerCasedHostname() !== service.getLowerCasedHostname()) {
           debug("[%s] Noticed conflicting record on the network. SRV with hostname: %s", service.getFQDN(), srvRecord.hostname);
           return true;
         } else if (srvRecord.port !== service.getPort()) {
@@ -758,7 +762,7 @@ export class Responder implements PacketHandler {
           }
         }
       }
-    } else if (recordName === dnsLowerCase(service.getHostname())) {
+    } else if (recordName === service.getLowerCasedHostname()) {
       if (record.type === RType.A) {
         const aRecord = record as ARecord;
 
@@ -860,15 +864,14 @@ export class Responder implements PacketHandler {
     const serviceResponses: QueryResponse[] = [];
 
     if (question.type === QType.PTR || question.type === QType.ANY || question.type === QType.CNAME) {
-      const loweredQuestionName = dnsLowerCase(question.name);
-      const destinations = this.servicePointer.get(loweredQuestionName); // look up the pointer
+      const destinations = this.servicePointer.get(question.getLowerCasedName()); // look up the pointer, all entries are dnsLowerCased
 
       if (destinations) {
         // if it's a pointer name, we handle it here
         for (const data of destinations) {
           // check if the PTR is pointing towards a service, like in questions for PTR '_hap._tcp.local'
           // if that's the case, let the question be answered by the service itself
-          const service = this.announcedServices.get(dnsLowerCase(data));
+          const service = this.announcedServices.get(data);
 
           if (service) {
             if (service.advertisesOnInterface(endpoint.interface)) {
@@ -882,7 +885,7 @@ export class Responder implements PacketHandler {
             // it's probably question for PTR '_services._dns-sd._udp.local'
             // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
             mainResponse.addAnswer(new PTRRecord(question.name, data));
-            // TODO we may send out meta queries on interfaces where there aren't any services, because they are
+            // we may send out meta queries on interfaces where there aren't any services, because they are
             //  restricted to other interfaces.
           }
         }
@@ -924,7 +927,7 @@ export class Responder implements PacketHandler {
 
     const response = new QueryResponse(mainResponse.knownAnswers);
 
-    const questionName = dnsLowerCase(question.name);
+    const loweredQuestionName = question.getLowerCasedName();
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
 
     const addAnswer = response.addAnswer.bind(response);
@@ -935,8 +938,7 @@ export class Responder implements PacketHandler {
     //    placed into the additional section, so that queriers can know with
     //    certainty that the device has no addresses of that kind.
 
-    // TODO reduce the amount of times someone needs to call dnsLowerCase?
-    if (questionName === dnsLowerCase(service.getTypePTR())) {
+    if (loweredQuestionName === service.getLowerCasedTypePTR()) {
       if (askingAny || question.type === QType.PTR) {
         const added = response.addAnswer(service.ptrRecord());
 
@@ -950,7 +952,7 @@ export class Responder implements PacketHandler {
           response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
         }
       }
-    } else if (questionName === dnsLowerCase(service.getFQDN())) {
+    } else if (loweredQuestionName === service.getLowerCasedFQDN()) {
       if (askingAny) {
         response.addAnswer(service.txtRecord());
         const addedSrv = response.addAnswer(service.srvRecord());
@@ -975,7 +977,7 @@ export class Responder implements PacketHandler {
 
         // RFC 6763 12.3: no not any other additionals
       }
-    } else if (questionName === dnsLowerCase(service.getHostname()) || questionName + "local." === dnsLowerCase(service.getHostname())) {
+    } else if (loweredQuestionName === service.getLowerCasedHostname() || loweredQuestionName + "local." === service.getLowerCasedHostname()) {
       if (askingAny) {
         this.addAddressRecords(service, endpoint, RType.A, addAnswer);
         this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
@@ -1003,15 +1005,15 @@ export class Responder implements PacketHandler {
 
         response.addAdditional(service.addressNSECRecord()); // always add the negative response, always assert dominance
       }
-    } else if (service.getSubtypePTRs()) {
+    } else if (service.getLowerCasedSubtypePTRs()) {
       if (askingAny || question.type === QType.PTR) {
-        const dnsLowerSubTypes = service.getSubtypePTRs()!.map(dnsLowerCase);
-        const index = dnsLowerSubTypes.indexOf(questionName);
+        const dnsLowerSubTypes = service.getLowerCasedSubtypePTRs()!;
+        const index = dnsLowerSubTypes.indexOf(loweredQuestionName);
 
         if (index !== -1) { // we have a sub type for the question
           const records = service.subtypePtrRecords();
           const record = records![index];
-          assert(questionName === dnsLowerCase(record.name), "Question Name didn't match selected sub type ptr record!");
+          assert(loweredQuestionName === record.name, "Question Name didn't match selected sub type ptr record!");
 
           const added = response.addAnswer(record);
           if (added) {

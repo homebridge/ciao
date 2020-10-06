@@ -13,6 +13,7 @@ import { ResourceRecord } from "./coder/ResourceRecord";
 import { Protocol, Responder } from "./index";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
+import { dnsLowerCase } from "./util/dns-equal";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
@@ -283,10 +284,13 @@ export class CiaoService extends EventEmitter {
   private readonly serviceDomain: string; // remember: can't be named "domain" => conflicts with EventEmitter
 
   private fqdn: string; // fully qualified domain name
+  private loweredFqdn: string;
   private readonly typePTR: string;
+  private readonly loweredTypePTR: string;
   private readonly subTypePTRs?: string[];
 
   private hostname: string; // formatted hostname
+  private loweredHostname: string;
   private port?: number;
 
   private readonly restrictedAddresses?: Map<InterfaceName, IPAddress[]>;
@@ -334,12 +338,14 @@ export class CiaoService extends EventEmitter {
     this.serviceDomain = options.domain || "local";
 
     this.fqdn = this.formatFQDN();
+    this.loweredFqdn = dnsLowerCase(this.fqdn);
 
     this.typePTR = domainFormatter.stringify({ // something like '_hap._tcp.local'
       type: this.type,
       protocol: this.protocol,
       domain: this.serviceDomain,
     });
+    this.loweredTypePTR = dnsLowerCase(this.typePTR);
 
     if (this.subTypes) {
       this.subTypePTRs = this.subTypes.map(subtype => domainFormatter.stringify({
@@ -347,11 +353,12 @@ export class CiaoService extends EventEmitter {
         type: this.type,
         protocol: this.protocol,
         domain: this.serviceDomain,
-      }));
+      })).map(dnsLowerCase);
     }
 
     this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
+    this.loweredHostname = dnsLowerCase(this.hostname);
     this.port = options.port;
 
     if (options.restrictedAddresses) {
@@ -464,7 +471,7 @@ export class CiaoService extends EventEmitter {
   /**
    * @returns Array of subtype pointers (undefined if no subtypes are specified).
    */
-  public getSubtypePTRs(): string[] | undefined {
+  public getLowerCasedSubtypePTRs(): string[] | undefined {
     return this.subTypePTRs;
   }
 
@@ -489,6 +496,27 @@ export class CiaoService extends EventEmitter {
    */
   public getTXT(): Buffer[] {
     return this.txt;
+  }
+
+  /**
+   * @internal used for internal comparison {@link dnsLowerCase}
+   */
+  public getLowerCasedFQDN(): string {
+    return this.loweredFqdn;
+  }
+
+  /**
+   * @internal used for internal comparison {@link dnsLowerCase}
+   */
+  public getLowerCasedTypePTR(): string {
+    return this.loweredTypePTR;
+  }
+
+  /**
+   * @internal used for internal comparison {@link dnsLowerCase}
+   */
+  public getLowerCasedHostname(): string {
+    return this.loweredHostname;
   }
 
   /**
@@ -571,12 +599,14 @@ export class CiaoService extends EventEmitter {
     if (this.serviceState === ServiceState.UNANNOUNCED) {
       this.name = name;
       this.fqdn = this.formatFQDN();
+      this.loweredFqdn = dnsLowerCase(this.fqdn);
       return Promise.resolve();
     } else {
       return this.end() // send goodbye packets for the current name
         .then(() => {
           this.name = name;
           this.fqdn = this.formatFQDN();
+          this.loweredFqdn = dnsLowerCase(this.fqdn);
 
           // service records are going to be rebuilt on the advertise step
           return this.advertise();
@@ -756,8 +786,10 @@ export class CiaoService extends EventEmitter {
     // reassemble the name
     this.name = newNumber === 1? nameBase: `${nameBase} (${newNumber})`;
     this.hostname = newNumber === 1? `${hostnameBase}${hostnameTLD}`: `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+    this.loweredHostname = dnsLowerCase(this.hostname);
 
     this.fqdn = this.formatFQDN(); // update the fqdn
+    this.loweredFqdn = dnsLowerCase(this.fqdn);
 
     // we must inform the user that the names changed, so the new names can be persisted
     // This is done after the Probing finish, as multiple name changes could happen in one probing session

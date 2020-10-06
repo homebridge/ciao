@@ -1,3 +1,4 @@
+import { dnsLowerCase } from "../util/dns-equal";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, QClass, QType } from "./DNSPacket";
 
@@ -7,6 +8,7 @@ export class Question implements DNSRecord {
   private static readonly NOT_QU_MASK = 0x7FFF;
 
   readonly name: string;
+  private lowerCasedName?: string;
   readonly type: QType;
   readonly class: QClass;
 
@@ -22,6 +24,10 @@ export class Question implements DNSRecord {
     this.class = clazz;
 
     this.unicastResponseFlag = unicastResponseFlag;
+  }
+
+  public getLowerCasedName(): string {
+    return this.lowerCasedName || (this.lowerCasedName = dnsLowerCase(this.name));
   }
 
   public getEncodingLength(coder: DNSLabelCoder): number {

@@ -6,7 +6,6 @@ import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
 import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
 import { Responder } from "../Responder";
-import dnsEqual from "../util/dns-equal";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
 import Timeout = NodeJS.Timeout;
@@ -169,7 +168,7 @@ export class Prober {
       authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
     }, this.service).then(results => {
       const failRatio = SendResultFailedRatio(results);
-      if (failRatio === 1) {  // TODO loopback will most likely always succeed
+      if (failRatio === 1) {
         console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);
         this.endProbing(false);
         this.promiseReject!(new Error("Probing failed as of socket errors!"));
@@ -203,7 +202,7 @@ export class Prober {
   private checkLocalConflicts() {
     let containsAnswer = false;
     for (const service of this.responder.getAnnouncedServices()) {
-      if (dnsEqual(service.getFQDN(), this.service.getFQDN()) || dnsEqual(service.getHostname(), this.service.getHostname())) {
+      if (service.getLowerCasedFQDN() === this.service.getLowerCasedFQDN() || service.getLowerCasedHostname() === this.service.getLowerCasedHostname()) {
         containsAnswer = true;
         break;
       }
@@ -223,13 +222,13 @@ export class Prober {
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     for (const record of packet.answers.values()) {
-      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
+      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
         containsAnswer = true;
         break;
       }
     }
     for (const record of packet.additionals.values()) {
-      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
+      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
         containsAnswer = true;
         break;
       }
@@ -261,11 +260,12 @@ export class Prober {
     // if we are currently probing and receiving a query which is also a probing query
     // which matches the desired name we run the tiebreaking algorithm to decide on the winner
     let needsTiebreaking = false;
-    packet.questions.forEach(question => {
-      if (dnsEqual(question.name, this.service.getFQDN()) || dnsEqual(question.name, this.service.getHostname())) {
+    for (const question of packet.questions.values()) {
+      if (question.getLowerCasedName() === this.service.getLowerCasedFQDN() || question.getLowerCasedName() === this.service.getLowerCasedHostname()) {
         needsTiebreaking = true;
+        break;
       }
-    });
+    }
 
 
     if (needsTiebreaking) {
@@ -280,11 +280,12 @@ export class Prober {
 
     // first of all check if the contents of authorities answers our query
     let conflict = packet.authorities.size === 0;
-    packet.authorities.forEach(record => {
-      if (dnsEqual(record.name, this.service.getFQDN()) || dnsEqual(record.name, this.service.getHostname())) {
+    for (const record of packet.authorities.values()) {
+      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
         conflict = true;
+        break;
       }
-    });
+    }
     if (!conflict) {
       return;
     }

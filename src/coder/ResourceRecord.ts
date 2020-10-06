@@ -1,4 +1,5 @@
 import assert from "assert";
+import { dnsLowerCase } from "../util/dns-equal";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, RClass, RType } from "./DNSPacket";
 
@@ -27,6 +28,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   private static readonly DEFAULT_TTL = 4500; // 75 minutes
 
   readonly name: string;
+  private lowerCasedName?: string;
   readonly type: RType;
   readonly class: RClass;
   ttl: number;
@@ -53,6 +55,10 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       this.ttl = name.ttl;
       this.flushFlag = name.flushFlag;
     }
+  }
+
+  public getLowerCasedName(): string {
+    return this.lowerCasedName || (this.lowerCasedName = dnsLowerCase(this.name));
   }
 
   public getEncodingLength(coder: DNSLabelCoder): number {

@@ -2,7 +2,7 @@ import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";
 import net from "net";
-import { RType } from "./coder/DNSPacket";
+import { DNSResponseDefinition, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { ARecord } from "./coder/records/ARecord";
 import { NSECRecord } from "./coder/records/NSECRecord";
@@ -219,7 +219,7 @@ export declare interface CiaoService {
   /**
    * @internal
    */
-  on(event: InternalServiceEvent.RECORD_UPDATE, listener: (records: ResourceRecord[], callback?: (error?: Error | null) => void) => void): this;
+  on(event: InternalServiceEvent.RECORD_UPDATE, listener: (response: DNSResponseDefinition, callback?: (error?: Error | null) => void) => void): this;
   /**
    * @internal
    */
@@ -249,7 +249,7 @@ export declare interface CiaoService {
   /**
    * @internal
    */
-  emit(event: InternalServiceEvent.RECORD_UPDATE, records: ResourceRecord[], callback?: (error?: Error | null) => void): boolean;
+  emit(event: InternalServiceEvent.RECORD_UPDATE, response: DNSResponseDefinition, callback?: (error?: Error | null) => void): boolean;
   /**
    * @internal
    */
@@ -542,7 +542,10 @@ export class CiaoService extends EventEmitter {
         if (this.serviceState !== ServiceState.ANNOUNCED) { // stuff changed in the last 50 milliseconds
           return;
         }
-        this.emit(InternalServiceEvent.RECORD_UPDATE, [this.txtRecord()]);
+        this.emit(InternalServiceEvent.RECORD_UPDATE, {
+          answers: [ this.txtRecord() ],
+          additionals: [ this.serviceNSECRecord() ],
+        });
       }, 50);
     }
   }

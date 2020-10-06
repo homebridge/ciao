@@ -9,7 +9,7 @@ import {
   ServiceState,
   UnpublishCallback,
 } from "./CiaoService";
-import { DNSPacket, QClass, QType, RType } from "./coder/DNSPacket";
+import { DNSPacket, DNSResponseDefinition, QClass, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { ARecord } from "./coder/records/ARecord";
@@ -406,15 +406,16 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private handleServiceRecordUpdate(service: CiaoService, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
+  private handleServiceRecordUpdate(service: CiaoService, response: DNSResponseDefinition, callback?: RecordsUpdateCallback): void {
     // when updating we just repeat the announce step
     if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
 
-    debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), records.length);
+    debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), response.answers.length + (response.additionals?.length || 0));
 
-    this.server.sendResponseBroadcast( { answers: records }, service).then(results => {
+    // TODO we should do a announcement at this point "in theory"
+    this.server.sendResponseBroadcast(response, service).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {  // TODO loopback will most likely always succeed
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
@@ -926,6 +927,7 @@ export class Responder implements PacketHandler {
     //    placed into the additional section, so that queriers can know with
     //    certainty that the device has no addresses of that kind.
 
+    // TODO reduce the amount of times someone needs to call dnsLowerCase?
     if (questionName === dnsLowerCase(service.getTypePTR())) {
       if (askingAny || question.type === QType.PTR) {
         const added = response.addAnswer(service.ptrRecord());

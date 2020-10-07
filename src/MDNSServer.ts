@@ -314,8 +314,6 @@ export class MDNSServer {
       const promise = new Promise<SendResult>(resolve => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
           if (error) {
-            this.maintainSentPacketsForLoopbackInterfaces(name, message);
-
             if (!MDNSServer.isSilencedSocketError(error)) {
               resolve({
                 status: "rejected",
@@ -324,6 +322,8 @@ export class MDNSServer {
               });
               return;
             }
+          } else {
+            this.maintainSentPacketsForLoopbackInterfaces(name, message);
           }
 
           resolve({
@@ -374,8 +374,6 @@ export class MDNSServer {
     return new Promise<SendResult>(resolve => {
       socket!.send(message, port, address, error => {
         if (error) {
-          this.maintainSentPacketsForLoopbackInterfaces(name, message);
-
           if (!MDNSServer.isSilencedSocketError(error)) {
             resolve({
               status: "rejected",
@@ -384,6 +382,8 @@ export class MDNSServer {
             });
             return;
           }
+        } else {
+          this.maintainSentPacketsForLoopbackInterfaces(name, message);
         }
 
         resolve({

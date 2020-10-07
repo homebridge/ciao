@@ -302,16 +302,16 @@ export class DNSLabelCoder {
             assert(this.startOfRR !== undefined, "Cannot decompress locally compressed name as record is not initialized!");
             localPointer += this.startOfRR!;
 
+            assert(localPointer < oldOffset, "LocalPointer <255 at " + (offset - 2) + " MUST point to a prior location!");
+
             name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
           } else if (localPointer >= 256) {
             assert(this.startOfRData !== undefined && this.rDataLength !== undefined, "Cannot decompress locally compressed name as record is not initialized!");
             localPointer -= -256; // subtract the offset 256
-            if (localPointer >= this.rDataLength!) {
-              assert.fail("Local decompression pointer at " + (offset - 2) + " points out of bounds " +
-                (localPointer + this.startOfRData!) + " >= " + (this.startOfRData! + this.rDataLength!));
-            }
 
             localPointer += this.startOfRData!;
+
+            assert(localPointer < oldOffset, "LocationPoint >265 at " + (offset + 2) + " MUST point to a prior location!");
 
             name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
           } else {

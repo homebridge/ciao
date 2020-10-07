@@ -12,7 +12,14 @@ import {
   PacketType,
   RCode,
 } from "./coder/DNSPacket";
-import { InterfaceName, IPFamily, NetworkManager, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
+import {
+  InterfaceName,
+  IPFamily,
+  NetworkInterface,
+  NetworkManager,
+  NetworkManagerEvent,
+  NetworkUpdate,
+} from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
 import { InterfaceNotFoundError, ServerClosedError } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
@@ -170,11 +177,13 @@ export class MDNSServer {
 
   private readonly sockets: Map<InterfaceName, Socket> = new Map();
 
+  private readonly loopbackInterfaces: Set<InterfaceName> = new Set();
+  private readonly sentLoopbackPackets: Map<InterfaceName, string[]> = new Map();
+
   // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
   // Probe queries should be sent with QU set, though can't be sent with QU when we can't receive unicast responses.
   private suppressUnicastResponseFlag = false;
-  private readonly multicastLoopbackEnabled = false;
 
   private bound = false;
   private closed = false;
@@ -215,13 +224,11 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
 
-    for (const name of this.networkManager.getInterfaceMap().keys()) {
+    for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
       const socket = this.createDgramSocket(name, true);
 
-      const promise = this.bindSocket(socket, name, IPFamily.IPv4)
-        .then(() => {
-          this.sockets.set(name, socket);
-        }, reason => {
+      const promise = this.bindSocket(socket, networkInterface, IPFamily.IPv4)
+        .catch(reason => {
           // TODO if bind errors we probably will never bind again
           console.log("Could not bind detected network interface: " + reason.stack);
         });
@@ -306,18 +313,23 @@ export class MDNSServer {
 
       const promise = new Promise<SendResult>(resolve => {
         socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
-          if (error && !MDNSServer.isSilencedSocketError(error)) {
-            resolve({
-              status: "rejected",
-              interface: name,
-              reason: error,
-            });
-          } else {
-            resolve({
-              status: "fulfilled",
-              interface: name,
-            });
+          if (error) {
+            this.maintainSentPacketsForLoopbackInterfaces(name, message);
+
+            if (!MDNSServer.isSilencedSocketError(error)) {
+              resolve({
+                status: "rejected",
+                interface: name,
+                reason: error,
+              });
+              return;
+            }
           }
+
+          resolve({
+            status: "fulfilled",
+            interface: name,
+          });
         });
       });
 
@@ -361,18 +373,23 @@ export class MDNSServer {
 
     return new Promise<SendResult>(resolve => {
       socket!.send(message, port, address, error => {
-        if (error && !MDNSServer.isSilencedSocketError(error)) {
-          resolve({
-            status: "rejected",
-            interface: name,
-            reason: error,
-          });
-        } else {
-          resolve({
-            status: "fulfilled",
-            interface: name,
-          });
+        if (error) {
+          this.maintainSentPacketsForLoopbackInterfaces(name, message);
+
+          if (!MDNSServer.isSilencedSocketError(error)) {
+            resolve({
+              status: "rejected",
+              interface: name,
+              reason: error,
+            });
+            return;
+          }
         }
+
+        resolve({
+          status: "fulfilled",
+          interface: name,
+        });
       });
     });
   }
@@ -396,6 +413,34 @@ export class MDNSServer {
       "DNS cannot exceed the size of 9000 bytes even with IP Fragmentation!");
   }
 
+  private maintainSentPacketsForLoopbackInterfaces(name: InterfaceName, packet: Buffer): void {
+    if (!this.loopbackInterfaces.has(name)) {
+      return;
+    }
+
+    const base64 = packet.toString("base64");
+    const packets = this.sentLoopbackPackets.get(name);
+    if (!packets) {
+      this.sentLoopbackPackets.set(name, [base64]);
+    } else {
+      packets.push(base64);
+    }
+  }
+
+  private checkIfPreviouslySentPacketOnLoopbackInterface(name: InterfaceName, packet: Buffer): boolean {
+    const base64 = packet.toString("base64");
+    const packets = this.sentLoopbackPackets.get(name);
+    if (packets) {
+      const index = packets.indexOf(base64);
+      if (index !== -1) {
+        packets.splice(index, 1);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private createDgramSocket(name: InterfaceName, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
     const socket = dgram.createSocket({
       type: type,
@@ -412,23 +457,25 @@ export class MDNSServer {
     return socket;
   }
 
-  private bindSocket(socket: Socket, name: InterfaceName, family: IPFamily): Promise<void> {
-    const networkInterface = this.networkManager.getInterface(name);
-    if (!networkInterface) {
-      throw new InterfaceNotFoundError(`Could not find network interface '${name}' in network manager which socket is going to be bind to!`);
-    }
-
+  private bindSocket(socket: Socket, networkInterface: NetworkInterface, family: IPFamily): Promise<void> {
     return new Promise((resolve, reject) => {
-      const errorHandler = (error: Error): void => reject(new Error("Failed to bind on interface " + name + ": " + error.message));
+      const errorHandler = (error: Error): void => reject(new Error("Failed to bind on interface " + networkInterface.name + ": " + error.message));
       socket.once("error", errorHandler);
+
+      socket.on("close", () => {
+        this.sockets.delete(networkInterface.name);
+        if (networkInterface.loopback) {
+          this.loopbackInterfaces.delete(networkInterface.name);
+        }
+      });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
         socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
 
         const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;
-        const interfaceAddress = family === IPFamily.IPv4? networkInterface!.ipv4: networkInterface!.ipv6;
-        assert(interfaceAddress, "Interface address for " + name + " cannot be undefined!");
+        const interfaceAddress = family === IPFamily.IPv4? networkInterface.ipv4: networkInterface.ipv6;
+        assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
 
         try {
           socket.addMembership(multicastAddress, interfaceAddress!);
@@ -438,8 +485,12 @@ export class MDNSServer {
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
           socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
-          socket.setMulticastLoopback(this.multicastLoopbackEnabled);
+          socket.setMulticastLoopback(networkInterface.loopback); // we only enable that for the loopback interface
 
+          this.sockets.set(networkInterface.name, socket);
+          if (networkInterface.loopback) {
+            this.loopbackInterfaces.add(networkInterface.name);
+          }
           resolve();
         } catch (error) {
           try {
@@ -447,7 +498,7 @@ export class MDNSServer {
           } catch (error) {
             debug("Error while closing socket which failed to bind. Error may be expected: " + error.message);
           }
-          reject(new Error("Error binding socket on " + name + ": " + error.stack));
+          reject(new Error("Error binding socket on " + networkInterface.name + ": " + error.stack));
         }
       });
     });
@@ -463,15 +514,23 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
+    if (networkInterface.loopback && this.checkIfPreviouslySentPacketOnLoopbackInterface(networkInterface.name, buffer)) {
+      // multicastLoopback is enabled for the loopback interface, meaning we would receive our own response
+      // packets here. Thus we silence them.
+      return;
+    }
+
     const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
     if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
       // This isn't a problem on macOS (it seems like to respect the desired interface we supply for our membership)
       // On Linux based system such filtering seems to not happen :thinking: we just get any traffic and it's like
       // we are just bound to 0.0.0.0
+      /* disabled debug message for now
       if (!name.includes("lo")) { // exclude the loopback interface for this error
         debug("Received packet on " + name + " which is not coming from the same subnet. %o",
           {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
       }
+      */
       return;
     }
 
@@ -586,9 +645,7 @@ export class MDNSServer {
       for (const networkInterface of networkUpdate.added) {
         const socket = this.createDgramSocket(networkInterface.name, true);
 
-        this.bindSocket(socket, networkInterface.name, IPFamily.IPv4).then(() => {
-          this.sockets.set(networkInterface.name, socket);
-        }, reason => {
+        this.bindSocket(socket, networkInterface, IPFamily.IPv4).catch(reason => {
           // TODO if bind errors we probably will never bind again
           console.log("Could not bind detected network interface: " + reason.stack);
         });

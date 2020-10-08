@@ -974,8 +974,9 @@ export class Responder implements PacketHandler {
         }
       } else if (question.type === QType.TXT) {
         response.addAnswer(service.txtRecord());
+        response.addAdditional(service.serviceNSECRecord());
 
-        // RFC 6763 12.3: no not any other additionals
+        // RFC 6763 12.3: not any other additionals
       }
     } else if (loweredQuestionName === service.getLowerCasedHostname() || loweredQuestionName + "local." === service.getLowerCasedHostname()) {
       if (askingAny) {

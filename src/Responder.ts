@@ -42,6 +42,12 @@ const queuedResponseComparator = (a: QueuedResponse, b: QueuedResponse) => {
   return a.estimatedTimeToBeSent - b.estimatedTimeToBeSent;
 };
 
+const enum ConflictType { // RFC 6762 6.6.
+  NO_CONFLICT,
+  CONFLICTING_RDATA, // we must do conflict resolution
+  CONFLICTING_TTL,
+}
+
 /**
  * A Responder instance represents a running MDNSServer and a set of advertised services.
  *
@@ -660,40 +666,69 @@ export class Responder implements PacketHandler {
     }
 
     for (const service of this.announcedServices.values()) {
-      let conflictingRecord: ResourceRecord | undefined = undefined;
+      let conflictingRData = false;
+      let ttlConflicts = 0; // we currently do a full blown announcement with all records, we could in the future track which records have invalid ttl
 
       for (const record of packet.answers.values()) {
-        if (Responder.hasConflict(service, record, endpoint)) {
-          conflictingRecord = record;
-          break;
+        const type = Responder.checkRecordConflictType(service, record, endpoint);
+        if (type === ConflictType.CONFLICTING_RDATA) {
+          conflictingRData = true;
+          break; // we will republish in any case
+        } else if (type === ConflictType.CONFLICTING_TTL) {
+          ttlConflicts++;
         }
       }
 
-      if (!conflictingRecord) {
+      if (!conflictingRData) {
         for (const record of packet.additionals.values()) {
-          if (Responder.hasConflict(service, record, endpoint)) {
-            conflictingRecord = record;
-            break;
+          const type = Responder.checkRecordConflictType(service, record, endpoint);
+          if (type === ConflictType.CONFLICTING_RDATA) {
+            conflictingRData = true;
+            break; // we will republish in any case
+          } else if (type === ConflictType.CONFLICTING_TTL) {
+            ttlConflicts++;
           }
         }
       }
 
-      if (conflictingRecord) {
+
+      if (conflictingRData) {
         // noinspection JSIgnoredPromiseFromCall
         this.republishService(service, error => {
           if (error) {
-            console.log("FATAL Error occurred trying to resolve conflict for service " + service.getFQDN() + "! We can't recover from this!");
+            console.log(`FATAL Error occurred trying to resolve conflict for service ${service.getFQDN()}! We can't recover from this!`);
             console.log(error.stack);
             process.exit(1); // we have a service which should be announced, though we failed to reannounce.
             // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
             // for situations where it makes sense
           }
         }, true);
+      } else if (ttlConflicts && !service.currentAnnouncer) {
+        service.serviceState = ServiceState.ANNOUNCING; // all code above doesn't expect a Announcer object in state ANNOUNCED
+
+        const announcer = new Announcer(this.server, service, {
+          repetitions: 1, // we send exactly one packet to correct any ttl values in neighbouring caches
+        });
+        service.currentAnnouncer = announcer;
+
+        announcer.announce().then(() => {
+          service.currentAnnouncer = undefined;
+          service.serviceState = ServiceState.ANNOUNCED;
+        }, reason => {
+          service.currentAnnouncer = undefined;
+          service.serviceState = ServiceState.ANNOUNCED;
+
+          if (reason === Announcer.CANCEL_REASON) {
+            return; // nothing to worry about
+          }
+
+          console.warn("When trying to resolve a ttl conflict on the network, we were unable to send our response packet: " + reason.message);
+        });
       }
     }
   }
 
-  private static hasConflict(service: CiaoService, record: ResourceRecord, endpoint: EndpointInfo): boolean {
+  private static checkRecordConflictType(service: CiaoService, record: ResourceRecord, endpoint: EndpointInfo): ConflictType {
     // RFC 6762 9. Conflict Resolution:
     //    A conflict occurs when a Multicast DNS responder has a unique record
     //    for which it is currently authoritative, and it receives a Multicast
@@ -721,14 +756,7 @@ export class Responder implements PacketHandler {
     //    the Probing phase will determine a winner and a loser, and the loser
     //    MUST cease using the name, and reconfigure.
     if (!service.advertisesOnInterface(endpoint.interface)) {
-      return false;
-    }
-
-    if (record.ttl === 0) {
-      // we currently don't care about goodbye packets.
-      // we could someday add a logic, to handle the case, where a goodbye packet was incorrectly send
-      // and we need to immediately correct that by sending out our records
-      return false;
+      return ConflictType.NO_CONFLICT;
     }
 
     const recordName = record.getLowerCasedName();
@@ -738,10 +766,14 @@ export class Responder implements PacketHandler {
         const srvRecord = record as SRVRecord;
         if (srvRecord.getLowerCasedHostname() !== service.getLowerCasedHostname()) {
           debug("[%s] Noticed conflicting record on the network. SRV with hostname: %s", service.getFQDN(), srvRecord.hostname);
-          return true;
+          return ConflictType.CONFLICTING_RDATA;
         } else if (srvRecord.port !== service.getPort()) {
           debug("[%s] Noticed conflicting record on the network. SRV with port: %s", service.getFQDN(), srvRecord.port);
-          return true;
+          return ConflictType.CONFLICTING_RDATA;
+        }
+
+        if (srvRecord.ttl < SRVRecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
         }
       } else if (record.type === RType.TXT) {
         const txtRecord = record as TXTRecord;
@@ -749,7 +781,7 @@ export class Responder implements PacketHandler {
 
         if (txt.length !== txtRecord.txt.length) { // length differs, can't be the same data
           debug("[%s] Noticed conflicting record on the network. TXT with differing data length", service.getFQDN());
-          return true;
+          return ConflictType.CONFLICTING_RDATA;
         }
 
         for (let i = 0; i < txt.length; i++) {
@@ -758,8 +790,12 @@ export class Responder implements PacketHandler {
 
           if (buffer0.length !== buffer1.length || buffer0.toString("hex") !== buffer1.toString("hex")) {
             debug("[%s] Noticed conflicting record on the network. TXT with differing data.", service.getFQDN());
-            return true;
+            return ConflictType.CONFLICTING_RDATA;
           }
+        }
+
+        if (txtRecord.ttl < TXTRecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
         }
       }
     } else if (recordName === service.getLowerCasedHostname()) {
@@ -769,7 +805,11 @@ export class Responder implements PacketHandler {
         if (!service.hasAddress(aRecord.ipAddress)) {
           // if the service doesn't expose the listed address we have a conflict
           debug("[%s] Noticed conflicting record on the network. A with ip address: %s", service.getFQDN(), aRecord.ipAddress);
-          return true;
+          return ConflictType.CONFLICTING_RDATA;
+        }
+
+        if (aRecord.ttl < ARecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
         }
       } else if (record.type === RType.AAAA) {
         const aaaaRecord = record as AAAARecord;
@@ -777,12 +817,32 @@ export class Responder implements PacketHandler {
         if (!service.hasAddress(aaaaRecord.ipAddress)) {
           // if the service doesn't expose the listed address we have a conflict
           debug("[%s] Noticed conflicting record on the network. AAAA with ip address: %s", service.getFQDN(), aaaaRecord.ipAddress);
-          return true;
+          return ConflictType.CONFLICTING_RDATA;
+        }
+
+        if (aaaaRecord.ttl < AAAARecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
+        }
+      }
+    } else if (record.type === RType.PTR) {
+      const ptrRecord = record as PTRRecord;
+
+      if (recordName === service.getLowerCasedTypePTR()) {
+        if (ptrRecord.getLowerCasedPTRName() === service.getLowerCasedFQDN() && ptrRecord.ttl < PTRRecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
+        }
+      } else if (recordName === Responder.SERVICE_TYPE_ENUMERATION_NAME) {
+        // nothing to do here, i guess
+      } else {
+        const subTypes = service.getLowerCasedSubtypePTRs();
+        if (subTypes && subTypes.includes(recordName)
+          && ptrRecord.getLowerCasedPTRName() === service.getLowerCasedFQDN() && ptrRecord.ttl < PTRRecord.DEFAULT_TTL/2) {
+          return ConflictType.CONFLICTING_TTL;
         }
       }
     }
 
-    return false;
+    return ConflictType.NO_CONFLICT;
   }
 
   private enqueueDelayedMulticastResponse(packet: DNSPacket, interfaceName: InterfaceName, time: number): void {

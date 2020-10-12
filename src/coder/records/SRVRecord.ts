@@ -6,6 +6,8 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class SRVRecord extends ResourceRecord {
 
+  public static readonly DEFAULT_TTL = 120;
+
   readonly hostname: string;
   private lowerCasedHostname?: string;
   readonly port: number;
@@ -16,7 +18,7 @@ export class SRVRecord extends ResourceRecord {
   constructor(header: RecordRepresentation, hostname: string, port: number)
   constructor(name: string | RecordRepresentation, hostname: string, port: number, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.SRV, ttl || 120, flushFlag);
+      super(name, RType.SRV, ttl || SRVRecord.RR_DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.SRV);
       super(name);
@@ -96,7 +98,7 @@ export class SRVRecord extends ResourceRecord {
   }
 
   public dataEquals(record: SRVRecord): boolean {
-    return this.hostname === record.hostname && this.port === record.port && this.weight === record.weight && this.priority === record.priority;
+    return this.getLowerCasedHostname() === record.getLowerCasedHostname() && this.port === record.port && this.weight === record.weight && this.priority === record.priority;
   }
 
 }

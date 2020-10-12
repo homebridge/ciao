@@ -1,11 +1,15 @@
 import assert from "assert";
+import { dnsLowerCase } from "../../util/dns-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class PTRRecord extends ResourceRecord {
 
+  public static readonly DEFAULT_TTL = ResourceRecord.RR_DEFAULT_TTL;
+
   readonly ptrName: string;
+  private lowerCasedPtrName?: string;
 
   constructor(name: string, ptrName: string, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, ptrName: string);
@@ -22,6 +26,10 @@ export class PTRRecord extends ResourceRecord {
     }
 
     this.ptrName = ptrName;
+  }
+
+  public getLowerCasedPTRName(): string {
+    return this.lowerCasedPtrName || (this.lowerCasedPtrName = dnsLowerCase(this.ptrName));
   }
 
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {

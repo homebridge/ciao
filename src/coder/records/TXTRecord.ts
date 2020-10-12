@@ -5,6 +5,8 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class TXTRecord extends ResourceRecord {
 
+  public static readonly DEFAULT_TTL = ResourceRecord.RR_DEFAULT_TTL;
+
   readonly txt: Buffer[];
 
   constructor(name: string, txt: Buffer[], flushFlag?: boolean, ttl?: number);

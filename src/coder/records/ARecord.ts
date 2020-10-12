@@ -6,6 +6,8 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class ARecord extends ResourceRecord {
 
+  public static readonly DEFAULT_TTL = 120;
+
   readonly ipAddress: string;
 
   constructor(name: string, ipAddress: string, flushFlag?: boolean, ttl?: number);

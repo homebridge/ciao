@@ -5,6 +5,8 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class CNAMERecord extends ResourceRecord {
 
+  public static readonly DEFAULT_TTL = ResourceRecord.RR_DEFAULT_TTL;
+
   readonly cname: string;
 
   constructor(name: string, cname: string, flushFlag?: boolean, ttl?: number);

@@ -30,7 +30,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   private static readonly FLUSH_MASK = 0x8000; // 2 bytes, first bit set
   private static readonly NOT_FLUSH_MASK = 0x7FFF;
 
-  private static readonly DEFAULT_TTL = 4500; // 75 minutes
+  public static readonly RR_DEFAULT_TTL = 4500; // 75 minutes
 
   readonly name: string;
   private lowerCasedName?: string;
@@ -42,7 +42,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   protected constructor(headerData: RecordRepresentation);
   protected constructor(name: string, type: RType, ttl?: number, flushFlag?: boolean, clazz?: RClass);
-  protected constructor(name: string | RecordRepresentation, type?: RType, ttl: number = ResourceRecord.DEFAULT_TTL, flushFlag = false, clazz: RClass = RClass.IN) {
+  protected constructor(name: string | RecordRepresentation, type?: RType, ttl: number = ResourceRecord.RR_DEFAULT_TTL, flushFlag = false, clazz: RClass = RClass.IN) {
     if (typeof name === "string") {
       if (!name.endsWith(".")) {
         name = name + ".";

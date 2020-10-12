@@ -655,6 +655,7 @@ export class CiaoService extends EventEmitter {
     // records for a removed interface are now no longer present after the call above
     // records for a new interface got now built by the call above
 
+    /* logic disabled for now
     if (networkUpdate.changes) {
       // we could optimize this and don't send the announcement of records if we have also added a new interface
       // Though probing will take at least 750 ms and thus sending it out immediately will get the information out faster.
@@ -707,8 +708,9 @@ export class CiaoService extends EventEmitter {
         this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);
       }
     }
+    */
 
-    if (networkUpdate.added) {
+    if (networkUpdate.added || networkUpdate.changes) {
       // a new network interface got added. We must return into probing state,
       // as we don't know if we still own uniqueness for our service name on the new network.
       // To make things easy and keep the SAME name on all networks, we probe on ALL interfaces.

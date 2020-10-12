@@ -273,14 +273,12 @@ export class NetworkManager extends EventEmitter {
           }
 
           this.currentInterfaces.set(name, networkInterface);
-          (changes || (changes = [])) // get or create array
-            .push(change);
+          (changes ??= []).push(change);
         }
       } else { // new interface was added/started
         this.currentInterfaces.set(name, networkInterface);
 
-        (added || (added = [])) // get or create array
-          .push(networkInterface);
+        (added ??= []).push(networkInterface);
       }
     }
 
@@ -292,8 +290,7 @@ export class NetworkManager extends EventEmitter {
         if (!latestInterfaces.has(name)) { // interface was removed
           this.currentInterfaces.delete(name);
 
-          (removed || (removed = [])) // get or create new array
-            .push(networkInterface);
+          (removed ??= []).push(networkInterface);
 
         }
       }

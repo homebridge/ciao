@@ -1,4 +1,5 @@
 import assert from "assert";
+import { dnsLowerCase } from "../../util/dns-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
@@ -8,6 +9,7 @@ export class CNAMERecord extends ResourceRecord {
   public static readonly DEFAULT_TTL = ResourceRecord.RR_DEFAULT_TTL;
 
   readonly cname: string;
+  private lowerCasedCName?: string;
 
   constructor(name: string, cname: string, flushFlag?: boolean, ttl?: number);
   constructor(header: RecordRepresentation, cname: string);
@@ -24,6 +26,10 @@ export class CNAMERecord extends ResourceRecord {
     }
 
     this.cname = cname;
+  }
+
+  public getLowerCasedCName(): string {
+    return this.lowerCasedCName || (this.lowerCasedCName = dnsLowerCase(this.cname));
   }
 
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
@@ -60,7 +66,7 @@ export class CNAMERecord extends ResourceRecord {
   }
 
   public dataEquals(record: CNAMERecord): boolean {
-    return this.cname === record.cname;
+    return this.getLowerCasedCName() === record.getLowerCasedCName();
   }
 
 }

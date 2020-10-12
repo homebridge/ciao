@@ -66,7 +66,7 @@ export class PTRRecord extends ResourceRecord {
   }
 
   public dataEquals(record: PTRRecord): boolean {
-    return this.ptrName === record.ptrName;
+    return this.getLowerCasedPTRName() === record.getLowerCasedPTRName();
   }
 
 }

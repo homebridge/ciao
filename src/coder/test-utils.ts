@@ -49,8 +49,8 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
 
     // test the clone method
     const clone = record.clone();
-    expect(clone).toEqual(record2);
     expect(clone.aboutEqual(record2)).toBe(true);
+    expect(clone).toEqual(record2);
   }
 }
 

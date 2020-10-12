@@ -1,5 +1,6 @@
 import assert from "assert";
 import deepEqual from "fast-deep-equal";
+import { dnsLowerCase } from "../../util/dns-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
@@ -13,6 +14,7 @@ interface RRTypeWindow {
 export class NSECRecord extends ResourceRecord {
 
   readonly nextDomainName: string;
+  private lowerCasedNextDomainName?: string;
   readonly rrTypeWindows: RRTypeWindow[];
 
   constructor(name: string, nextDomainName: string, rrtypes: RType[], ttl: number, flushFlag?: boolean);
@@ -31,6 +33,10 @@ export class NSECRecord extends ResourceRecord {
 
     this.nextDomainName = nextDomainName;
     this.rrTypeWindows = NSECRecord.rrTypesToWindowMap(rrtypes);
+  }
+
+  public getLowerCasedNextDomainName(): string {
+    return this.lowerCasedNextDomainName || (this.lowerCasedNextDomainName = dnsLowerCase(this.nextDomainName));
   }
 
   private getRRTypesBitMapEncodingLength(): number {
@@ -131,7 +137,7 @@ export class NSECRecord extends ResourceRecord {
   }
 
   public dataEquals(record: NSECRecord): boolean {
-    return this.nextDomainName === record.nextDomainName && deepEqual(this.rrTypeWindows, record.rrTypeWindows);
+    return this.getLowerCasedNextDomainName() === record.getLowerCasedNextDomainName() && deepEqual(this.rrTypeWindows, record.rrTypeWindows);
   }
 
   private static rrTypesToWindowMap(rrtypes: RType[]): RRTypeWindow[] {

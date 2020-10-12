@@ -1,7 +1,14 @@
+import { AddressInfo } from "net";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { DNSPacket } from "./DNSPacket";
 import { Question } from "./Question";
 import { ResourceRecord } from "./ResourceRecord";
+
+const decodeContext: AddressInfo = {
+  address: "0.0.0.0",
+  family: "ipv4",
+  port: 5353,
+};
 
 export function runRecordEncodingTest(record: Question | ResourceRecord, legacyUnicast = false): void {
   let coder = new DNSLabelCoder(legacyUnicast);
@@ -17,8 +24,8 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
   coder.initBuf(buffer);
 
   const decodedRecord = record instanceof Question
-    ? Question.decode(coder, buffer, 0)
-    : ResourceRecord.decode(coder, buffer, 0);
+    ? Question.decode(decodeContext, coder, buffer, 0)
+    : ResourceRecord.decode(decodeContext, coder, buffer, 0);
   expect(decodedRecord.readBytes).toBe(buffer.length);
 
   //
@@ -49,7 +56,7 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
 
 export function runPacketEncodingTest(packet: DNSPacket): void {
   const buffer = packet.encode();
-  const decodedPacket = DNSPacket.decode(buffer);
+  const decodedPacket = DNSPacket.decode(decodeContext, buffer);
 
   const buffer2 = decodedPacket.encode();
 

@@ -7,7 +7,7 @@ import { OPTOption, OPTRecord } from "./records/OPTRecord";
 import { PTRRecord } from "./records/PTRRecord";
 import { SRVRecord } from "./records/SRVRecord";
 import { TXTRecord } from "./records/TXTRecord";
-import { UnsupportedRecord } from "./records/UnsupportedRecord";
+import { UnsupportedOrMalformedRecord } from "./records/UnsupportedOrMalformedRecord";
 import { ResourceRecord } from "./ResourceRecord";
 import { runRecordEncodingTest } from "./test-utils";
 
@@ -61,7 +61,7 @@ describe(ResourceRecord, () => {
   });
 
   it("should encode unsupported record", () => {
-    runRecordEncodingTest(new UnsupportedRecord({
+    runRecordEncodingTest(new UnsupportedOrMalformedRecord({
       type: 99,
       class: RClass.IN,
       name: "test.local.",

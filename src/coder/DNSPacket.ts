@@ -1,5 +1,7 @@
 import assert from "assert";
 import deepEqual from "fast-deep-equal";
+import { AddressInfo } from "net";
+import { dnsTypeToString } from "./dns-string-utils";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { Question } from "./Question";
 import "./records";
@@ -38,30 +40,6 @@ export const enum QType { // RFC 1035 3.2.2. 3.2.3.
   NSEC = 47, // RFC 4034 4.
   ANY = 255,
   // incomplete list
-}
-
-export function dnsTypeToString(type: RType | QType): string {
-  switch (type) {
-    case 1:
-      return "A";
-    case 5:
-      return "CNAME";
-    case 12:
-      return "PTR";
-    case 16:
-      return "TXT";
-    case 28:
-      return "AAAA";
-    case 33:
-      return "SRV";
-    case 41:
-      return "OPT";
-    case 47:
-      return "NSEC";
-    case 255:
-      return "ANY";
-  }
-  return "UNSUPPORTED";
 }
 
 export const enum RClass { // RFC 1035 3.2.4.
@@ -499,7 +477,7 @@ export class DNSPacket {
     return buffer;
   }
 
-  public static decode(buffer: Buffer, offset = 0): DNSPacket {
+  public static decode(context: AddressInfo, buffer: Buffer, offset = 0): DNSPacket {
     const labelCoder = new DNSLabelCoder();
     labelCoder.initBuf(buffer);
 
@@ -524,27 +502,10 @@ export class DNSPacket {
     const additionals: ResourceRecord[] = new Array(additionalsLength);
 
 
-    for (let i = 0; i < questionLength; i++) {
-      const decodedQuestion = Question.decode(labelCoder, buffer, offset);
-      offset += decodedQuestion.readBytes;
-      questions[i] = decodedQuestion.data;
-    }
-
-    for (let i = 0; i < answerLength; i++) {
-      const decodedRecord = ResourceRecord.decode(labelCoder, buffer, offset);
-      offset += decodedRecord.readBytes;
-      answers[i] = decodedRecord.data;
-    }
-    for (let i = 0; i < authoritiesLength; i++) {
-      const decodedRecord = ResourceRecord.decode(labelCoder, buffer, offset);
-      offset += decodedRecord.readBytes;
-      authorities[i] = decodedRecord.data;
-    }
-    for (let i = 0; i < additionalsLength; i++) {
-      const decodedRecord = ResourceRecord.decode(labelCoder, buffer, offset);
-      offset += decodedRecord.readBytes;
-      additionals[i] = decodedRecord.data;
-    }
+    offset += DNSPacket.decodeList(context, labelCoder, buffer, offset, questionLength, Question.decode.bind(Question), questions);
+    offset += DNSPacket.decodeList(context, labelCoder, buffer, offset, answerLength, ResourceRecord.decode.bind(ResourceRecord), answers);
+    offset += DNSPacket.decodeList(context, labelCoder, buffer, offset, authoritiesLength, ResourceRecord.decode.bind(ResourceRecord), authorities);
+    offset += DNSPacket.decodeList(context, labelCoder, buffer, offset, additionalsLength, ResourceRecord.decode.bind(ResourceRecord), additionals);
 
     assert(offset === buffer.length, "Didn't read the full buffer (offset=" + offset +", length=" + buffer.length +")");
 
@@ -588,6 +549,19 @@ export class DNSPacket {
       authorities: authorities,
       additionals: additionals,
     });
+  }
+
+  private static decodeList<T>(context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number,
+    length: number, decoder: (context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number) => DecodedData<T>, destination: T[]): number {
+    const oldOffset = offset;
+
+    for (let i = 0; i < length; i++) {
+      const decoded = decoder(context, coder, buffer, offset);
+      offset += decoded.readBytes;
+      destination[i] = decoded.data;
+    }
+
+    return offset - oldOffset;
   }
 
   public asLoggingString(udpPayloadSize?: number): string {

@@ -536,7 +536,7 @@ export class MDNSServer {
 
     let packet: DNSPacket;
     try {
-      packet = DNSPacket.decode(buffer);
+      packet = DNSPacket.decode(rinfo, buffer);
     } catch (error) {
       debug("Received a malformed packet from %o on interface %s. This might or might not be a problem. " +
         "Here is the received packet for debugging purposes '%s'. " +

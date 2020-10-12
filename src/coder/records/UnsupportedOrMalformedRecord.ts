@@ -2,7 +2,7 @@ import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
-export class UnsupportedRecord extends ResourceRecord {
+export class UnsupportedOrMalformedRecord extends ResourceRecord {
 
   readonly data: Buffer;
 
@@ -20,22 +20,22 @@ export class UnsupportedRecord extends ResourceRecord {
   }
 
   public clone(): ResourceRecord {
-    return new UnsupportedRecord(this.getRecordRepresentation(), this.data);
+    return new UnsupportedOrMalformedRecord(this.getRecordRepresentation(), this.data);
   }
 
   public dataAsString(): string {
     return this.data.toString("base64");
   }
 
-  public dataEquals(record: UnsupportedRecord): boolean {
+  public dataEquals(record: UnsupportedOrMalformedRecord): boolean {
     return this.data.toString("base64") === record.data.toString("base64");
   }
 
-  public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<UnsupportedRecord> {
+  public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<UnsupportedOrMalformedRecord> {
     const data = buffer.slice(offset);
 
     return {
-      data: new UnsupportedRecord(header, data),
+      data: new UnsupportedOrMalformedRecord(header, data),
       readBytes: data.length,
     };
   }

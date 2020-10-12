@@ -1,3 +1,4 @@
+import { AddressInfo } from "net";
 import { dnsLowerCase } from "../util/dns-equal";
 import { DNSLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, QClass, QType } from "./DNSPacket";
@@ -61,7 +62,7 @@ export class Question implements DNSRecord {
     return `Q ${this.name} ${this.type} ${this.class}`;
   }
 
-  public static decode(coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<Question> {
+  public static decode(context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<Question> {
     const oldOffset = offset;
 
     const decodedName = coder.decodeName(offset);

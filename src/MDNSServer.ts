@@ -176,9 +176,7 @@ export class MDNSServer {
   private readonly networkManager: NetworkManager;
 
   private readonly sockets: Map<InterfaceName, Socket> = new Map();
-
-  private readonly loopbackInterfaces: Set<InterfaceName> = new Set();
-  private readonly sentLoopbackPackets: Map<InterfaceName, string[]> = new Map();
+  private readonly sentPackets: Map<InterfaceName, string[]> = new Map();
 
   // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
@@ -323,7 +321,7 @@ export class MDNSServer {
               return;
             }
           } else {
-            this.maintainSentPacketsForLoopbackInterfaces(name, message);
+            this.maintainSentPacketsInterface(name, message);
           }
 
           resolve({
@@ -383,7 +381,7 @@ export class MDNSServer {
             return;
           }
         } else {
-          this.maintainSentPacketsForLoopbackInterfaces(name, message);
+          this.maintainSentPacketsInterface(name, message);
         }
 
         resolve({
@@ -413,15 +411,11 @@ export class MDNSServer {
       "DNS cannot exceed the size of 9000 bytes even with IP Fragmentation!");
   }
 
-  private maintainSentPacketsForLoopbackInterfaces(name: InterfaceName, packet: Buffer): void {
-    if (!this.loopbackInterfaces.has(name)) {
-      return;
-    }
-
+  private maintainSentPacketsInterface(name: InterfaceName, packet: Buffer): void {
     const base64 = packet.toString("base64");
-    const packets = this.sentLoopbackPackets.get(name);
+    const packets = this.sentPackets.get(name);
     if (!packets) {
-      this.sentLoopbackPackets.set(name, [base64]);
+      this.sentPackets.set(name, [base64]);
     } else {
       packets.push(base64);
     }
@@ -429,7 +423,7 @@ export class MDNSServer {
 
   private checkIfPreviouslySentPacketOnLoopbackInterface(name: InterfaceName, packet: Buffer): boolean {
     const base64 = packet.toString("base64");
-    const packets = this.sentLoopbackPackets.get(name);
+    const packets = this.sentPackets.get(name);
     if (packets) {
       const index = packets.indexOf(base64);
       if (index !== -1) {
@@ -464,9 +458,6 @@ export class MDNSServer {
 
       socket.on("close", () => {
         this.sockets.delete(networkInterface.name);
-        if (networkInterface.loopback) {
-          this.loopbackInterfaces.delete(networkInterface.name);
-        }
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
@@ -485,12 +476,9 @@ export class MDNSServer {
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
           socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
-          socket.setMulticastLoopback(networkInterface.loopback); // we only enable that for the loopback interface
+          socket.setMulticastLoopback(true); // We can't disable multicast loopback, as otherwise queriers on the same host won't receive our packets
 
           this.sockets.set(networkInterface.name, socket);
-          if (networkInterface.loopback) {
-            this.loopbackInterfaces.add(networkInterface.name);
-          }
           resolve();
         } catch (error) {
           try {
@@ -514,9 +502,10 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
-    if (networkInterface.loopback && this.checkIfPreviouslySentPacketOnLoopbackInterface(networkInterface.name, buffer)) {
-      // multicastLoopback is enabled for the loopback interface, meaning we would receive our own response
-      // packets here. Thus we silence them.
+    if (this.checkIfPreviouslySentPacketOnLoopbackInterface(networkInterface.name, buffer)) {
+      // multicastLoopback is enabled for every interface, meaning we would receive our own response
+      // packets here. Thus we silence them. We can't disable multicast loopback, as otherwise
+      // queriers on the same host won't receive our packets
       return;
     }
 

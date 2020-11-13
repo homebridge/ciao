@@ -57,7 +57,7 @@ const enum ConflictType { // RFC 6762 6.6.
 export class Responder implements PacketHandler {
 
   /**
-   * @internal
+   * @priavte
    */
   public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
 
@@ -90,7 +90,7 @@ export class Responder implements PacketHandler {
   /**
    * Refer to {@link getResponder} in the index file
    *
-   * @internal should not be used directly. Please use the getResponder method defined in index file.
+   * @priavte should not be used directly. Please use the getResponder method defined in index file.
    */
   public static getResponder(options?: MDNSServerOptions): Responder {
     const optionsString = options? JSON.stringify(options): "";
@@ -496,7 +496,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @internal method called by the MDNSServer when an incoming query needs ot be handled
+   * @priavte method called by the MDNSServer when an incoming query needs ot be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const start = new Date().getTime();
@@ -655,7 +655,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @internal method called by the MDNSServer when an incoming response needs to be handled
+   * @priavte method called by the MDNSServer when an incoming response needs to be handled
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {

@@ -576,7 +576,8 @@ export class MDNSServer {
     // caused by yet undetected network changes.
     // as we listen to 0.0.0.0 and the socket stays valid, this is not a problem
     const silenced = error.message.includes("EADDRNOTAVAIL") || error.message.includes("EHOSTDOWN")
-      || error.message.includes("ENETUNREACH") || error.message.includes("EHOSTUNREACH");
+      || error.message.includes("ENETUNREACH") || error.message.includes("EHOSTUNREACH")
+      || error.message.includes("EPERM") || error.message.includes("EINVAL");
     if (silenced) {
       debug ("Silenced and ignored error (This is/should not be a problem, this message is only for informational purposes): " + error.message);
     }

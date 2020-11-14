@@ -78,7 +78,10 @@ export class Responder implements PacketHandler {
   private optionsString = "";
   private bound = false;
 
-  // announcedServices is indexed by dnsLowerCase(service.fqdn) (as of RFC 1035 3.1)
+  /**
+   * Announced services is indexed by the {@link dnsLowerCase} if the fqdn (as of RFC 1035 3.1).
+   * As soon as the probing step is finished the service is added to the announced services Map.
+   */
   private readonly announcedServices: Map<string, CiaoService> = new Map();
   /**
    * map representing all our shared PTR records.
@@ -191,6 +194,12 @@ export class Responder implements PacketHandler {
     this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
     if (this.refCount > 0) {
       return Promise.resolve();
+    }
+
+    if (this.currentProber) {
+      // Services which are in Probing step aren't included in announcedServices Map
+      // thus we need to cancel them as well
+      this.currentProber.cancel();
     }
 
     if (this.broadcastInterval) {

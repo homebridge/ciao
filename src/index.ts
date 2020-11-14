@@ -16,7 +16,7 @@ if (version.includes("beta") || process.env.BCT) { // enable debug output if bet
 
 import "./coder/records/index";
 import { MDNSServerOptions } from "./MDNSServer";
-import { Responder } from "./Responder";
+import { Responder, ResponderOptions } from "./Responder";
 
 export * from "./CiaoService";
 export * from "./Responder";
@@ -49,7 +49,7 @@ export const enum Protocol {
  * @param options - If specified, the options will be passed to the underlying mdns server.
  * @returns A Responder instance for the given options. Might be shared with others using the same options.
  */
-export function getResponder(options?: MDNSServerOptions): Responder {
+export function getResponder(options?: ResponderOptions): Responder {
   return Responder.getResponder(options);
 }
 

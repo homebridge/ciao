@@ -35,6 +35,7 @@ import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./res
 import { ERR_INTERFACE_NOT_FOUND, ERR_SERVER_CLOSED } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
+import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Responder");
 
@@ -48,6 +49,13 @@ const enum ConflictType { // RFC 6762 6.6.
   CONFLICTING_TTL,
 }
 
+export type ResponderOptions = {
+  /**
+   * @private
+   */
+  periodicBroadcasts?: boolean;
+} & MDNSServerOptions;
+
 /**
  * A Responder instance represents a running MDNSServer and a set of advertised services.
  *
@@ -57,7 +65,7 @@ const enum ConflictType { // RFC 6762 6.6.
 export class Responder implements PacketHandler {
 
   /**
-   * @priavte
+   * @private
    */
   public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
 
@@ -87,12 +95,14 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
+  private broadcastInterval?: Timeout;
+
   /**
    * Refer to {@link getResponder} in the index file
    *
-   * @priavte should not be used directly. Please use the getResponder method defined in index file.
+   * @private should not be used directly. Please use the getResponder method defined in index file.
    */
-  public static getResponder(options?: MDNSServerOptions): Responder {
+  public static getResponder(options?: ResponderOptions): Responder {
     const optionsString = options? JSON.stringify(options): "";
 
     const responder = this.INSTANCES.get(optionsString);
@@ -107,11 +117,45 @@ export class Responder implements PacketHandler {
     }
   }
 
-  private constructor(options?: MDNSServerOptions) {
+  private constructor(options?: ResponderOptions) {
     this.server = new MDNSServer(this, options);
     this.promiseChain = this.start();
 
     this.server.getNetworkManager().on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkUpdate.bind(this));
+
+    if (options?.periodicBroadcasts) {
+      this.broadcastInterval = setTimeout(this.handlePeriodicBroadcasts.bind(this), 30000).unref();
+    }
+  }
+
+  private handlePeriodicBroadcasts() {
+    this.broadcastInterval = undefined;
+
+    debug("Sending periodic announcement on " + Array.from(this.server.getNetworkManager().getInterfaceMap().keys()).join(", "));
+
+    for (const networkInterface of this.server.getNetworkManager().getInterfaceMap().values()) {
+      const queryResponse = new QueryResponse();
+      const responses: QueryResponse[] = [];
+
+      const question = new Question("_hap._tcp.local.", QType.PTR, false);
+      this.answerQuestion(question, {
+        port: 5353,
+        address: (networkInterface.ipv4Netaddress || networkInterface.globallyRoutableIpv6 || networkInterface.uniqueLocalIpv6 || networkInterface.ipv6)!,
+        interface: networkInterface.name,
+      }, queryResponse);
+
+      QueryResponse.combineResponses(responses);
+
+      for (const response of responses) {
+        if (!response.hasAnswers()) {
+          continue;
+        }
+
+        this.server.sendResponse(response.asPacket(), networkInterface.name);
+      }
+    }
+
+    this.broadcastInterval = setTimeout(this.handlePeriodicBroadcasts.bind(this), Math.random() * 3000 + 27000).unref();
   }
 
   /**
@@ -147,6 +191,10 @@ export class Responder implements PacketHandler {
     this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
     if (this.refCount > 0) {
       return Promise.resolve();
+    }
+
+    if (this.broadcastInterval) {
+      clearTimeout(this.broadcastInterval);
     }
 
     Responder.INSTANCES.delete(this.optionsString);
@@ -496,7 +544,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @priavte method called by the MDNSServer when an incoming query needs ot be handled
+   * @private method called by the MDNSServer when an incoming query needs ot be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const start = new Date().getTime();
@@ -655,7 +703,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @priavte method called by the MDNSServer when an incoming response needs to be handled
+   * @private method called by the MDNSServer when an incoming response needs to be handled
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {

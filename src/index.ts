@@ -15,7 +15,6 @@ if (version.includes("beta") || process.env.BCT) { // enable debug output if bet
 }
 
 import "./coder/records/index";
-import { MDNSServerOptions } from "./MDNSServer";
 import { Responder, ResponderOptions } from "./Responder";
 
 export * from "./CiaoService";

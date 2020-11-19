@@ -117,6 +117,7 @@ export class NetworkManager extends EventEmitter {
 
   constructor(options?: NetworkManagerOptions) {
     super();
+    this.setMaxListeners(100); // we got one listener for every Responder, 100 should be fine for now
 
     if (options && options.interface) {
       let interfaces: (InterfaceName | IPAddress)[];

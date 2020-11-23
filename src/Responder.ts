@@ -620,7 +620,7 @@ export class Responder implements PacketHandler {
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
-      const unicastAnswer = !this.ignoreUnicastResponseFlag && (question.unicastResponseFlag || isUnicastQuerier)
+      const unicastAnswer = !this.ignoreUnicastResponseFlag && (question.unicastResponseFlag || isUnicastQuerier);
       const responses = unicastAnswer? unicastResponses: multicastResponses;
 
       responses.push(...this.answerQuestion(question, endpoint, responses[0]));

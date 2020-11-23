@@ -54,6 +54,10 @@ export type ResponderOptions = {
    * @private
    */
   periodicBroadcasts?: boolean;
+  /**
+   * @private
+   */
+  ignoreUnicastResponseFlag?: boolean;
 } & MDNSServerOptions;
 
 /**
@@ -98,6 +102,7 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
+  private ignoreUnicastResponseFlag?: boolean;
   private broadcastInterval?: Timeout;
 
   /**
@@ -126,6 +131,7 @@ export class Responder implements PacketHandler {
 
     this.server.getNetworkManager().on(NetworkManagerEvent.NETWORK_UPDATE, this.handleNetworkUpdate.bind(this));
 
+    this.ignoreUnicastResponseFlag = options?.ignoreUnicastResponseFlag;
     if (options?.periodicBroadcasts) {
       this.broadcastInterval = setTimeout(this.handlePeriodicBroadcasts.bind(this), 30000).unref();
     }
@@ -614,7 +620,9 @@ export class Responder implements PacketHandler {
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
-      const responses = (question.unicastResponseFlag || isUnicastQuerier)? unicastResponses: multicastResponses;
+      const unicastAnswer = !this.ignoreUnicastResponseFlag && (question.unicastResponseFlag || isUnicastQuerier)
+      const responses = unicastAnswer? unicastResponses: multicastResponses;
+
       responses.push(...this.answerQuestion(question, endpoint, responses[0]));
     });
 

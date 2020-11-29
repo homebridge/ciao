@@ -143,15 +143,12 @@ export class Responder implements PacketHandler {
     debug("Sending periodic announcement on " + Array.from(this.server.getNetworkManager().getInterfaceMap().keys()).join(", "));
 
     for (const networkInterface of this.server.getNetworkManager().getInterfaceMap().values()) {
-      const queryResponse = new QueryResponse();
-      const responses: QueryResponse[] = [];
-
       const question = new Question("_hap._tcp.local.", QType.PTR, false);
-      this.answerQuestion(question, {
+      const responses = this.answerQuestion(question, {
         port: 5353,
         address: (networkInterface.ipv4Netaddress || networkInterface.globallyRoutableIpv6 || networkInterface.uniqueLocalIpv6 || networkInterface.ipv6)!,
         interface: networkInterface.name,
-      }, queryResponse);
+      });
 
       QueryResponse.combineResponses(responses);
 
@@ -620,10 +617,13 @@ export class Responder implements PacketHandler {
 
     // gather answers for all the questions
     packet.questions.forEach(question => {
-      const unicastAnswer = !this.ignoreUnicastResponseFlag && (question.unicastResponseFlag || isUnicastQuerier);
-      const responses = unicastAnswer? unicastResponses: multicastResponses;
+      const responses = this.answerQuestion(question, endpoint, packet.answers);
 
-      responses.push(...this.answerQuestion(question, endpoint, responses[0]));
+      if (isUnicastQuerier || question.unicastResponseFlag && !this.ignoreUnicastResponseFlag) {
+        unicastResponses.push(...responses);
+      } else {
+        multicastResponses.push(...responses);
+      }
     });
 
     if (this.currentProber) {
@@ -974,7 +974,7 @@ export class Responder implements PacketHandler {
     }
   }
 
-  private answerQuestion(question: Question, endpoint: EndpointInfo, mainResponse: QueryResponse): QueryResponse[] {
+  private answerQuestion(question: Question, endpoint: EndpointInfo, knownAnswers?: Map<string, ResourceRecord>): QueryResponse[] {
     // RFC 6762 6: The determination of whether a given record answers a given question
     //    is made using the standard DNS rules: the record name must match the
     //    question name, the record rrtype must match the question qtype unless
@@ -987,6 +987,7 @@ export class Responder implements PacketHandler {
     }
 
     const serviceResponses: QueryResponse[] = [];
+    let metaQueryResponse: QueryResponse | undefined = undefined;
 
     if (question.type === QType.PTR || question.type === QType.ANY || question.type === QType.CNAME) {
       const destinations = this.servicePointer.get(question.getLowerCasedName()); // look up the pointer, all entries are dnsLowerCased
@@ -1001,15 +1002,20 @@ export class Responder implements PacketHandler {
           if (service) {
             if (service.advertisesOnInterface(endpoint.interface)) {
               // call the method for original question, so additionals get added properly
-              const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
+              const response = Responder.answerServiceQuestion(service, question, endpoint, knownAnswers);
               if (response.hasAnswers()) {
                 serviceResponses.push(response);
               }
             }
           } else {
+            if (!metaQueryResponse) {
+              metaQueryResponse = new QueryResponse(knownAnswers);
+              serviceResponses.unshift(metaQueryResponse);
+            }
+
             // it's probably question for PTR '_services._dns-sd._udp.local'
             // the PTR will just point to something like '_hap._tcp.local' thus no additional records need to be included
-            mainResponse.addAnswer(new PTRRecord(question.name, data));
+            metaQueryResponse.addAnswer(new PTRRecord(question.name, data));
             // we may send out meta queries on interfaces where there aren't any services, because they are
             //  restricted to other interfaces.
           }
@@ -1036,7 +1042,7 @@ export class Responder implements PacketHandler {
         continue;
       }
 
-      const response = Responder.answerServiceQuestion(service, question, endpoint, mainResponse);
+      const response = Responder.answerServiceQuestion(service, question, endpoint, knownAnswers);
       if (response.hasAnswers()) {
         serviceResponses.push(response);
       }
@@ -1045,12 +1051,12 @@ export class Responder implements PacketHandler {
     return serviceResponses;
   }
 
-  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, mainResponse: QueryResponse): QueryResponse {
+  private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, knownAnswers?: Map<string, ResourceRecord>): QueryResponse {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
     // For one we assume classes are already matched.
 
-    const response = new QueryResponse(mainResponse.knownAnswers);
+    const response = new QueryResponse(knownAnswers);
 
     const loweredQuestionName = question.getLowerCasedName();
     const askingAny = question.type === QType.ANY || question.type === QType.CNAME;

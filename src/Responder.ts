@@ -612,8 +612,8 @@ export class Responder implements PacketHandler {
 
     // responses must not include questions RFC 6762 6.
     // known answer suppression according to RFC 6762 7.1.
-    const multicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
-    const unicastResponses: QueryResponse[] = [ new QueryResponse(packet.answers) ];
+    const multicastResponses: QueryResponse[] = [];
+    const unicastResponses: QueryResponse[] = [];
 
     // gather answers for all the questions
     packet.questions.forEach(question => {

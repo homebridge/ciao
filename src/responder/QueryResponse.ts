@@ -8,6 +8,7 @@ export class QueryResponse {
 
   private readonly dnsPacket: DNSPacket;
 
+  // known answer suppression according to RFC 6762 7.1.
   readonly knownAnswers?: Map<string, ResourceRecord>;
   private sharedAnswer = false;
 

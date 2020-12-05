@@ -29,7 +29,8 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
   expect(decodedRecord.readBytes).toBe(buffer.length);
 
   //
-  const record2 = decodedRecord.data;
+  const record2 = decodedRecord.data!;
+  expect(record2).toBeDefined();
 
   coder = new DNSLabelCoder(legacyUnicast);
 

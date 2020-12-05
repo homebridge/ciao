@@ -8,7 +8,6 @@ import { OPTRecord } from "./OPTRecord";
 import { PTRRecord } from "./PTRRecord";
 import { SRVRecord } from "./SRVRecord";
 import { TXTRecord } from "./TXTRecord";
-import { UnsupportedOrMalformedRecord } from "./UnsupportedOrMalformedRecord";
 
 ResourceRecord.typeToRecordDecoder.set(RType.AAAA, AAAARecord.decodeData);
 ResourceRecord.typeToRecordDecoder.set(RType.A, ARecord.decodeData);
@@ -18,4 +17,3 @@ ResourceRecord.typeToRecordDecoder.set(RType.PTR, PTRRecord.decodeData);
 ResourceRecord.typeToRecordDecoder.set(RType.SRV, SRVRecord.decodeData);
 ResourceRecord.typeToRecordDecoder.set(RType.OPT, OPTRecord.decodeData);
 ResourceRecord.typeToRecordDecoder.set(RType.TXT, TXTRecord.decodeData);
-ResourceRecord.unsupportedOrMalformedRecordDecoder = UnsupportedOrMalformedRecord.decodeData;

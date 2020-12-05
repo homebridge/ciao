@@ -4,7 +4,7 @@ import { AddressInfo } from "net";
 import { dnsLowerCase } from "../util/dns-equal";
 import { dnsTypeToString } from "./dns-string-utils";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
-import { DecodedData, DNSRecord, RClass, RType } from "./DNSPacket";
+import { DecodedData, DNSRecord, OptionalDecodedData, RClass, RType } from "./DNSPacket";
 
 const debug = createDebug("ciao:decoder");
 
@@ -25,7 +25,6 @@ export type RRDecoder = (coder: DNSLabelCoder, header: RecordRepresentation, buf
 export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
   public static readonly typeToRecordDecoder: Map<RType, RRDecoder> = new Map();
-  public static unsupportedOrMalformedRecordDecoder: RRDecoder;
 
   private static readonly FLUSH_MASK = 0x8000; // 2 bytes, first bit set
   private static readonly NOT_FLUSH_MASK = 0x7FFF;
@@ -165,14 +164,18 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
     return `RR ${this.name} ${this.type} ${this.class} ${this.dataAsString()}`;
   }
 
-  public static decode(context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number): DecodedData<ResourceRecord> {
+  public static decode(context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number): OptionalDecodedData<ResourceRecord> {
     const oldOffset = offset;
 
     const decodedHeader = this.decodeRecordHeader(coder, buffer, offset);
     offset += decodedHeader.readBytes;
 
     const header = decodedHeader.data;
-    const rrDecoder = this.typeToRecordDecoder.get(header.type) ?? ResourceRecord.unsupportedOrMalformedRecordDecoder;
+    const rrDecoder = this.typeToRecordDecoder.get(header.type);
+
+    if (!rrDecoder) {
+      return { readBytes: (offset + header.rDataLength) - oldOffset };
+    }
 
     coder.initRRLocation(oldOffset, offset, header.rDataLength); // defines record offset and rdata offset for local compression
 
@@ -183,8 +186,10 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       // we slice the buffer (below), so out of bounds error are instantly detected
       decodedRecord = rrDecoder(coder, header, rdata, offset);
     } catch (error) {
-      debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} from ${context.address}:${context.port}: ${error.stack}`);
-      decodedRecord = ResourceRecord.unsupportedOrMalformedRecordDecoder(coder, header, rdata, offset);
+      debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} \
+from ${context.address}:${context.port} with data '${rdata.slice(offset).toString("hex")}': ${error.stack}`);
+
+      return { readBytes: (offset + header.rDataLength) - oldOffset };
     }
     offset += decodedRecord.readBytes;
 

@@ -63,6 +63,11 @@ export interface DecodedData<T> {
   readBytes: number;
 }
 
+export interface OptionalDecodedData<T> {
+  data?: T;
+  readBytes: number;
+}
+
 export interface DNSQueryDefinition {
   questions: Question[];
   answers?: ResourceRecord[]; // list of known-answers
@@ -496,10 +501,10 @@ export class DNSPacket {
     const additionalsLength = buffer.readUInt16BE(offset);
     offset += 2;
 
-    const questions: Question[] = new Array(questionLength);
-    const answers: ResourceRecord[] = new Array(answerLength);
-    const authorities: ResourceRecord[] = new Array(authoritiesLength);
-    const additionals: ResourceRecord[] = new Array(additionalsLength);
+    const questions: Question[] = [];
+    const answers: ResourceRecord[] = [];
+    const authorities: ResourceRecord[] = [];
+    const additionals: ResourceRecord[] = [];
 
 
     offset += DNSPacket.decodeList(context, labelCoder, buffer, offset, questionLength, Question.decode.bind(Question), questions);
@@ -552,13 +557,16 @@ export class DNSPacket {
   }
 
   private static decodeList<T>(context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number,
-    length: number, decoder: (context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number) => DecodedData<T>, destination: T[]): number {
+    length: number, decoder: (context: AddressInfo, coder: DNSLabelCoder, buffer: Buffer, offset: number) => OptionalDecodedData<T>, destination: T[]): number {
     const oldOffset = offset;
 
     for (let i = 0; i < length; i++) {
       const decoded = decoder(context, coder, buffer, offset);
       offset += decoded.readBytes;
-      destination[i] = decoded.data;
+
+      if (decoded.data) { // if the rdata is not supported by us or we encountered an parsing error, we ignore the record
+        destination.push(decoded.data);
+      }
     }
 
     return offset - oldOffset;

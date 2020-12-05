@@ -1,4 +1,4 @@
-import { RClass, RType } from "./DNSPacket";
+import { RType } from "./DNSPacket";
 import { AAAARecord } from "./records/AAAARecord";
 import { ARecord } from "./records/ARecord";
 import { CNAMERecord } from "./records/CNAMERecord";
@@ -7,7 +7,6 @@ import { OPTOption, OPTRecord } from "./records/OPTRecord";
 import { PTRRecord } from "./records/PTRRecord";
 import { SRVRecord } from "./records/SRVRecord";
 import { TXTRecord } from "./records/TXTRecord";
-import { UnsupportedOrMalformedRecord } from "./records/UnsupportedOrMalformedRecord";
 import { ResourceRecord } from "./ResourceRecord";
 import { runRecordEncodingTest } from "./test-utils";
 
@@ -58,16 +57,6 @@ describe(ResourceRecord, () => {
     runRecordEncodingTest(new TXTRecord("test.local.", []));
     runRecordEncodingTest(new TXTRecord("test.local.", [Buffer.from("key=value")]));
     runRecordEncodingTest(new TXTRecord("test.local.", [Buffer.from("key=value"), Buffer.from("key2=value2")]));
-  });
-
-  it("should encode unsupported record", () => {
-    runRecordEncodingTest(new UnsupportedOrMalformedRecord({
-      type: 99,
-      class: RClass.IN,
-      name: "test.local.",
-      ttl: 250,
-      flushFlag: false,
-    }, Buffer.from("foo")));
   });
 
 });

@@ -1,11 +1,11 @@
-/**
- * Represents a delay response packet which is going to be sent over multicast.
- */
 import { DNSPacket } from "../coder/DNSPacket";
 import { InterfaceName } from "../NetworkManager";
 import { QueryResponse } from "./QueryResponse";
 import Timeout = NodeJS.Timeout;
 
+/**
+ * Represents a delay response packet which is going to be sent over multicast.
+ */
 export class QueuedResponse {
 
   public static readonly MAX_DELAY = 500; // milliseconds

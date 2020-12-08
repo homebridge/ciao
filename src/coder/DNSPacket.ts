@@ -189,6 +189,12 @@ export class DNSPacket {
     }
   }
 
+  public static createDNSQueryPacket(definition: DNSQueryDefinition | DNSProbeQueryDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket {
+    const packets = this.createDNSQueryPackets(definition, udpPayloadSize);
+    assert(packets.length === 1, "Cannot user short method createDNSQueryPacket when query packets are more than one: is " + packets.length);
+    return packets[0];
+  }
+
   public static createDNSQueryPackets(definition: DNSQueryDefinition | DNSProbeQueryDefinition, udpPayloadSize = this.UDP_PAYLOAD_SIZE_IPV4): DNSPacket[] {
     const packets: DNSPacket[] = [];
 

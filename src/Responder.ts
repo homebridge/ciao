@@ -569,6 +569,7 @@ export class Responder implements PacketHandler {
 
       switch (truncatedQueryResult) {
         case TruncatedQueryResult.ABORT: // returned when we detect, that continuously TC queries are sent
+          delete this.truncatedQueries[endpointId];
           debug("[%s] Aborting to wait for more truncated queries. Waited a total of %d ms receiving %d queries",
             endpointId, previousQuery.getTotalWaitTime(), previousQuery.getArrivedPacketCount());
           return;

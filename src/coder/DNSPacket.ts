@@ -175,6 +175,10 @@ export class DNSPacket {
     this.flags = definition.flags || {};
     this.rcode = definition.rCode || RCode.NoError;
 
+    if (this.type === PacketType.RESPONSE) {
+      this.flags.authoritativeAnswer = true; // RFC 6763 18.4 AA is always set for responses in mdns
+    }
+
     if (definition.questions) {
       this.addQuestions(...definition.questions);
     }

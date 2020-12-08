@@ -22,7 +22,7 @@ const answerA5 = () => {
 
 describe(TruncatedQuery, () => {
   it("should timeout truncated query without a followup query", callback => {
-    let packet = DNSPacket.createDNSQueryPacket({
+    const packet = DNSPacket.createDNSQueryPacket({
       questions: [new Question("test.local", QType.A)],
       answers: [
         answerA1(),
@@ -36,13 +36,13 @@ describe(TruncatedQuery, () => {
 
     truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
       expect(truncatedQuery.getArrivedPacketCount()).toBe(1);
-      expect(truncatedQuery.getTotalWaitTime() < 1000).toBe(true)
+      expect(truncatedQuery.getTotalWaitTime() < 1000).toBe(true);
       callback();
     });
   }, 1000);
 
   it("should assemble truncated queries", async () => {
-    let packet0 = DNSPacket.createDNSQueryPacket({
+    const packet0 = DNSPacket.createDNSQueryPacket({
       questions: [new Question("test.local", QType.A)],
       answers: [
         answerA1(),
@@ -51,7 +51,7 @@ describe(TruncatedQuery, () => {
     });
     packet0.flags.truncation = true;
 
-    let packet1 = DNSPacket.createDNSQueryPacket({
+    const packet1 = DNSPacket.createDNSQueryPacket({
       questions: [],
       answers: [
         answerA2(),
@@ -60,7 +60,7 @@ describe(TruncatedQuery, () => {
     });
     packet1.flags.truncation = true;
 
-    let packet2 = DNSPacket.createDNSQueryPacket({
+    const packet2 = DNSPacket.createDNSQueryPacket({
       questions: [],
       answers: [
         answerA4(),

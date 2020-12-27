@@ -18,7 +18,7 @@ export class SRVRecord extends ResourceRecord {
   constructor(header: RecordRepresentation, hostname: string, port: number)
   constructor(name: string | RecordRepresentation, hostname: string, port: number, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.SRV, ttl || SRVRecord.RR_DEFAULT_TTL, flushFlag);
+      super(name, RType.SRV, ttl || SRVRecord.RR_DEFAULT_TTL_SHORT, flushFlag);
     } else {
       assert(name.type === RType.SRV);
       super(name);

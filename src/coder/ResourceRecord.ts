@@ -29,6 +29,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   private static readonly FLUSH_MASK = 0x8000; // 2 bytes, first bit set
   private static readonly NOT_FLUSH_MASK = 0x7FFF;
 
+  public static readonly RR_DEFAULT_TTL_SHORT = 120; // 120 seconds
   public static readonly RR_DEFAULT_TTL = 4500; // 75 minutes
 
   readonly name: string;

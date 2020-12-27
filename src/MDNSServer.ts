@@ -421,7 +421,7 @@ export class MDNSServer {
     }
   }
 
-  private checkIfPreviouslySentPacketOnLoopbackInterface(name: InterfaceName, packet: Buffer): boolean {
+  private checkIfPacketWasPreviouslySentFromUs(name: InterfaceName, packet: Buffer): boolean {
     const base64 = packet.toString("base64");
     const packets = this.sentPackets.get(name);
     if (packets) {
@@ -502,7 +502,7 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
-    if (this.checkIfPreviouslySentPacketOnLoopbackInterface(networkInterface.name, buffer)) {
+    if (this.checkIfPacketWasPreviouslySentFromUs(networkInterface.name, buffer)) {
       // multicastLoopback is enabled for every interface, meaning we would receive our own response
       // packets here. Thus we silence them. We can't disable multicast loopback, as otherwise
       // queriers on the same host won't receive our packets
@@ -510,16 +510,26 @@ export class MDNSServer {
     }
 
     const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
-    if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
-      // This isn't a problem on macOS (it seems like to respect the desired interface we supply for our membership)
-      // On Linux based system such filtering seems to not happen :thinking: we just get any traffic and it's like
-      // we are just bound to 0.0.0.0
-      /* disabled debug message for now
-      if (!name.includes("lo")) { // exclude the loopback interface for this error
-        debug("Received packet on " + name + " which is not coming from the same subnet. %o",
-          {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
+    // We have the following problem on linux based platforms:
+    // When setting up a socket like above (binding on 0.0.0.0:5353) and then adding membership for 224.0.0.251 for
+    // A CERTAIN! interface, we will nonetheless receive packets from ALL other interfaces even the loopback interfaces.
+    // This is not the case on platforms like e.g. macOS. There stuff is properly filtered, and we only receive packets
+    // for the given interface we specified in our membership.
+    // This has the problem, that when receiving packets from other interfaces, that we leak out addresses which don't
+    // exists on the given interface. We can't do much about it, as in typically multiple subnet networks, it is valid
+    // that we receive a packet from a ip address which doesn't belong into the subnet of our given interface.
+    // What we can do at least, is the following two things:
+    // * if we are listening on the loopback interface, we filter out any traffic which doesn't belong to the loopback interface
+    // * if we receive a packet from the loopback interface, we filter those out as well.
+    // With that we at least ensure that the loopback address is never sent out to the network.
+    // This is what we do below:
+    if (networkInterface.loopback) {
+      if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
+        return;
       }
-      */
+    } else if (this.networkManager.isLoopbackNetaddressV4(ip4Netaddress)) {
+      debug("Received packet on interface '%s' which is not coming from the same subnet: %o", name,
+        {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
       return;
     }
 

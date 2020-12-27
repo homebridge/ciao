@@ -111,6 +111,10 @@ export class NetworkManager extends EventEmitter {
   private readonly excludeIpv6Only: boolean;
 
   private currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
+  /**
+   * A subset of our network interfaces, holding only loopback interfaces (or what node considers "internal").
+   */
+  private loopbackInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
   private initPromise?: Promise<void>;
 
   private currentTimer?: Timeout;
@@ -212,6 +216,16 @@ export class NetworkManager extends EventEmitter {
     return this.currentInterfaces.get(name);
   }
 
+  public isLoopbackNetaddressV4(netaddress: IPv4Address): boolean {
+    for (const networkInterface of this.loopbackInterfaces.values()) {
+      if (networkInterface.ipv4Netaddress === netaddress) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private scheduleNextJob(): void {
     this.currentTimer = setTimeout(this.checkForNewInterfaces.bind(this), NetworkManager.POLLING_TIME);
     this.currentTimer.unref(); // this timer won't prevent shutdown
@@ -274,10 +288,17 @@ export class NetworkManager extends EventEmitter {
           }
 
           this.currentInterfaces.set(name, networkInterface);
+          if (networkInterface.loopback) {
+            this.loopbackInterfaces.set(name, networkInterface);
+          }
+
           (changes ??= []).push(change);
         }
       } else { // new interface was added/started
         this.currentInterfaces.set(name, networkInterface);
+        if (networkInterface.loopback) {
+          this.currentInterfaces.set(name, networkInterface);
+        }
 
         (added ??= []).push(networkInterface);
       }
@@ -290,6 +311,7 @@ export class NetworkManager extends EventEmitter {
       for (const [name, networkInterface] of this.currentInterfaces) {
         if (!latestInterfaces.has(name)) { // interface was removed
           this.currentInterfaces.delete(name);
+          this.loopbackInterfaces.delete(name);
 
           (removed ??= []).push(networkInterface);
 

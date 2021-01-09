@@ -13,7 +13,7 @@
     "build": "npm run clean && tsc",
     "test": "jest",
     "test-coverage": "jest --coverage",
-    "docs": "rimraf docs && typedoc src/index.ts",
+    "docs": "typedoc src/index.ts",
     "prepublishOnly": "npm run build",
     "postpublish": "npm run clean",
     "preversion": "npm run lint",

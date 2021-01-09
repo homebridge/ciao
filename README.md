@@ -23,7 +23,7 @@ as it can't receive unicast responses).
 `ciao` [passes](BCT-Results-CIAO-PI-en0.txt) the [Bonjour Conformance Test](https://developer.apple.com/bonjour/)
 as defined and required by Apple.
 
-The full documentation can be found [here](https://developers.homebridge.io/ciao/globals.html).
+The full documentation can be found [here](https://developers.homebridge.io/ciao/modules.html).
 
 ## Installation
 

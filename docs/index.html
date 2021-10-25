@@ -1,265 +1,109 @@
-<!doctype html>
-<html class="default no-js">
-<head>
-	<meta charset="utf-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>@homebridge/ciao - v1.1.2</title>
-	<meta name="description" content="Documentation for @homebridge/ciao - v1.1.2">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<link rel="stylesheet" href="assets/css/main.css">
-	<script async src="assets/js/search.js" id="search-script"></script>
-</head>
-<body>
-<header>
-	<div class="tsd-page-toolbar">
-		<div class="container">
-			<div class="table-wrap">
-				<div class="table-cell" id="tsd-search" data-index="assets/js/search.json" data-base=".">
-					<div class="field">
-						<label for="tsd-search-field" class="tsd-widget search no-caption">Search</label>
-						<input id="tsd-search-field" type="text" />
-					</div>
-					<ul class="results">
-						<li class="state loading">Preparing search index...</li>
-						<li class="state failure">The search index is not available</li>
-					</ul>
-					<a href="index.html" class="title">@homebridge/ciao - v1.1.2</a>
-				</div>
-				<div class="table-cell" id="tsd-widgets">
-					<div id="tsd-filter">
-						<a href="#" class="tsd-widget options no-caption" data-toggle="options">Options</a>
-						<div class="tsd-filter-group">
-							<div class="tsd-select" id="tsd-filter-visibility">
-								<span class="tsd-select-label">All</span>
-								<ul class="tsd-select-list">
-									<li data-value="public">Public</li>
-									<li data-value="protected">Public/Protected</li>
-									<li data-value="private" class="selected">All</li>
-								</ul>
-							</div>
-							<input type="checkbox" id="tsd-filter-inherited" checked />
-							<label class="tsd-widget" for="tsd-filter-inherited">Inherited</label>
-						</div>
-					</div>
-					<a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a>
-				</div>
-			</div>
-		</div>
-	</div>
-	<div class="tsd-page-title">
-		<div class="container">
-			<h1>@homebridge/ciao - v1.1.2</h1>
-		</div>
-	</div>
-</header>
-<div class="container container-main">
-	<div class="row">
-		<div class="col-8 col-content">
-			<div class="tsd-panel tsd-typography">
-				<a href="#homebridgeciao" id="homebridgeciao" style="color: inherit; text-decoration: none;">
-					<h1>@homebridge/ciao</h1>
-				</a>
-				<p><a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao" alt="NPM-Version"></a>
-					<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao/beta" alt="NPM-Version Beta"></a>
-					<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/dt/@homebridge/ciao" alt="NPM-Downloads"></a>
-					<a href="https://github.com/homebridge/ciao/actions?query=workflow%3ANode-CI"><img src="https://github.com/homebridge/ciao/workflows/Node-CI/badge.svg" alt="Node-CI"></a>
-				<a href="https://coveralls.io/github/homebridge/ciao?branch=master"><img src="https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master" alt="Coverage Status"></a></p>
-				<p><code>ciao</code> is a <a href="https://tools.ietf.org/html/rfc6763">RFC 6763</a> compliant <code>dns-sd</code> library,
-					advertising on multicast dns (<a href="https://tools.ietf.org/html/rfc6762">RFC 6762</a>)
-				implemented in plain Typescript/JavaScript.</p>
-				<p>It is used in <a href="https://github.com/homebridge/HAP-NodeJS">HAP-NodeJS</a> and is the successor of the
-					<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> (and <a href="https://github.com/watson/bonjour">bonjour</a>) library,
-				aiming to be more robust, more maintainable and RFC compliant (read <a href="https://github.com/homebridge/bonjour#notice">Notice</a>).</p>
-				<p><code>ciao</code> features a multicast dns responder to publish service on the local network.
-					It will eventually gain browsing functionality in the future to also discover services on the local network
-					(There is currently no schedule when discover functionality will arrive.
-					A possible querier implementation is limited as explained in <a href="https://tools.ietf.org/html/rfc6762#section-15.1">RFC 6762 15.1.</a>
-				as it can&#39;t receive unicast responses).</p>
-				<p><code>ciao</code> <a href="BCT-Results-CIAO-PI-en0.txt">passes</a> the <a href="https://developer.apple.com/bonjour/">Bonjour Conformance Test</a>
-				as defined and required by Apple.</p>
-				<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/modules.html">here</a>.</p>
-				<a href="#installation" id="installation" style="color: inherit; text-decoration: none;">
-					<h2>Installation</h2>
-				</a>
-				<p>Add <code>ciao</code> as a dependency to your project by running the following command:</p>
-				<pre><code><span style="color: #001080">npm</span><span style="color: #000000"> </span><span style="color: #001080">install</span><span style="color: #000000"> --</span><span style="color: #001080">save</span><span style="color: #000000"> @</span><span style="color: #001080">homebridge</span><span style="color: #000000">/</span><span style="color: #001080">ciao</span>
+<!DOCTYPE html><html class="default no-js"><head><meta charSet="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>@homebridge/ciao - v1.1.3</title><meta name="description" content="Documentation for @homebridge/ciao - v1.1.3"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script async src="assets/search.js" id="search-script"></script></head><body><script>document.body.classList.add(localStorage.getItem("tsd-theme") || "os")</script><header><div class="tsd-page-toolbar"><div class="container"><div class="table-wrap"><div class="table-cell" id="tsd-search" data-base="."><div class="field"><label for="tsd-search-field" class="tsd-widget search no-caption">Search</label><input type="text" id="tsd-search-field"/></div><ul class="results"><li class="state loading">Preparing search index...</li><li class="state failure">The search index is not available</li></ul><a href="index.html" class="title">@homebridge/ciao - v1.1.3</a></div><div class="table-cell" id="tsd-widgets"><div id="tsd-filter"><a href="#" class="tsd-widget options no-caption" data-toggle="options">Options</a><div class="tsd-filter-group"><div class="tsd-select" id="tsd-filter-visibility"><span class="tsd-select-label">All</span><ul class="tsd-select-list"><li data-value="public">Public</li><li data-value="protected">Public/Protected</li><li data-value="private" class="selected">All</li></ul></div> <input type="checkbox" id="tsd-filter-inherited" checked/><label class="tsd-widget" for="tsd-filter-inherited">Inherited</label></div></div><a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a></div></div></div></div><div class="tsd-page-title"><div class="container"><h1>@homebridge/ciao - v1.1.3</h1></div></div></header><div class="container container-main"><div class="row"><div class="col-8 col-content"><div class="tsd-panel tsd-typography">
+<a href="#homebridgeciao" id="homebridgeciao" style="color: inherit; text-decoration: none;">
+  <h1>@homebridge/ciao</h1>
+</a>
+<p><a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao" alt="NPM-Version"></a>
+<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao/beta" alt="NPM-Version Beta"></a>
+<a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/dt/@homebridge/ciao" alt="NPM-Downloads"></a>
+<a href="https://github.com/homebridge/ciao/actions?query=workflow%3ANode-CI"><img src="https://github.com/homebridge/ciao/workflows/Node-CI/badge.svg" alt="Node-CI"></a>
+<a href="https://coveralls.io/github/homebridge/ciao?branch=master"><img src="https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master" alt="Coverage Status"></a></p>
+<p><code>ciao</code> is a <a href="https://tools.ietf.org/html/rfc6763">RFC 6763</a> compliant <code>dns-sd</code> library,
+advertising on multicast dns (<a href="https://tools.ietf.org/html/rfc6762">RFC 6762</a>)
+implemented in plain Typescript/JavaScript.</p>
+<p>It is used in <a href="https://github.com/homebridge/HAP-NodeJS">HAP-NodeJS</a> and is the successor of the 
+<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> (and <a href="https://github.com/watson/bonjour">bonjour</a>) library, 
+aiming to be more robust, more maintainable and RFC compliant (read <a href="https://github.com/homebridge/bonjour#notice">Notice</a>).</p>
+<p><code>ciao</code> features a multicast dns responder to publish service on the local network.
+It will eventually gain browsing functionality in the future to also discover services on the local network
+(There is currently no schedule when discover functionality will arrive. 
+A possible querier implementation is limited as explained in <a href="https://tools.ietf.org/html/rfc6762#section-15.1">RFC 6762 15.1.</a>
+as it can&#39;t receive unicast responses).</p>
+<p><code>ciao</code> <a href="BCT-Results-CIAO-PI-en0.txt">passes</a> the <a href="https://developer.apple.com/bonjour/">Bonjour Conformance Test</a>
+as defined and required by Apple.</p>
+<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/modules.html">here</a>.</p>
+
+<a href="#installation" id="installation" style="color: inherit; text-decoration: none;">
+  <h2>Installation</h2>
+</a>
+<p>Add <code>ciao</code> as a dependency to your project by running the following command:</p>
+<pre><code><span class="hl-0">npm</span><span class="hl-1"> </span><span class="hl-0">install</span><span class="hl-1"> --</span><span class="hl-0">save</span><span class="hl-1"> @</span><span class="hl-0">homebridge</span><span class="hl-1">/</span><span class="hl-0">ciao</span>
 </code></pre>
-				<a href="#example" id="example" style="color: inherit; text-decoration: none;">
-					<h2>Example</h2>
-				</a>
-				<pre><code class="language-ts"><span style="color: #0000FF">const</span><span style="color: #000000"> </span><span style="color: #0070C1">ciao</span><span style="color: #000000"> = </span><span style="color: #795E26">require</span><span style="color: #000000">(</span><span style="color: #A31515">&quot;@homebridge/ciao&quot;</span><span style="color: #000000">);</span>
 
-<span style="color: #0000FF">const</span><span style="color: #000000"> </span><span style="color: #0070C1">responder</span><span style="color: #000000"> = </span><span style="color: #001080">ciao</span><span style="color: #000000">.</span><span style="color: #795E26">getResponder</span><span style="color: #000000">();</span>
-
-<span style="color: #008000">// create a service defining a web server running on port 3000</span>
-<span style="color: #0000FF">const</span><span style="color: #000000"> </span><span style="color: #0070C1">service</span><span style="color: #000000"> = </span><span style="color: #001080">responder</span><span style="color: #000000">.</span><span style="color: #795E26">createService</span><span style="color: #000000">({</span>
-<span style="color: #000000">    </span><span style="color: #001080">name:</span><span style="color: #000000"> </span><span style="color: #A31515">&#039;My Web Server&#039;</span><span style="color: #000000">,</span>
-<span style="color: #000000">    </span><span style="color: #001080">type:</span><span style="color: #000000"> </span><span style="color: #A31515">&#039;http&#039;</span><span style="color: #000000">,</span>
-<span style="color: #000000">    </span><span style="color: #001080">port:</span><span style="color: #000000"> </span><span style="color: #098658">3000</span><span style="color: #000000">, </span><span style="color: #008000">// optional, can also be set via updatePort() before advertising</span>
-<span style="color: #000000">    </span><span style="color: #001080">txt:</span><span style="color: #000000"> { </span><span style="color: #008000">// optional</span>
-<span style="color: #000000">      </span><span style="color: #001080">key:</span><span style="color: #000000"> </span><span style="color: #A31515">&quot;value&quot;</span><span style="color: #000000">,</span>
-<span style="color: #000000">    }</span>
-<span style="color: #000000">})</span>
-
-
-<span style="color: #001080">service</span><span style="color: #000000">.</span><span style="color: #795E26">advertise</span><span style="color: #000000">().</span><span style="color: #795E26">then</span><span style="color: #000000">(() </span><span style="color: #0000FF">=&gt;</span><span style="color: #000000"> {</span>
-<span style="color: #000000">  </span><span style="color: #008000">// stuff you do when the service is published</span>
-<span style="color: #000000">  </span><span style="color: #001080">console</span><span style="color: #000000">.</span><span style="color: #795E26">log</span><span style="color: #000000">(</span><span style="color: #A31515">&quot;Service is published :)&quot;</span><span style="color: #000000">);</span>
-<span style="color: #000000">});</span>
-
-<span style="color: #008000">// ....</span>
-
-<span style="color: #001080">service</span><span style="color: #000000">.</span><span style="color: #795E26">updateTxt</span><span style="color: #000000">({ </span><span style="color: #008000">// replaces current txt</span>
-<span style="color: #000000">    </span><span style="color: #001080">newKey:</span><span style="color: #000000"> </span><span style="color: #A31515">&quot;newValue&quot;</span><span style="color: #000000">,</span>
-<span style="color: #000000">});</span>
-
-<span style="color: #008000">// ....</span>
-
-<span style="color: #001080">service</span><span style="color: #000000">.</span><span style="color: #795E26">end</span><span style="color: #000000">().</span><span style="color: #795E26">then</span><span style="color: #000000">(() </span><span style="color: #0000FF">=&gt;</span><span style="color: #000000"> {</span>
-<span style="color: #000000">  </span><span style="color: #008000">// service is now UNANNOUNCED and can be published again</span>
-<span style="color: #000000">});</span>
-
-<span style="color: #008000">// ....</span>
-
-<span style="color: #008000">// frees the service objects (and calls end() if still announced).</span>
-<span style="color: #008000">// The service object cannot be used again afterwards.</span>
-<span style="color: #001080">service</span><span style="color: #000000">.</span><span style="color: #795E26">destroy</span><span style="color: #000000">();</span>
+<a href="#example" id="example" style="color: inherit; text-decoration: none;">
+  <h2>Example</h2>
+</a>
+<pre><code class="language-ts"><span class="hl-2">const</span><span class="hl-1"> </span><span class="hl-3">ciao</span><span class="hl-1"> = </span><span class="hl-4">require</span><span class="hl-1">(</span><span class="hl-5">&quot;@homebridge/ciao&quot;</span><span class="hl-1">);</span><br/><br/><span class="hl-2">const</span><span class="hl-1"> </span><span class="hl-3">responder</span><span class="hl-1"> = </span><span class="hl-0">ciao</span><span class="hl-1">.</span><span class="hl-4">getResponder</span><span class="hl-1">();</span><br/><br/><span class="hl-6">// create a service defining a web server running on port 3000</span><br/><span class="hl-2">const</span><span class="hl-1"> </span><span class="hl-3">service</span><span class="hl-1"> = </span><span class="hl-0">responder</span><span class="hl-1">.</span><span class="hl-4">createService</span><span class="hl-1">({</span><br/><span class="hl-1">    </span><span class="hl-0">name:</span><span class="hl-1"> </span><span class="hl-5">&#39;My Web Server&#39;</span><span class="hl-1">,</span><br/><span class="hl-1">    </span><span class="hl-0">type:</span><span class="hl-1"> </span><span class="hl-5">&#39;http&#39;</span><span class="hl-1">,</span><br/><span class="hl-1">    </span><span class="hl-0">port:</span><span class="hl-1"> </span><span class="hl-7">3000</span><span class="hl-1">, </span><span class="hl-6">// optional, can also be set via updatePort() before advertising</span><br/><span class="hl-1">    </span><span class="hl-0">txt:</span><span class="hl-1"> { </span><span class="hl-6">// optional</span><br/><span class="hl-1">      </span><span class="hl-0">key:</span><span class="hl-1"> </span><span class="hl-5">&quot;value&quot;</span><span class="hl-1">,</span><br/><span class="hl-1">    }</span><br/><span class="hl-1">})</span><br/><br/><br/><span class="hl-0">service</span><span class="hl-1">.</span><span class="hl-4">advertise</span><span class="hl-1">().</span><span class="hl-4">then</span><span class="hl-1">(() </span><span class="hl-2">=&gt;</span><span class="hl-1"> {</span><br/><span class="hl-1">  </span><span class="hl-6">// stuff you do when the service is published</span><br/><span class="hl-1">  </span><span class="hl-0">console</span><span class="hl-1">.</span><span class="hl-4">log</span><span class="hl-1">(</span><span class="hl-5">&quot;Service is published :)&quot;</span><span class="hl-1">);</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-6">// ....</span><br/><br/><span class="hl-0">service</span><span class="hl-1">.</span><span class="hl-4">updateTxt</span><span class="hl-1">({ </span><span class="hl-6">// replaces current txt</span><br/><span class="hl-1">    </span><span class="hl-0">newKey:</span><span class="hl-1"> </span><span class="hl-5">&quot;newValue&quot;</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-6">// ....</span><br/><br/><span class="hl-0">service</span><span class="hl-1">.</span><span class="hl-4">end</span><span class="hl-1">().</span><span class="hl-4">then</span><span class="hl-1">(() </span><span class="hl-2">=&gt;</span><span class="hl-1"> {</span><br/><span class="hl-1">  </span><span class="hl-6">// service is now UNANNOUNCED and can be published again</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-6">// ....</span><br/><br/><span class="hl-6">// frees the service objects (and calls end() if still announced).</span><br/><span class="hl-6">// The service object cannot be used again afterwards.</span><br/><span class="hl-0">service</span><span class="hl-1">.</span><span class="hl-4">destroy</span><span class="hl-1">();</span>
 </code></pre>
-				<a href="#documentation" id="documentation" style="color: inherit; text-decoration: none;">
-					<h2>Documentation</h2>
-				</a>
-				<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/globals.html">here</a>.</p>
-				<a href="#api-overview" id="api-overview" style="color: inherit; text-decoration: none;">
-					<h3>API overview</h3>
-				</a>
-				<p>This section links to the most important aspects of the documentation as used in the example above.</p>
-				<p>First of all the <a href="https://developers.homebridge.io/ciao/globals.html#getresponder">getResponder</a> function
-					should be used to get a reference to a <a href="https://developers.homebridge.io/ciao/classes/responder.html">Responder</a> object.
-					The function takes some optional <a href="https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html">options</a>
-				to configure the underlying mdns server.</p>
-				<p>The <a href="https://developers.homebridge.io/ciao/classes/responder.html#createservice">createService</a> method of the <code>Responder</code>
-					object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a>
-					supplying the desired <a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html">configuration</a>
-					as the first parameter. You might have a look at the
-					<em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses">restrictedAddresses</a></em>
-					(and <em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6">disableIpv6</a></em>) configuration
-				if you don&#39;t want to advertise on all available addresses/network interfaces.</p>
-				<p>The <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise">advertise</a> method can now be called
-					on the <code>service</code> object to start advertising the service on the network.
-					An application should ideally listen to the <a href="https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed">NAME_CHANGE</a>
-					event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
-					The method <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt">updateTxt</a> can be used
-				to update the contest of the txt exposed by the service.</p>
-				<p>Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the
-					<a href="https://developers.homebridge.io/ciao/classes/responder.html#shutdown">shutdown</a> method of the responder object.
-					This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
-					on the network get instantly notified of the shutdown.
-				Otherwise, stale data will remain in the caches of surrounding mdns browsers. </p>
-				<a href="#mtu" id="mtu" style="color: inherit; text-decoration: none;">
-					<h3>MTU</h3>
-				</a>
-				<p>As of <a href="https://tools.ietf.org/html/rfc6762#section-17">RFC 6762 17. Multicast DNS Message Size</a> DNS packets must avoid
-					IP Fragmentation and ensure that all sent packets are smaller than the Maximum Transmission Unit (MTU) defined by
-					the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
-					<code>ciao</code> can&#39;t reliable detect modifications made to this default MTU size.
-					Thus , we rely on a hardcoded value, which is <code>1440</code> for the <strong>UDP Payload Size</strong> (Remember: the MTU defines the amount
-					of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header
-					and the UDP Header. So the amount of bytes we are able to fit into a single UDP packet is smaller).<br>If you know, that the MTU differs on your machine, you can set the true <strong>UDP Payload Size</strong> in bytes
-				using the <code>CIAO_UPS</code> environment variable. </p>
-				<a href="#notice-on-native-mdns-responders" id="notice-on-native-mdns-responders" style="color: inherit; text-decoration: none;">
-					<h3>Notice on native mDNS responders</h3>
-				</a>
-				<p>As described in <a href="https://tools.ietf.org/html/rfc6762#section-15">RFC 6762 15.</a>:
-					<em>&quot;It is possible to have more than one Multicast DNS responder and/or
-				querier implementation coexist on the same machine, but there are some known issues.&quot;</em></p>
-				<p>The RFC lists three possible issues:</p>
-				<ul>
-					<li><a href="https://tools.ietf.org/html/rfc6762#section-15.1">15.1.</a> <strong>Receiving Unicast Responses:</strong><br> As multiple sockets (from multiple responders) are bound to the port 5353, only one can receive unicast responses.
-						Unicast responses is a way to reduce traffic on the multicast address, as answers to a particular question can be
-						sent directly to the querier. As ciao does not hold the primary socket on port 5353, it can&#39;t receive unicast responses
-						and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are
-						sent on multicast and thus increase the load on the network.<br> This currently isn&#39;t really a problem, as the only time we send queries is in the probing step before we
-					advertise a new service (Future query functionality is much more affected).</li>
-					<li><a href="https://tools.ietf.org/html/rfc6762#section-15.2">15.2.</a> <strong>Multipacket Known-Answer lists:</strong><br> When the known-answer list of a query is too large to fit into a single dns packet, a querier can split those
-						records into multiple packets (and setting the truncation flag).
-						A responder will then reassemble those packets, which are identified by their originating ip address.<br> Thus, known-answer lists could be messed up when two queriers are sending at the same time.
-					Again ciao currently only sends queries when probing, so the probability of this happening is pretty low. </li>
-					<li><a href="https://tools.ietf.org/html/rfc6762#section-15.3">15.3.</a> <strong>Efficiency:</strong><br> The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
-					It doesn&#39;t improve the situation that this is running using an interpreted language.<br> So yes, it&#39;s probably not very efficient. </li>
-				</ul>
-				<p>As the RFC also states in <a href="https://tools.ietf.org/html/rfc6762#section-15.4">15.4</a>, it is recommended to use
-					a single mDNS implementation where possible. It is recommended to use the <a href="https://www.npmjs.com/package/mdns">mdns</a>
-					library where possible, as the library is pretty much a binding for existing mDNS implementations running on your
-					system (like <code>mDNSResponder</code> on macOS or <code>avahi</code> on most linux based systems).<br>The one downside with the <code>mdns</code> library is that running it on Windows is not really straight forward.
-					Generally we experienced with <code>homebridge</code> that many users run into problems when trying to install <code>mdns</code>.
-				Thus <code>bonjour-hap</code> and then <code>ciao</code> was created to provide a much easier to set up system.</p>
-			</div>
-		</div>
-		<div class="col-4 col-menu menu-sticky-wrap menu-highlight">
-			<nav class="tsd-navigation primary">
-				<ul>
-					<li class=" ">
-						<a href="modules.html">Exports</a>
-					</li>
-				</ul>
-			</nav>
-			<nav class="tsd-navigation secondary menu-sticky">
-				<ul class="before-current">
-					<li class=" tsd-kind-enum">
-						<a href="enums/protocol.html" class="tsd-kind-icon">Protocol</a>
-					</li>
-					<li class=" tsd-kind-enum">
-						<a href="enums/serviceevent.html" class="tsd-kind-icon">Service<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-enum">
-						<a href="enums/servicetype.html" class="tsd-kind-icon">Service<wbr>Type</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/ciaoservice.html" class="tsd-kind-icon">Ciao<wbr>Service</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/responder.html" class="tsd-kind-icon">Responder</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/mdnsserveroptions.html" class="tsd-kind-icon">MDNSServer<wbr>Options</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/serviceoptions.html" class="tsd-kind-icon">Service<wbr>Options</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#responderoptions" class="tsd-kind-icon">Responder<wbr>Options</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#servicetxt" class="tsd-kind-icon">Service<wbr>Txt</a>
-					</li>
-					<li class=" tsd-kind-property">
-						<a href="modules.html#default" class="tsd-kind-icon">default</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#getresponder" class="tsd-kind-icon">get<wbr>Responder</a>
-					</li>
-				</ul>
-			</nav>
-		</div>
-	</div>
-</div>
-<footer>
-	<div class="container">
-		<h2>Legend</h2>
-		<div class="tsd-legend-group">
-			<ul class="tsd-legend">
-				<li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-method tsd-parent-kind-class"><span class="tsd-kind-icon">Method</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static property</span></li>
-			</ul>
-		</div>
-	</div>
-</footer>
-<div class="overlay"></div>
-<script src="assets/js/main.js"></script>
-</body>
-</html>
+
+<a href="#documentation" id="documentation" style="color: inherit; text-decoration: none;">
+  <h2>Documentation</h2>
+</a>
+<p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/globals.html">here</a>.</p>
+
+<a href="#api-overview" id="api-overview" style="color: inherit; text-decoration: none;">
+  <h3>API overview</h3>
+</a>
+<p>This section links to the most important aspects of the documentation as used in the example above.</p>
+<p>First of all the <a href="https://developers.homebridge.io/ciao/globals.html#getresponder">getResponder</a> function 
+should be used to get a reference to a <a href="https://developers.homebridge.io/ciao/classes/responder.html">Responder</a> object.
+The function takes some optional <a href="https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html">options</a>
+to configure the underlying mdns server.</p>
+<p>The <a href="https://developers.homebridge.io/ciao/classes/responder.html#createservice">createService</a> method of the <code>Responder</code>
+object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a> 
+supplying the desired <a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html">configuration</a>
+as the first parameter. You might have a look at the 
+<em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses">restrictedAddresses</a></em>
+(and <em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6">disableIpv6</a></em>) configuration
+if you don&#39;t want to advertise on all available addresses/network interfaces.</p>
+<p>The <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise">advertise</a> method can now be called
+on the <code>service</code> object to start advertising the service on the network.
+An application should ideally listen to the <a href="https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed">NAME_CHANGE</a>
+event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
+The method <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt">updateTxt</a> can be used
+to update the contest of the txt exposed by the service.</p>
+<p>Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the 
+<a href="https://developers.homebridge.io/ciao/classes/responder.html#shutdown">shutdown</a> method of the responder object.
+This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
+on the network get instantly notified of the shutdown.
+Otherwise, stale data will remain in the caches of surrounding mdns browsers. </p>
+
+<a href="#mtu" id="mtu" style="color: inherit; text-decoration: none;">
+  <h3>MTU</h3>
+</a>
+<p>As of <a href="https://tools.ietf.org/html/rfc6762#section-17">RFC 6762 17. Multicast DNS Message Size</a> DNS packets must avoid
+IP Fragmentation and ensure that all sent packets are smaller than the Maximum Transmission Unit (MTU) defined by
+the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
+<code>ciao</code> can&#39;t reliable detect modifications made to this default MTU size.
+Thus , we rely on a hardcoded value, which is <code>1440</code> for the <strong>UDP Payload Size</strong> (Remember: the MTU defines the amount
+of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header 
+and the UDP Header. So the amount of bytes we are able to fit into a single UDP packet is smaller).<br>If you know, that the MTU differs on your machine, you can set the true <strong>UDP Payload Size</strong> in bytes
+using the <code>CIAO_UPS</code> environment variable. </p>
+
+<a href="#notice-on-native-mdns-responders" id="notice-on-native-mdns-responders" style="color: inherit; text-decoration: none;">
+  <h3>Notice on native mDNS responders</h3>
+</a>
+<p>As described in <a href="https://tools.ietf.org/html/rfc6762#section-15">RFC 6762 15.</a>:
+<em>&quot;It is possible to have more than one Multicast DNS responder and/or
+querier implementation coexist on the same machine, but there are some known issues.&quot;</em></p>
+<p>The RFC lists three possible issues:</p>
+<ul>
+<li><a href="https://tools.ietf.org/html/rfc6762#section-15.1">15.1.</a> <strong>Receiving Unicast Responses:</strong><br> As multiple sockets (from multiple responders) are bound to the port 5353, only one can receive unicast responses.
+ Unicast responses is a way to reduce traffic on the multicast address, as answers to a particular question can be
+ sent directly to the querier. As ciao does not hold the primary socket on port 5353, it can&#39;t receive unicast responses
+ and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are 
+ sent on multicast and thus increase the load on the network.<br> This currently isn&#39;t really a problem, as the only time we send queries is in the probing step before we 
+ advertise a new service (Future query functionality is much more affected).</li>
+<li><a href="https://tools.ietf.org/html/rfc6762#section-15.2">15.2.</a> <strong>Multipacket Known-Answer lists:</strong><br> When the known-answer list of a query is too large to fit into a single dns packet, a querier can split those
+ records into multiple packets (and setting the truncation flag).
+ A responder will then reassemble those packets, which are identified by their originating ip address.<br> Thus, known-answer lists could be messed up when two queriers are sending at the same time.
+ Again ciao currently only sends queries when probing, so the probability of this happening is pretty low. </li>
+<li><a href="https://tools.ietf.org/html/rfc6762#section-15.3">15.3.</a> <strong>Efficiency:</strong><br> The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
+ It doesn&#39;t improve the situation that this is running using an interpreted language.<br> So yes, it&#39;s probably not very efficient.</li>
+</ul>
+<p>As the RFC also states in <a href="https://tools.ietf.org/html/rfc6762#section-15.4">15.4</a>, it is recommended to use 
+a single mDNS implementation where possible. It is recommended to use the <a href="https://www.npmjs.com/package/mdns">mdns</a>
+library where possible, as the library is pretty much a binding for existing mDNS implementations running on your
+system (like <code>mDNSResponder</code> on macOS or <code>avahi</code> on most linux based systems).<br>The one downside with the <code>mdns</code> library is that running it on Windows is not really straight forward.
+Generally we experienced with <code>homebridge</code> that many users run into problems when trying to install <code>mdns</code>.
+Thus <code>bonjour-hap</code> and then <code>ciao</code> was created to provide a much easier to set up system.</p>
+</div></div><div class="col-4 col-menu menu-sticky-wrap menu-highlight"><nav class="tsd-navigation primary"><ul><li class="current"><a href="modules.html">Exports</a></li></ul></nav><nav class="tsd-navigation secondary menu-sticky"><ul><li class="tsd-kind-enum"><a href="enums/Protocol.html" class="tsd-kind-icon">Protocol</a></li><li class="tsd-kind-enum"><a href="enums/ServiceEvent.html" class="tsd-kind-icon">Service<wbr/>Event</a></li><li class="tsd-kind-enum"><a href="enums/ServiceType.html" class="tsd-kind-icon">Service<wbr/>Type</a></li><li class="tsd-kind-class"><a href="classes/CiaoService.html" class="tsd-kind-icon">Ciao<wbr/>Service</a></li><li class="tsd-kind-class"><a href="classes/Responder.html" class="tsd-kind-icon">Responder</a></li><li class="tsd-kind-interface"><a href="interfaces/MDNSServerOptions.html" class="tsd-kind-icon">MDNSServer<wbr/>Options</a></li><li class="tsd-kind-interface"><a href="interfaces/ServiceOptions.html" class="tsd-kind-icon">Service<wbr/>Options</a></li><li class="tsd-kind-type-alias"><a href="modules.html#ResponderOptions" class="tsd-kind-icon">Responder<wbr/>Options</a></li><li class="tsd-kind-type-alias"><a href="modules.html#ServiceTxt" class="tsd-kind-icon">Service<wbr/>Txt</a></li><li class="tsd-kind-property"><a href="modules.html#default" class="tsd-kind-icon">default</a></li><li class="tsd-kind-function"><a href="modules.html#getResponder" class="tsd-kind-icon">get<wbr/>Responder</a></li></ul></nav></div></div></div><footer class=""><div class="container"><h2>Legend</h2><div class="tsd-legend-group"><ul class="tsd-legend"><li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-method tsd-parent-kind-class"><span class="tsd-kind-icon">Method</span></li></ul></div><h2>Settings</h2><p>Theme <select id="theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></p></div></footer><div class="overlay"></div><script src="assets/main.js"></script></body></html>

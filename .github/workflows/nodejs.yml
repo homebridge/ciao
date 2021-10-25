@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [10.x, 12.x, 14.x, 16]
+        node-version: [10, 12, 14, 16]
         os: [ubuntu-latest]
 
     runs-on: ${{ matrix.os }}
@@ -24,12 +24,19 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-      - name: npm install, build and test
+      - name: npm install, build
         run: |
           npm ci
           npm run build
-          npm run lint
-          npm run test-coverage
+        env:
+          CI: true
+      - name: npm lint
+        if: matrix.node-version != 10
+        run: npm run lint
+        env:
+          CI: true
+      - name: npm test-coverage
+        run: npm run test-coverage
         env:
           CI: true
       - name: Coveralls Parallel
@@ -63,7 +70,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v1
         with:
-          node-version: 10 # use the minimum required version
+          node-version: 12
           registry-url: https://registry.npmjs.org/
       - run: npm ci
       - run: npm publish --access public

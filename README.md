@@ -3,7 +3,7 @@
 [![NPM-Version](https://badgen.net/npm/v/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Version Beta](https://badgen.net/npm/v/@homebridge/ciao/beta)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Downloads](https://badgen.net/npm/dt/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
-[![Node-CI](https://github.com/homebridge/ciao/workflows/Node-CI/badge.svg)](https://github.com/homebridge/ciao/actions?query=workflow%3ANode-CI)
+[![Node Build](https://github.com/homebridge/ciao/actions/workflows/build.yml/badge.svg)](https://github.com/homebridge/ciao/actions/workflows/build.yml)
 [![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
 
 `ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) compliant `dns-sd` library,

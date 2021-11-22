@@ -1,9 +1,8 @@
-name: Node Release
+name: Node-CI Beta
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [beta-*.*.*, beta]
   workflow_dispatch:
 
 jobs:
@@ -13,12 +12,20 @@ jobs:
       enable_coverage: true
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
+  lint:
+    needs: build_and_test
+    uses: homebridge/.github/.github/workflows/eslint.yml@main
 
   publish:
-    needs: build_and_test
+    needs: lint
 
     if: ${{ github.repository == 'homebridge/ciao' }}
 
     uses: homebridge/.github/.github/workflows/npm-publish.yml@main
+    with:
+      tag: 'beta'
+      dynamically_adjust_version: true
+      npm_version_command: 'pre'
+      pre_id: 'beta'
     secrets:
       npm_auth_token: ${{ secrets.npm_token }}

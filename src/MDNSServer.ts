@@ -139,11 +139,24 @@ export interface MDNSServerOptions {
    */
   interface?: string | string[];
   /**
-   * If specified, the mdns server will not include any ipv6 address records
-   * and not bind any udp6 sockets.
-   * This is handy if you want to "bind" on 0.0.0.0 only.
+   * If specified, the mdns server will not include any IPv6 (AAAA) address records.
+   * This option does not affect advertising on IPv6. Defaults to false.
    */
   disableIpv6?: boolean;
+  /**
+   * Do not advertise on IPv6-only networks. Defaults to false.
+   */
+  excludeIpv6Only?: boolean;
+  /**
+   * If specified, the mDNS server will advertise on IPv4.
+   * Defaults to true.
+   */
+  advertiseIpv4?: boolean;
+  /**
+   * If specified, the mDNS server will advertise on IPv6.
+   * Defaults to true.
+   */
+  advertiseIpv6?: boolean;
 }
 
 export interface PacketHandler {
@@ -186,6 +199,8 @@ export class MDNSServer {
   private bound = false;
   private closed = false;
 
+  private advertiseFamilies: Array<IPFamily> = [];
+
   constructor(handler: PacketHandler, options?: MDNSServerOptions) {
     assert(handler, "handler cannot be undefined");
     this.handler = handler;
@@ -193,8 +208,17 @@ export class MDNSServer {
     this.networkManager = new NetworkManager({
       interface: options && options.interface,
       excludeIpv6: options && options.disableIpv6,
-      excludeIpv6Only: true, // we currently have no udp6 sockets advertising anything, thus no need to manage interface which only have ipv6
+      excludeIpv6Only: options && options.excludeIpv6Only,
     });
+
+    if (!(options && options.advertiseIpv4 === false)) {
+      // IPv4 advertisements default to on
+      this.advertiseFamilies.push(IPFamily.IPv4);
+    }
+    if (options && options.advertiseIpv6) {
+      // IPv6 advertisements default to off
+      this.advertiseFamilies.push(IPFamily.IPv6);
+    }
 
     this.networkManager.on(NetworkManagerEvent.NETWORK_UPDATE, this.handleUpdatedNetworkInterfaces.bind(this));
   }
@@ -223,14 +247,15 @@ export class MDNSServer {
     const promises: Promise<void>[] = [];
 
     for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
-      const socket = this.createDgramSocket(name, true);
-
-      const promise = this.bindSocket(socket, networkInterface, IPFamily.IPv4)
-        .catch(reason => {
-          // TODO if bind errors we probably will never bind again
-          console.log("Could not bind detected network interface: " + reason.stack);
-        });
-      promises.push(promise);
+      this.advertiseFamilies.forEach((family: IPFamily) => {
+        const socket = this.createDgramSocket(name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
+        const promise = this.bindSocket(socket, networkInterface, family)
+          .catch(reason => {
+            // TODO if bind errors we probably will never bind again
+            console.log("Could not bind detected network interface: " + reason.stack);
+          });
+        promises.push(promise);
+      });
     }
 
     return Promise.all(promises).then(() => {
@@ -309,8 +334,10 @@ export class MDNSServer {
         continue;
       }
 
+      const isIPv6 = name.endsWith("/6");
+
       const promise = new Promise<SendResult>(resolve => {
-        socket.send(message, MDNSServer.MDNS_PORT, MDNSServer.MULTICAST_IPV4, error => {
+        socket.send(message, MDNSServer.MDNS_PORT, isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4, error => {
           if (error) {
             if (!MDNSServer.isSilencedSocketError(error)) {
               resolve({
@@ -348,21 +375,26 @@ export class MDNSServer {
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
-    this.assertBeforeSend(message, IPFamily.IPv4);
 
     let address: string;
     let port: number;
     let name: string;
 
+    let isIPv6;
+
     if (typeof endpointOrInterface === "string") { // its a network interface name
-      address = MDNSServer.MULTICAST_IPV4;
+      isIPv6 = endpointOrInterface.endsWith("/6");
+      address = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
       port = MDNSServer.MDNS_PORT;
       name = endpointOrInterface;
     } else {
+      isIPv6 = endpointOrInterface.interface.endsWith("/6");
       address = endpointOrInterface.address;
       port = endpointOrInterface.port;
       name = endpointOrInterface.interface;
     }
+
+    this.assertBeforeSend(message, isIPv6 ? IPFamily.IPv6 : IPFamily.IPv4);
 
     const socket = this.sockets.get(name);
     if (!socket) {
@@ -441,7 +473,7 @@ export class MDNSServer {
       reuseAddr: reuseAddr,
     });
 
-    socket.on("message", this.handleMessage.bind(this, name));
+    socket.on("message", (data: Buffer, rinfo: AddressInfo) => this.handleMessage(name, data, rinfo, type === "udp6" ? IPFamily.IPv6 : IPFamily.IPv4));
     socket.on("error", error => {
       if (!MDNSServer.isSilencedSocketError(error)) {
         MDNSServer.logSocketError(name, error);
@@ -454,31 +486,46 @@ export class MDNSServer {
   private bindSocket(socket: Socket, networkInterface: NetworkInterface, family: IPFamily): Promise<void> {
     return new Promise((resolve, reject) => {
       const errorHandler = (error: Error): void => reject(new Error("Failed to bind on interface " + networkInterface.name + ": " + error.message));
+      const isIPv6 = family === IPFamily.IPv6;
+
       socket.once("error", errorHandler);
 
       socket.on("close", () => {
-        this.sockets.delete(networkInterface.name);
+        this.sockets.delete(networkInterface.name + (isIPv6 ? "/6" : ""));
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
         socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
 
-        const multicastAddress = family === IPFamily.IPv4? MDNSServer.MULTICAST_IPV4: MDNSServer.MULTICAST_IPV6;
-        const interfaceAddress = family === IPFamily.IPv4? networkInterface.ipv4: networkInterface.ipv6;
-        assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
+        const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
+        const interfaceAddress = isIPv6 ? networkInterface.ipv6 : networkInterface.ipv4;
+
+        // assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
+        if (!interfaceAddress) {
+          // There isn't necessarily an IPv4 and IPv6 address assigned to every interface even on dual-stack systems
+          console.log("Warning: no " + (isIPv6 ? "IPv6" : "IPv4") + " address available on " + networkInterface.name);
+          try {
+            socket.close();
+          } catch (error) {
+            // Ignore
+          }
+          resolve();
+          return;
+        }
 
         try {
           socket.addMembership(multicastAddress, interfaceAddress!);
 
-          socket.setMulticastInterface(interfaceAddress!);
+          // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
+          socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
           socket.setTTL(MDNSServer.MDNS_TTL); // outgoing unicast datagrams
 
           socket.setMulticastLoopback(true); // We can't disable multicast loopback, as otherwise queriers on the same host won't receive our packets
 
-          this.sockets.set(networkInterface.name, socket);
+          this.sockets.set(isIPv6 ? networkInterface.name + "/6" : networkInterface.name, socket);
           resolve();
         } catch (error) {
           try {
@@ -492,7 +539,7 @@ export class MDNSServer {
     });
   }
 
-  private handleMessage(name: InterfaceName, buffer: Buffer, rinfo: AddressInfo): void {
+  private handleMessage(name: InterfaceName, buffer: Buffer, rinfo: AddressInfo, family: IPFamily): void {
     if (!this.bound) {
       return;
     }
@@ -509,7 +556,6 @@ export class MDNSServer {
       return;
     }
 
-    const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
     // We have the following problem on linux based platforms:
     // When setting up a socket like above (binding on 0.0.0.0:5353) and then adding membership for 224.0.0.251 for
     // A CERTAIN! interface, we will nonetheless receive packets from ALL other interfaces even the loopback interfaces.
@@ -523,14 +569,25 @@ export class MDNSServer {
     // * if we receive a packet from the loopback interface, we filter those out as well.
     // With that we at least ensure that the loopback address is never sent out to the network.
     // This is what we do below:
-    if (networkInterface.loopback) {
-      if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
+
+    const isIPv6 = family === IPFamily.IPv6;
+
+    if (isIPv6) {
+      if (networkInterface.loopback !== rinfo.address.includes("%lo")) {
+        debug("Received packet on a %s interface (%s) which is coming from a %s interface (%s)", networkInterface.loopback ? "loopback" : "non-loopback", name, rinfo.address.includes("%lo") ? "loopback" : "non-loopback", rinfo.address);
+        // return;
+      }
+    } else {
+      const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
+      if (networkInterface.loopback) {
+        if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
+          return;
+        }
+      } else if (this.networkManager.isLoopbackNetaddressV4(ip4Netaddress)) {
+        debug("Received packet on interface '%s' which is not coming from the same subnet: %o", name,
+          {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
         return;
       }
-    } else if (this.networkManager.isLoopbackNetaddressV4(ip4Netaddress)) {
-      debug("Received packet on interface '%s' which is not coming from the same subnet: %o", name,
-        {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
-      return;
     }
 
     let packet: DNSPacket;
@@ -556,7 +613,7 @@ export class MDNSServer {
     const endpoint: EndpointInfo = {
       address: rinfo.address,
       port: rinfo.port,
-      interface: name,
+      interface: name + (isIPv6 ? "/6" : ""),
     };
 
     if (packet.type === PacketType.QUERY) {
@@ -602,9 +659,16 @@ export class MDNSServer {
   private handleUpdatedNetworkInterfaces(networkUpdate: NetworkUpdate): void {
     if (networkUpdate.removed) {
       for (const networkInterface of networkUpdate.removed) {
-        const socket = this.sockets.get(networkInterface.name);
+        // Handle IPv4
+        let socket = this.sockets.get(networkInterface.name);
         this.sockets.delete(networkInterface.name);
+        if (socket) {
+          socket.close();
+        }
 
+        // Handle IPv6
+        socket = this.sockets.get(networkInterface.name + "/6");
+        this.sockets.delete(networkInterface.name + "/6");
         if (socket) {
           socket.close();
         }
@@ -613,9 +677,8 @@ export class MDNSServer {
 
     if (networkUpdate.changes) {
       for (const change of networkUpdate.changes) {
-        const socket = this.sockets.get(change.name);
-        assert(socket, "Couldn't find socket for network change!");
-
+        // Handle IPv4
+        let socket = this.sockets.get(change.name);
         if (!change.outdatedIpv4 && change.updatedIpv4) {
           // this does currently not happen, as we exclude ipv6 only interfaces
           // thus such a change would be happening through the ADDED array
@@ -624,30 +687,46 @@ export class MDNSServer {
           // this does currently not happen, as we exclude ipv6 only interfaces
           // thus such a change would be happening through the REMOVED array
           assert.fail("Reached illegal state! IPV4 address change from defined to undefined!");
-        } else if (change.outdatedIpv4 && change.updatedIpv4) {
+        } else if (socket && change.outdatedIpv4 && change.updatedIpv4) {
           try {
             socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
           } catch (error) {
-            debug("Thrown expected error when dropping outdated address membership: " + error.message);
+            debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
           }
           try {
             socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
           } catch (error) {
-            debug("Thrown expected error when adding new address membership: " + error.message);
+            debug("Thrown unexpected error when adding new address membership: " + error.message);
           }
 
           socket!.setMulticastInterface(change.updatedIpv4);
+        }
+
+        // Handle IPv6
+        socket = this.sockets.get(change.name + "/6");
+        if (socket && change.outdatedIpv6 && change.updatedIpv6) {
+          try {
+            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6);
+          } catch (error) {
+            debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
+          }
+          try {
+            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6);
+          } catch (error) {
+            debug("Thrown unexpected error when adding new address membership: " + error.message);
+          }
         }
       }
     }
 
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
-        const socket = this.createDgramSocket(networkInterface.name, true);
-
-        this.bindSocket(socket, networkInterface, IPFamily.IPv4).catch(reason => {
-          // TODO if bind errors we probably will never bind again
-          console.log("Could not bind detected network interface: " + reason.stack);
+        this.advertiseFamilies.forEach((family: IPFamily) => {
+          const socket = this.createDgramSocket(networkInterface.name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
+          this.bindSocket(socket, networkInterface, family).catch(reason => {
+            // TODO if bind errors we probably will never bind again
+            console.log("Could not bind detected network interface: " + reason.stack);
+          });
         });
       }
     }

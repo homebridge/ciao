@@ -391,9 +391,11 @@ export class NetworkManager extends EventEmitter {
           internal = true;
         }
 
-        if (info.family === "IPv4" && !ipv4Info) {
+        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
+        if ((info.family === "IPv4" || info.family === 4) && !ipv4Info) {
           ipv4Info = info;
-        } else if (info.family === "IPv6") {
+        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
+        } else if (info.family === "IPv6" || info.family === 6) {
           if (this.excludeIpv6) {
             continue;
           }
@@ -529,7 +531,8 @@ export class NetworkManager extends EventEmitter {
         // unique global or unique local ipv6 addresses give an indication that we are truly connected to "the Internet"
         // as something like SLAAC must be going on
         // in the end
-        if (info.internal || info.family === "IPv4" || info.family === "IPv6" && info.scopeid === 0) {
+        // @ts-expect-error Nodejs 18+ uses the number 4/6 instead of the string "IPv4"/"IPv6"
+        if (info.internal || (info.family === "IPv4" || info.family === 4) || (info.family === "IPv6" || info.family === 6) && info.scopeid === 0) {
           if (!names.includes(name)) {
             names.push(name);
           }

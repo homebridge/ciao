@@ -757,11 +757,12 @@ export class NetworkManager extends EventEmitter {
           return;
         }
 
+        const interfaceArrayOffset = os.platform() === "sunos" ? 0 : 2;
         const lines = stdout.split(os.EOL);
         const names: InterfaceName[] = [];
 
         for (let i = 1; i < lines.length - 1; i++) {
-          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[2];
+          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[interfaceArrayOffset];
           if (!interfaceName) {
             debug(`${os.platform()}: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;

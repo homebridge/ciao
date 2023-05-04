@@ -461,7 +461,7 @@ export class NetworkManager extends EventEmitter {
     let interfaceName: InterfaceName | undefined;
 
     outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
-      for (const info of infoArray) {
+      for (const info of infoArray ?? []) {
         if (info.address === address) {
           interfaceName = name;
           break outer; // exit out of both loops
@@ -524,7 +524,7 @@ export class NetworkManager extends EventEmitter {
 
     const names: InterfaceName[] = [];
     Object.entries(os.networkInterfaces()).forEach(([name, infos]) => {
-      for (const info of infos) {
+      for (const info of infos ?? []) {
         // we add the loopback interface or interfaces which got a unique (global or local) ipv6 address
         // we currently don't just add all interfaces with ipv4 addresses as are often interfaces like VPNs, container/vms related
 
@@ -546,7 +546,7 @@ export class NetworkManager extends EventEmitter {
 
   private static getLoopbackInterface(): InterfaceName {
     for (const [name, infos] of Object.entries(os.networkInterfaces())) {
-      for (const info of infos) {
+      for (const info of infos ?? []) {
         if (info.internal) {
           return name;
         }

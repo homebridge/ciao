@@ -142,14 +142,29 @@ export class Responder implements PacketHandler {
 
     debug("Sending periodic announcement on " + Array.from(this.server.getNetworkManager().getInterfaceMap().keys()).join(", "));
 
+    const boundInterfaceNames = Array.from(this.server.getBoundInterfaceNames());
+
     for (const networkInterface of this.server.getNetworkManager().getInterfaceMap().values()) {
       const question = new Question("_hap._tcp.local.", QType.PTR, false);
-      const responses = this.answerQuestion(question, {
-        port: 5353,
-        address: (networkInterface.ipv4Netaddress || networkInterface.globallyRoutableIpv6 || networkInterface.uniqueLocalIpv6 || networkInterface.ipv6)!,
-        interface: networkInterface.name,
-      });
 
+      let responses4: QueryResponse[] = [], responses6: QueryResponse[] = [];
+
+      if (boundInterfaceNames.includes(networkInterface.name)) {
+        responses4 = this.answerQuestion(question, {
+          port: 5353,
+          address: networkInterface.ipv4Netaddress!,
+          interface: networkInterface.name,
+        });
+      }
+      if (boundInterfaceNames.includes(networkInterface.name + "/6")) {
+        responses6 = this.answerQuestion(question, {
+          port: 5353,
+          address: networkInterface.ipv6!,
+          interface: networkInterface.name + "/6",
+        });
+      }
+
+      const responses = [...responses4, ...responses6];
       QueryResponse.combineResponses(responses);
 
       for (const response of responses) {
@@ -1176,13 +1191,15 @@ export class Responder implements PacketHandler {
    * @returns true if any records got added
    */
   private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, type: RType.A | RType.AAAA, dest: RecordAddMethod): boolean {
+    const endpointInterface = endpoint.interface.endsWith("/6") ? endpoint.interface.substr(0, endpoint.interface.length - 2) : endpoint.interface;
+
     if (type === RType.A) {
-      const record = service.aRecord(endpoint.interface);
+      const record = service.aRecord(endpointInterface);
       return record? dest(record): false;
     } else if (type === RType.AAAA) {
-      const record = service.aaaaRecord(endpoint.interface);
-      const routableRecord = service.aaaaRoutableRecord(endpoint.interface);
-      const ulaRecord = service.aaaaUniqueLocalRecord(endpoint.interface);
+      const record = service.aaaaRecord(endpointInterface);
+      const routableRecord = service.aaaaRoutableRecord(endpointInterface);
+      const ulaRecord = service.aaaaUniqueLocalRecord(endpointInterface);
 
       let addedAny = false;
       if (record) {

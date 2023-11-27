@@ -19,7 +19,7 @@ export class TXTRecord extends ResourceRecord {
       super(name);
     }
 
-    this.txt = txt;
+    this.txt = txt.length === 0 ? [Buffer.from([])] : txt;
   }
 
   protected getRDataEncodingLength(): number {

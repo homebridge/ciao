@@ -125,7 +125,7 @@ export class DNSLabelCoder {
 
     let length = 0;
     if (candidateSharingLongestSuffix) {
-      // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
+      // in theory, it is possible that the candidate has a pointer which "fromIndex" is smaller than
       // the "toIndex" we are pointing to below. This could result in that we point to a location which
       // never gets written into the buffer, thus we can't point to it.
       // But as we always start in order (with the first element in our array; see for loop above)
@@ -222,7 +222,7 @@ export class DNSLabelCoder {
     }
 
     if (candidateSharingLongestSuffix) {
-      // in theory it is possible that the candidate has an pointer which "fromIndex" is smaller than the
+      // in theory, it is possible that the candidate has a pointer which "fromIndex" is smaller than
       // the "toIndex" we are pointing to below. This could result in that we point to a location which
       // never gets written into the buffer, thus we can't point to it.
       // But as we always start in order (with the first element in our array; see for loop above)
@@ -284,7 +284,7 @@ export class DNSLabelCoder {
             break;
           }
 
-          // if we would allow pointers to a later location, we MUST ensure that we don't end up in a endless loop
+          // if we would allow pointers to a later location, we MUST ensure that we don't end up in an endless loop
           assert(pointer < oldOffset, "Pointer at " + (offset - 2) + " MUST point to a prior location!");
 
           name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name

@@ -96,9 +96,9 @@ export interface ServiceOptions {
    * If defined it restricts the service to be advertised on the specified
    * ip addresses or interface names.
    *
-   * If a interface name is specified, ANY address on that given interface will be advertised
-   * (if a IP address of the given interface is also given in the array, it will be overridden).
-   * If a IP address is specified, the service will only be advertised for the given addresses.
+   * If an interface name is specified, ANY address on that given interface will be advertised
+   * (if an IP address of the given interface is also given in the array, it will be overridden).
+   * If an IP address is specified, the service will only be advertised for the given addresses.
    *
    * Interface names and addresses can be mixed in the array.
    * If an ip address is given, the ip address must be valid at the time of service creation.
@@ -261,12 +261,12 @@ export declare interface CiaoService {
 /**
  * The CiaoService class represents a service which can be advertised on the network.
  *
- * A service is identified by it's fully qualified domain name (FQDN), which consist of
+ * A service is identified by its fully qualified domain name (FQDN), which consist of
  * the service name, the service type, the protocol and the service domain (.local by default).
  *
  * The service defines a hostname and a port where the advertised service can be reached.
  *
- * Additionally a TXT record can be published, which can contain information (in form of key-value pairs),
+ * Additionally, a TXT record can be published, which can contain information (in form of key-value pairs),
  * which might be useful to a querier.
  *
  * A CiaoService class is always bound to a {@link Responder} and can be created using the
@@ -307,7 +307,7 @@ export class CiaoService extends EventEmitter {
   /**
    * If service is in state {@link ServiceState.ANNOUNCING} the {@link Announcer} responsible for the
    * service will be linked here. This is need to cancel announcing when for example the service
-   * should be terminated and we sill aren't fully announced yet.
+   * should be terminated, and we still aren't fully announced yet.
    * @private is controlled by the {@link Responder} instance
    */
   currentAnnouncer?: Announcer;
@@ -525,7 +525,7 @@ export class CiaoService extends EventEmitter {
    * @param {ServiceTxt} txt - The updated txt record.
    * @param {boolean} silent - If set to true no announcement is sent for the updated record.
    */
-  public updateTxt(txt: ServiceTxt, silent = false): void {
+  public updateTxt(txt: ServiceTxt, silent: boolean = false): void {
     assert(!this.destroyed, "Cannot update destroyed service!");
     assert(txt, "txt cannot be undefined");
 
@@ -541,7 +541,7 @@ export class CiaoService extends EventEmitter {
 
       if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
         // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
-        // result in updated records on the next announcement. Otherwise we still need to announce the updated records
+        // result in updated records on the next announcement. Otherwise, we still need to announce the updated records
         this.currentAnnouncer!.awaitAnnouncement().then(() => {
           this.queueTxtUpdate();
         });
@@ -563,7 +563,7 @@ export class CiaoService extends EventEmitter {
     } else {
       // we debounce txt updates, otherwise if api users would spam txt updates, we would receive the txt record
       // while we already update our txt to the next call, thus causing a conflict being detected.
-      // We would then continue with Probing (to ensure uniqueness) and could then receive following spammed updates as conflicts
+      // We would then continue with Probing (to ensure uniqueness) and could then receive following spammed updates as conflicts,
       // and we would change our name without it being necessary
       this.txtTimer = setTimeout(() => {
         this.txtTimer = undefined;
@@ -581,7 +581,7 @@ export class CiaoService extends EventEmitter {
   /**
    * Sets or updates the port of the service.
    * A new port number can only be set when the service is still UNANNOUNCED.
-   * Otherwise an assertion error will be thrown.
+   * Otherwise, an assertion error will be thrown.
    *
    * @param {number} port - The new port number.
    */
@@ -608,7 +608,7 @@ export class CiaoService extends EventEmitter {
           this.fqdn = this.formatFQDN();
           this.loweredFqdn = dnsLowerCase(this.fqdn);
 
-          // service records are going to be rebuilt on the advertise step
+          // service records are going to be rebuilt on the 'advertise' step
           return this.advertise();
         });
     }
@@ -639,17 +639,17 @@ export class CiaoService extends EventEmitter {
 
         if (this.currentAnnouncer!.hasSentLastAnnouncement()) {
           // if the announcer hasn't sent the last announcement, the above call of rebuildServiceRecords will
-          // result in updated records on the next announcement. Otherwise we still need to announce the updated records
+          // result in updated records on the next announcement. Otherwise, we still need to announce the updated records
           this.currentAnnouncer!.awaitAnnouncement().then(() => {
             this.handleNetworkInterfaceUpdate(networkUpdate);
           });
         }
       }
 
-      return; // service records are rebuilt short before the announce step
+      return; // service records are rebuilt short before the 'announce' step
     }
 
-    // we don't care about removed interfaces. We can't sent goodbye records on a non existing interface
+    // we don't care about removed interfaces. We can't send goodbye records on a non-existing interface
 
     this.rebuildServiceRecords();
     // records for a removed interface are now no longer present after the call above
@@ -715,13 +715,13 @@ export class CiaoService extends EventEmitter {
       // as we don't know if we still own uniqueness for our service name on the new network.
       // To make things easy and keep the SAME name on all networks, we probe on ALL interfaces.
 
-      // in this moment the new socket won't be bound. Though probing steps are delayed,
-      // thus, when sending the first request, the socket will be bound and we don't need to wait here
+      // at this moment the new socket won't be bound. Though probing steps are delayed,
+      // thus, when sending the first request, the socket will be bound, and we don't need to wait here
       this.emit(InternalServiceEvent.REPUBLISH, error => {
         if (error) {
-          console.log("FATAL Error occurred trying to reannounce service " + this.fqdn + "! We can't recover from this!");
+          console.log("FATAL Error occurred trying to re-announce service " + this.fqdn + "! We can't recover from this!");
           console.log(error.stack);
-          process.exit(1); // we have a service which should be announced, though we failed to reannounce.
+          process.exit(1); // we have a service which should be announced, though we failed to re-announce.
           // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
           // for situations where it makes sense
         }
@@ -731,7 +731,7 @@ export class CiaoService extends EventEmitter {
 
   /**
    * This method is called by the Prober when encountering a conflict on the network.
-   * It advices the service to change its name, like incrementing a number appended to the name.
+   * It advises the service to change its name, like incrementing a number appended to the name.
    * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
    * @private must only be called by the {@link Prober}
    */
@@ -933,7 +933,7 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
-   * @private used to get a copy of the array of sub-type PTR records
+   * @private used to get a copy of the array of subtype PTR records
    */
   subtypePtrRecords(): PTRRecord[] {
     return this.serviceRecords!.subtypePTRs? ResourceRecord.clone(this.serviceRecords!.subtypePTRs): [];
@@ -985,7 +985,7 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
-   * @private used to get a copy of the AAAA fore the unique local ipv6 address
+   * @private used to get a copy of the AAAA for the unique local ipv6 address
    */
   aaaaUniqueLocalRecord(name: InterfaceName): AAAARecord | undefined {
     const record = this.serviceRecords!.aaaaULA[name];

@@ -73,28 +73,25 @@ describe(TruncatedQuery, () => {
       fail(new Error("Truncated Query timed when waiting for second packet"));
     });
 
-    await PromiseTimeout(60).then(() => {
+    await PromiseTimeout(60).then(async () => {
       const result = query.appendDNSPacket(packet1);
       expect(result).toBe(TruncatedQueryResult.AGAIN_TRUNCATED);
       expect(query.getArrivedPacketCount()).toBe(2);
 
-      return PromiseTimeout(60).then(() => {
-        const result = query.appendDNSPacket(packet2);
-        expect(result).toBe(TruncatedQueryResult.FINISHED);
-        expect(query.getArrivedPacketCount()).toBe(3);
-
-        const packet = query.getPacket();
-        expect(packet.questions.size).toBe(1);
-        expect(packet.answers.size).toBe(5);
-        expect(packet.additionals.size).toBe(0);
-        expect(packet.authorities.size).toBe(0);
-
-        expect(packet.answers.has(answerA1().asString())).toBe(true);
-        expect(packet.answers.has(answerA2().asString())).toBe(true);
-        expect(packet.answers.has(answerA3().asString())).toBe(true);
-        expect(packet.answers.has(answerA4().asString())).toBe(true);
-        expect(packet.answers.has(answerA5().asString())).toBe(true);
-      });
+      await PromiseTimeout(60);
+      const result_2 = query.appendDNSPacket(packet2);
+      expect(result_2).toBe(TruncatedQueryResult.FINISHED);
+      expect(query.getArrivedPacketCount()).toBe(3);
+      const packet_1 = query.getPacket();
+      expect(packet_1.questions.size).toBe(1);
+      expect(packet_1.answers.size).toBe(5);
+      expect(packet_1.additionals.size).toBe(0);
+      expect(packet_1.authorities.size).toBe(0);
+      expect(packet_1.answers.has(answerA1().asString())).toBe(true);
+      expect(packet_1.answers.has(answerA2().asString())).toBe(true);
+      expect(packet_1.answers.has(answerA3().asString())).toBe(true);
+      expect(packet_1.answers.has(answerA4().asString())).toBe(true);
+      expect(packet_1.answers.has(answerA5().asString())).toBe(true);
     });
   });
 });

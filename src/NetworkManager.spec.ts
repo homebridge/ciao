@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { NetworkManager, InterfaceName } from "./NetworkManager";
+import { NetworkManager } from "./NetworkManager";
 import childProcess, { ExecException } from "child_process";
 
 const execMock = jest.spyOn(childProcess, "exec");
@@ -9,7 +9,7 @@ const getLinuxNetworkInterfaces = NetworkManager.getLinuxNetworkInterfaces;
 
 describe(NetworkManager, () => {
   describe(getLinuxNetworkInterfaces, () => {
-    it("should parse interfaces from arp cache", () => {
+    it("should parse interfaces from arp cache", async () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "ip neigh show") {
@@ -28,9 +28,8 @@ describe(NetworkManager, () => {
           "fd00::1 dev eth6 lladdr 00:00:00:00:00:00 STALE\n", "");
       });
 
-      return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {
-        expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
-      });
+      const names = await getLinuxNetworkInterfaces();
+      expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
     });
 
     it("should handle error caused by exec", () => {
@@ -46,7 +45,7 @@ describe(NetworkManager, () => {
       });
     });
 
-    it("should handle double spaces correctly", () => {
+    it("should handle double spaces correctly", async () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "ip neigh show") {
@@ -65,9 +64,8 @@ describe(NetworkManager, () => {
           "fd00::1 dev eth6 lladdr 00:00:00:00:00:00 STALE\n", "");
       });
 
-      return getLinuxNetworkInterfaces().then((names: InterfaceName[]) => {
-        expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
-      });
+      const names = await getLinuxNetworkInterfaces();
+      expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
     });
 
     it("should handle empty arp cache", () => {

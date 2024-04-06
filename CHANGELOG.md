@@ -7,3 +7,4 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changed
 
 - added `CHANGELOG.md`
+- update `README` with hb logo and formatting

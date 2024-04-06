@@ -1,10 +1,17 @@
-# @homebridge/ciao
+<p align="center">
+  <a href="https://homebridge.io"><img src="https://raw.githubusercontent.com/homebridge/branding/latest/logos/homebridge-color-round-stylized.png" height="140"></a>
+</p>
+<span align="center">
+
+# Ciao
 
 [![NPM-Version](https://badgen.net/npm/v/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Version Beta](https://badgen.net/npm/v/@homebridge/ciao/beta)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Downloads](https://badgen.net/npm/dt/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![Node Build](https://github.com/homebridge/ciao/actions/workflows/build.yml/badge.svg)](https://github.com/homebridge/ciao/actions/workflows/build.yml)
 [![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
+
+</span>
 
 `ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) compliant `dns-sd` library,
 advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762))

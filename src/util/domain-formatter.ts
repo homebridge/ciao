@@ -184,7 +184,7 @@ export function shortenIPv6(address: string | string[]): string {
     const part = address[i];
 
     let j = 0;
-    for (; j < Math.min(3, part.length - 1); j++) { // search for the first index which is non zero, but leaving at least one zero
+    for (; j < Math.min(3, part.length - 1); j++) { // search for the first index which is non-zero, but leaving at least one zero
       if (part.charAt(j) !== "0") {
         break;
       }
@@ -216,7 +216,7 @@ export function shortenIPv6(address: string | string[]): string {
       longestBlockOfZerosLength = zerosCount;
     }
 
-    i = j; // skipp all the zeros we already checked + the the one after that, we know that's not a zero
+    i = j; // skip all the zeros we already checked + the one after that, we know that's not a zero
   }
 
   if (longestBlockOfZerosIndex !== -1) {

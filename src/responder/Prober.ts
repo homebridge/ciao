@@ -17,7 +17,7 @@ const debug = createDebug("ciao:Prober");
 /**
  * This class is used to execute the probing process for a given service as defined
  * in RFC 6762 8.1.
- * This ensure that the we advertise the service under a unique name.
+ * This ensures that we advertise the service under a unique name.
  * It also provides a conflict resolution algorithm if multiple clients probing
  * for the same name are detected.
  */
@@ -131,8 +131,8 @@ export class Prober {
       // it states *all* records, though we include ALL A/AAAA records as well, even
       // though it may not be relevant data if the probe query is published on different interfaces.
       // Having the same "format" probed on all interfaces, the simultaneous probe tiebreaking
-      // algorithm can work correctly. Otherwise we would conflict with ourselfs in a situation were
-      // a device is connected to the same network via WiFi and Ethernet.
+      // algorithm can work correctly. Otherwise, we would conflict with ourselves in a situation were
+      // a device is connected to the same network via Wi-Fi and Ethernet.
       this.records = [
         this.service.srvRecord(), this.service.txtRecord(),
         this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
@@ -142,7 +142,7 @@ export class Prober {
     }
 
     if (this.sentQueriesForCurrentTry >= 3) {
-      // we sent three requests and it seems like we weren't canceled, so we have a success right here
+      // we sent three requests, and it seems like we weren't canceled, so we have a success right here
       this.endProbing(true);
       return;
     }
@@ -156,7 +156,7 @@ export class Prober {
     assert(this.records.length > 0, "Tried sending probing request for zero record length!");
 
     const questions = [
-      // probes SHOULD be send with unicast response flag as of the RFC
+      // probes SHOULD be sent with unicast response flag as of the RFC
       // MDNServer might overwrite the QU flag to false, as we can't use unicast if there is another responder on the machine
       new Question(this.service.getFQDN(), QType.ANY, true),
       new Question(this.service.getHostname(), QType.ANY, true),

@@ -102,7 +102,7 @@ export class NSECRecord extends ResourceRecord {
      * We discovered that especially UniFi routers with a VLAN setup and mdns forwarding enabled,
      * fail to properly encode pointers inside the nextDomainName field.
      * Those pointers simply point to random points in the record data, resulting in decoding to fail.
-     * As the field doesn't have any meaning and we simply don't use it, we just skip decoding for now.
+     * As the field doesn't have any meaning, and we simply don't use it, we just skip decoding for now.
      */
     const decodedNextDomainName = coder.decodeName(offset, false);
     offset += decodedNextDomainName.readBytes;

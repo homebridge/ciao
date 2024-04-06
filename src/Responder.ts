@@ -64,7 +64,7 @@ export type ResponderOptions = {
  * A Responder instance represents a running MDNSServer and a set of advertised services.
  *
  * It will handle any service related operations, like advertising, sending goodbye packets or sending record updates.
- * It handles answering questions arriving on the multicast address.
+ * It handles answering questions arriving at the multicast address.
  */
 export class Responder implements PacketHandler {
 
@@ -89,8 +89,8 @@ export class Responder implements PacketHandler {
   private readonly announcedServices: Map<string, CiaoService> = new Map();
   /**
    * map representing all our shared PTR records.
-   * Typically we hold stuff like '_services._dns-sd._udp.local' (RFC 6763 9.), '_hap._tcp.local'.
-   * Also pointers for every subtype like '_printer._sub._http._tcp.local' are inserted here.
+   * Typically, we hold stuff like '_services._dns-sd._udp.local' (RFC 6763 9.), '_hap._tcp.local'.
+   * Also, pointers for every subtype like '_printer._sub._http._tcp.local' are inserted here.
    *
    * For every pointer we may hold multiple entries (like multiple services can advertise on _hap._tcp.local).
    * The key as well as all values are {@link dnsLowerCase}
@@ -102,7 +102,7 @@ export class Responder implements PacketHandler {
 
   private currentProber?: Prober;
 
-  private ignoreUnicastResponseFlag?: boolean;
+  private readonly ignoreUnicastResponseFlag?: boolean;
   private broadcastInterval?: Timeout;
 
   /**
@@ -218,7 +218,6 @@ export class Responder implements PacketHandler {
       promises.push(this.unpublishService(service));
     }
 
-    // eslint-disable-next-line
     return Promise.all(promises).then(() => {
       this.server.shutdown();
       this.bound = false;
@@ -286,7 +285,7 @@ export class Responder implements PacketHandler {
        * 1. We can't put it in the THEN call above, since then errors simply won't be handled from the probe method call.
        *  (CANCEL error would be passed through and would result in some unwanted stack trace)
        * 2. We can't add a catch call above, since otherwise we would silence the CANCEL would be silenced and announce
-       *  would be called anyways.
+       *  would be called anyway.
        */
 
       // handle probe error
@@ -299,7 +298,7 @@ export class Responder implements PacketHandler {
     });
   }
 
-  private republishService(service: CiaoService, callback: PublishCallback, delayAnnounce = false): Promise<void> {
+  private async republishService(service: CiaoService, callback: PublishCallback, delayAnnounce = false): Promise<void> {
     if (service.serviceState !== ServiceState.ANNOUNCED && service.serviceState !== ServiceState.ANNOUNCING) {
       throw new Error("Can't unpublish a service which isn't announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -316,11 +315,11 @@ export class Responder implements PacketHandler {
       return promise.then(() => this.advertiseService(service, callback));
     }
 
-    // first of all remove it from our advertisedService Map and remove all of the maintained PTRs
+    // first of all remove it from our advertisedService Map and remove all the maintained PTRs
     this.clearService(service);
     service.serviceState = ServiceState.UNANNOUNCED; // the service is now considered unannounced
 
-    // and now we basically just announce the service by doing probing and the announce step
+    // and now we basically just announce the service by doing probing and the 'announce' step
     if (delayAnnounce) {
       return PromiseTimeout(1000)
         .then(() => this.advertiseService(service, callback));
@@ -484,7 +483,7 @@ export class Responder implements PacketHandler {
   }
 
   private handleServiceRecordUpdate(service: CiaoService, response: DNSResponseDefinition, callback?: RecordsUpdateCallback): void {
-    // when updating we just repeat the announce step
+    // when updating we just repeat the 'announce' step
     if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -516,7 +515,7 @@ export class Responder implements PacketHandler {
   }
 
   private handleServiceRecordUpdateOnInterface(service: CiaoService, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
-    // when updating we just repeat the announce step
+    // when updating we just repeat the 'announce' step
     if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
       throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
     }
@@ -638,8 +637,8 @@ export class Responder implements PacketHandler {
 
       for (let i = 0; i < unicastResponses.length; i++) {
         const response = unicastResponses[i];
-        // only add questions to the first packet (will be combined anyways) and we must ensure
-        // each packet stays unique in it's records
+        // only add questions to the first packet (will be combined anyway) and we must ensure
+        // each packet stays unique in its records
         response.markLegacyUnicastResponse(packet.id, i === 0? Array.from(packet.questions.values()): undefined);
       }
     }
@@ -681,7 +680,7 @@ export class Responder implements PacketHandler {
       }
 
       if ((multicastResponse.containsSharedAnswer() || packet.questions.size > 1) && !isProbeQuery) {
-        // We must delay the response on a interval of 20-120ms if we can't assure that we are the only one responding (shared records).
+        // We must delay the response on an interval of 20-120ms if we can't assure that we are the only one responding (shared records).
         // This is also the case if there are multiple questions. If multiple questions are asked
         // we probably could not answer them all (because not all of them were directed to us).
         // All those conditions are overridden if this is a probe query. To those queries we must respond instantly!
@@ -723,7 +722,6 @@ export class Responder implements PacketHandler {
   /**
    * @private method called by the MDNSServer when an incoming response needs to be handled
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void {
     // any questions in a response must be ignored RFC 6762 6.
 
@@ -733,7 +731,7 @@ export class Responder implements PacketHandler {
 
     for (const service of this.announcedServices.values()) {
       let conflictingRData = false;
-      let ttlConflicts = 0; // we currently do a full blown announcement with all records, we could in the future track which records have invalid ttl
+      let ttlConflicts = 0; // we currently do a full-blown announcement with all records, we could in the future track which records have invalid ttl
 
       for (const record of packet.answers.values()) {
         const type = Responder.checkRecordConflictType(service, record, endpoint);
@@ -770,7 +768,7 @@ export class Responder implements PacketHandler {
           }
         }, true);
       } else if (ttlConflicts && !service.currentAnnouncer) {
-        service.serviceState = ServiceState.ANNOUNCING; // all code above doesn't expect a Announcer object in state ANNOUNCED
+        service.serviceState = ServiceState.ANNOUNCING; // all code above doesn't expect an Announcer object in state ANNOUNCED
 
         const announcer = new Announcer(this.server, service, {
           repetitions: 1, // we send exactly one packet to correct any ttl values in neighbouring caches
@@ -800,7 +798,7 @@ export class Responder implements PacketHandler {
     //    for which it is currently authoritative, and it receives a Multicast
     //    DNS response message containing a record with the same name, rrtype
     //    and rrclass, but inconsistent rdata.  What may be considered
-    //    inconsistent is context sensitive, except that resource records with
+    //    inconsistent is context-sensitive, except that resource records with
     //    identical rdata are never considered inconsistent, even if they
     //    originate from different hosts.  This is to permit use of proxies and
     //    other fault-tolerance mechanisms that may cause more than one
@@ -898,7 +896,7 @@ export class Responder implements PacketHandler {
           return ConflictType.CONFLICTING_TTL;
         }
       } else if (recordName === Responder.SERVICE_TYPE_ENUMERATION_NAME) {
-        // nothing to do here, i guess
+        // nothing to do here, I guess
       } else {
         const subTypes = service.getLowerCasedSubtypePTRs();
         if (subTypes && subTypes.includes(recordName)
@@ -1055,7 +1053,7 @@ export class Responder implements PacketHandler {
   private static answerServiceQuestion(service: CiaoService, question: Question, endpoint: EndpointInfo, knownAnswers?: Map<string, ResourceRecord>): QueryResponse {
     // This assumes to be called from answerQuestion inside the Responder class and thus that certain
     // preconditions or special cases are already covered.
-    // For one we assume classes are already matched.
+    // For one, we assume classes are already matched.
 
     const response = new QueryResponse(knownAnswers);
 
@@ -1143,7 +1141,7 @@ export class Responder implements PacketHandler {
         const dnsLowerSubTypes = service.getLowerCasedSubtypePTRs()!;
         const index = dnsLowerSubTypes.indexOf(loweredQuestionName);
 
-        if (index !== -1) { // we have a sub type for the question
+        if (index !== -1) { // we have a subtype for the question
           const records = service.subtypePtrRecords();
           const record = records![index];
           assert(loweredQuestionName === record.name, "Question Name didn't match selected sub type ptr record!");

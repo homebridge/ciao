@@ -37,7 +37,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/homebridge/ciao.git"
+    "url": "git+https://github.com/homebridge/ciao.git"
   },
   "bugs": {
     "url": "https://github.com/homebridge/ciao/issues"
@@ -56,19 +56,21 @@
     "tslib": "^2.6.2"
   },
   "devDependencies": {
-    "@types/debug": "^4.1.7",
-    "@types/jest": "^29.5.1",
-    "@types/node": "~14.18.43",
-    "@typescript-eslint/eslint-plugin": "^5.59.2",
-    "@typescript-eslint/parser": "^5.59.2",
-    "eslint": "^8.39.0",
-    "jest": "^29.5.0",
-    "rimraf": "^5.0.0",
-    "semver": "^7.5.0",
-    "ts-jest": "^29.1.0",
-    "ts-node": "^10.9.1",
-    "typedoc": "^0.24.6",
-    "typescript": "^5.0.4"
+    "@types/debug": "^4.1.12",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.5",
+    "@types/semver": "^7.5.8",
+    "@types/source-map-support": "^0.5.10",
+    "@typescript-eslint/eslint-plugin": "^7.5.0",
+    "@typescript-eslint/parser": "^7.5.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "rimraf": "^5.0.5",
+    "semver": "^7.6.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typedoc": "^0.25.12",
+    "typescript": "^5.4.4"
   },
   "engines": {
     "node": ">=14"

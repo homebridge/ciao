@@ -115,7 +115,7 @@ export class OPTRecord extends ResourceRecord {
       const length = buffer.readUInt16BE(offset);
       offset += 2;
 
-      const data = buffer.slice(offset, offset + length);
+      const data = buffer.subarray(offset, offset + length);
       offset += length;
 
       options.push({

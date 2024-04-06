@@ -148,7 +148,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   }
 
   /**
-   * Returns if the this and the supplied record are the same (ignoring ttl and flush flag)
+   * Returns if this and the supplied record are the same (ignoring ttl and flush flag)
    * @param record
    */
   public aboutEqual(record: ResourceRecord): boolean {
@@ -180,7 +180,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
     coder.initRRLocation(oldOffset, offset, header.rDataLength); // defines record offset and rdata offset for local compression
 
-    const rdata = buffer.slice(0, offset + header.rDataLength);
+    const rdata = buffer.subarray(0, offset + header.rDataLength);
 
     let decodedRecord;
     try {
@@ -188,7 +188,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       decodedRecord = rrDecoder(coder, header, rdata, offset);
     } catch (error) {
       debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} \
-from ${context.address}:${context.port} with data '${rdata.slice(offset).toString("hex")}': ${error.stack}`);
+from ${context.address}:${context.port} with data '${rdata.subarray(offset).toString("hex")}': ${error.stack}`);
 
       return { readBytes: (offset + header.rDataLength) - oldOffset };
     }

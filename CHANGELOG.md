@@ -9,3 +9,4 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - added `CHANGELOG.md`
 - update `README` with hb logo and formatting
 - update dependencies
+- spelling and grammar in code comments

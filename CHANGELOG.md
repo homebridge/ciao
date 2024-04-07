@@ -11,3 +11,4 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - update dependencies
 - spelling and grammar in code comments
 - add alpha releases
+- updated eslint rule

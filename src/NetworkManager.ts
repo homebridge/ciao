@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 import assert from "assert";
 import childProcess from "child_process";
 import createDebug from "debug";

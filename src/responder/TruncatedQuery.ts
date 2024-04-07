@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 import { EventEmitter } from "events";
 import { DNSPacket } from "../coder/DNSPacket";
 import Timeout = NodeJS.Timeout;

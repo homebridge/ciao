@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 import assert from "assert";
 import createDebug from "debug";
 import { EventEmitter } from "events";

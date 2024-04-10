@@ -9,7 +9,7 @@
 [![NPM-Version Beta](https://badgen.net/npm/v/@homebridge/ciao/beta)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Downloads](https://badgen.net/npm/dt/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![Node Build](https://github.com/homebridge/ciao/actions/workflows/build.yml/badge.svg)](https://github.com/homebridge/ciao/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=latest)](https://coveralls.io/github/homebridge/ciao?branch=latest)
 
 </span>
 

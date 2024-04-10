@@ -12,3 +12,4 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - spelling and grammar in code comments
 - add alpha releases
 - updated eslint rule
+- update to match renamed `latest` branch

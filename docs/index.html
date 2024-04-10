@@ -16,16 +16,16 @@
 <a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/v/@homebridge/ciao/beta" alt="NPM-Version Beta"></a>
 <a href="https://www.npmjs.org/package/@homebridge/ciao"><img src="https://badgen.net/npm/dt/@homebridge/ciao" alt="NPM-Downloads"></a>
 <a href="https://github.com/homebridge/ciao/actions/workflows/build.yml"><img src="https://github.com/homebridge/ciao/actions/workflows/build.yml/badge.svg" alt="Node Build"></a>
-<a href="https://coveralls.io/github/homebridge/ciao?branch=master"><img src="https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master" alt="Coverage Status"></a></p>
+<a href="https://coveralls.io/github/homebridge/ciao?branch=latest"><img src="https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=latest" alt="Coverage Status"></a></p>
 <p><code>ciao</code> is a <a href="https://tools.ietf.org/html/rfc6763">RFC 6763</a> compliant <code>dns-sd</code> library,
 advertising on multicast dns (<a href="https://tools.ietf.org/html/rfc6762">RFC 6762</a>)
 implemented in plain Typescript/JavaScript.</p>
-<p>It is used in <a href="https://github.com/homebridge/HAP-NodeJS">HAP-NodeJS</a> and is the successor of the 
-<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> (and <a href="https://github.com/watson/bonjour">bonjour</a>) library, 
+<p>It is used in <a href="https://github.com/homebridge/HAP-NodeJS">HAP-NodeJS</a> and is the successor of the
+<a href="https://github.com/homebridge/bonjour">bonjour-hap</a> (and <a href="https://github.com/watson/bonjour">bonjour</a>) library,
 aiming to be more robust, more maintainable and RFC compliant (read <a href="https://github.com/homebridge/bonjour#notice">Notice</a>).</p>
 <p><code>ciao</code> features a multicast dns responder to publish service on the local network.
 It will eventually gain browsing functionality in the future to also discover services on the local network
-(There is currently no schedule when discover functionality will arrive. 
+(There is currently no schedule when discover functionality will arrive.
 A possible querier implementation is limited as explained in <a href="https://tools.ietf.org/html/rfc6762#section-15.1">RFC 6762 15.1.</a>
 as it can&#39;t receive unicast responses).</p>
 <p><code>ciao</code> <a href="BCT-Results-CIAO-PI-en0.txt">passes</a> the <a href="https://developer.apple.com/bonjour/">Bonjour Conformance Test</a>
@@ -38,14 +38,14 @@ as defined and required by Apple.</p>
 </code><button>Copy</button></pre>
 <a id="md:documentation" class="tsd-anchor"></a><h2><a href="#md:documentation">Documentation</a></h2><p>The full documentation can be found <a href="https://developers.homebridge.io/ciao/globals.html">here</a>.</p>
 <a id="md:api-overview" class="tsd-anchor"></a><h3><a href="#md:api-overview">API overview</a></h3><p>This section links to the most important aspects of the documentation as used in the example above.</p>
-<p>First of all the <a href="https://developers.homebridge.io/ciao/globals.html#getresponder">getResponder</a> function 
+<p>First of all the <a href="https://developers.homebridge.io/ciao/globals.html#getresponder">getResponder</a> function
 should be used to get a reference to a <a href="https://developers.homebridge.io/ciao/classes/responder.html">Responder</a> object.
 The function takes some optional <a href="https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html">options</a>
 to configure the underlying mdns server.</p>
 <p>The <a href="https://developers.homebridge.io/ciao/classes/responder.html#createservice">createService</a> method of the <code>Responder</code>
-object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a> 
+object can now be used to create a new <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html">CiaoService</a>
 supplying the desired <a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html">configuration</a>
-as the first parameter. You might have a look at the 
+as the first parameter. You might have a look at the
 <em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses">restrictedAddresses</a></em>
 (and <em><a href="https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6">disableIpv6</a></em>) configuration
 if you don&#39;t want to advertise on all available addresses/network interfaces.</p>
@@ -55,7 +55,7 @@ An application should ideally listen to the <a href="https://developers.homebrid
 event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
 The method <a href="https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt">updateTxt</a> can be used
 to update the contest of the txt exposed by the service.</p>
-<p>Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the 
+<p>Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the
 <a href="https://developers.homebridge.io/ciao/classes/responder.html#shutdown">shutdown</a> method of the responder object.
 This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
 on the network get instantly notified of the shutdown.
@@ -65,7 +65,7 @@ IP Fragmentation and ensure that all sent packets are smaller than the Maximum T
 the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
 <code>ciao</code> can&#39;t reliable detect modifications made to this default MTU size.
 Thus , we rely on a hardcoded value, which is <code>1440</code> for the <strong>UDP Payload Size</strong> (Remember: the MTU defines the amount
-of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header 
+of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header
 and the UDP Header. So the amount of bytes we are able to fit into a single UDP packet is smaller).<br>If you know, that the MTU differs on your machine, you can set the true <strong>UDP Payload Size</strong> in bytes
 using the <code>CIAO_UPS</code> environment variable. </p>
 <a id="md:notice-on-native-mdns-responders" class="tsd-anchor"></a><h3><a href="#md:notice-on-native-mdns-responders">Notice on native mDNS responders</a></h3><p>As described in <a href="https://tools.ietf.org/html/rfc6762#section-15">RFC 6762 15.</a>:
@@ -76,8 +76,8 @@ querier implementation coexist on the same machine, but there are some known iss
 <li><a href="https://tools.ietf.org/html/rfc6762#section-15.1">15.1.</a> <strong>Receiving Unicast Responses:</strong><br> As multiple sockets (from multiple responders) are bound to the port 5353, only one can receive unicast responses.
  Unicast responses is a way to reduce traffic on the multicast address, as answers to a particular question can be
  sent directly to the querier. As ciao does not hold the primary socket on port 5353, it can&#39;t receive unicast responses
- and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are 
- sent on multicast and thus increase the load on the network.<br> This currently isn&#39;t really a problem, as the only time we send queries is in the probing step before we 
+ and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are
+ sent on multicast and thus increase the load on the network.<br> This currently isn&#39;t really a problem, as the only time we send queries is in the probing step before we
  advertise a new service (Future query functionality is much more affected).</li>
 <li><a href="https://tools.ietf.org/html/rfc6762#section-15.2">15.2.</a> <strong>Multipacket Known-Answer lists:</strong><br> When the known-answer list of a query is too large to fit into a single dns packet, a querier can split those
  records into multiple packets (and setting the truncation flag).
@@ -86,7 +86,7 @@ querier implementation coexist on the same machine, but there are some known iss
 <li><a href="https://tools.ietf.org/html/rfc6762#section-15.3">15.3.</a> <strong>Efficiency:</strong><br> The last point is pretty simple. Two independently running responders use twice the memory and twice the computing power.
  It doesn&#39;t improve the situation that this is running using an interpreted language.<br> So yes, it&#39;s probably not very efficient.</li>
 </ul>
-<p>As the RFC also states in <a href="https://tools.ietf.org/html/rfc6762#section-15.4">15.4</a>, it is recommended to use 
+<p>As the RFC also states in <a href="https://tools.ietf.org/html/rfc6762#section-15.4">15.4</a>, it is recommended to use
 a single mDNS implementation where possible. It is recommended to use the <a href="https://www.npmjs.com/package/mdns">mdns</a>
 library where possible, as the library is pretty much a binding for existing mDNS implementations running on your
 system (like <code>mDNSResponder</code> on macOS or <code>avahi</code> on most linux based systems).<br>The one downside with the <code>mdns</code> library is that running it on Windows is not really straight forward.

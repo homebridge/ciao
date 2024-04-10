@@ -13,3 +13,4 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - add alpha releases
 - updated eslint rule
 - update to match renamed `latest` branch
+- regenerate docs

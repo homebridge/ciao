@@ -108,6 +108,15 @@ export interface ServiceOptions {
    * configured to ignore this interface, the service won't be advertised on the interface.
    */
   restrictedAddresses?: (InterfaceName | IPAddress)[];
+
+  /**
+   * If specified, the mDNS server will advertise this address only.
+   * This is to help in situations like Docker where the interface's IP address does not equal the external one.
+   * These value are merely here for the purpose of advertising, and does not carry any semantic
+   * value. It is up to the administrator to verify that the service is reachable on this IP address.
+   */
+  overrideAdvertised?: string;
+
   /**
    * The service won't advertise ipv6 address records.
    * This can be used to simulate binding on 0.0.0.0.
@@ -295,6 +304,7 @@ export class CiaoService extends EventEmitter {
   private port?: number;
 
   private readonly restrictedAddresses?: Map<InterfaceName, IPAddress[]>;
+  private readonly overrideAdvertised?: IPAddress;
   private readonly disableIpv6?: boolean;
 
   private txt: Buffer[];
@@ -391,6 +401,15 @@ export class CiaoService extends EventEmitter {
         }
       }
     }
+
+    if (options && options.overrideAdvertised) {
+      if (typeof options.overrideAdvertised === "string") {
+        this.overrideAdvertised = options.overrideAdvertised;
+      } else {
+        throw new Error("Found invalid type for 'overrideAdvertised' NetworkManager option!");
+      }
+    }
+
     this.disableIpv6 = options.disabledIpv6;
 
     this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
@@ -881,6 +900,16 @@ export class CiaoService extends EventEmitter {
       if (networkInterface.uniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(networkInterface.uniqueLocalIpv6))) {
         aaaaUniqueLocalRecordMap[name] = new AAAARecord(this.hostname, networkInterface.uniqueLocalIpv6, true);
         reverseAddressMap[networkInterface.uniqueLocalIpv6] = new PTRRecord(formatReverseAddressPTRName(networkInterface.uniqueLocalIpv6), this.hostname);
+      }
+
+      if (this.overrideAdvertised) {
+        if (net.isIPv4(this.overrideAdvertised)) {
+          aRecordMap[name] = new ARecord(this.hostname, this.overrideAdvertised, true);
+          reverseAddressMap[this.overrideAdvertised] = new PTRRecord(formatReverseAddressPTRName(this.overrideAdvertised), this.hostname);
+        } else if (net.isIPv6(this.overrideAdvertised)){
+          aaaaUniqueLocalRecordMap[name] = new AAAARecord(this.hostname, this.overrideAdvertised, true);
+          reverseAddressMap[this.overrideAdvertised] = new PTRRecord(formatReverseAddressPTRName(this.overrideAdvertised), this.hostname);
+        }
       }
     }
 

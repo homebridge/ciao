@@ -63,7 +63,7 @@ export class QueuedResponse {
   /**
    * Combines this queue response packet with the {@code next} queued response packet if those can be combined.
    * Packets can be combined if the udpPayloadSize allows for it AND if the current packet
-   * won't be delayed more than 500 ms from it's time of creation AND the packets get sent on the same interface.
+   * won't be delayed more than 500 ms from its time of creation AND the packets get sent on the same interface.
    *
    * @param next - A queued response which is schedule AFTER the current queued response.
    * @returns {@code true} will be returned if the queued response was combined with the specified {@code next} response.

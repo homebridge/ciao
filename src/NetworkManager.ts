@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 import assert from "assert";
 import childProcess from "child_process";
 import createDebug from "debug";
@@ -391,9 +392,11 @@ export class NetworkManager extends EventEmitter {
           internal = true;
         }
 
-        if (info.family === "IPv4" && !ipv4Info) {
+        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
+        if ((info.family === "IPv4" || info.family === 4) && !ipv4Info) {
           ipv4Info = info;
-        } else if (info.family === "IPv6") {
+        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
+        } else if (info.family === "IPv6" || info.family === 6) {
           if (this.excludeIpv6) {
             continue;
           }
@@ -459,7 +462,7 @@ export class NetworkManager extends EventEmitter {
     let interfaceName: InterfaceName | undefined;
 
     outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
-      for (const info of infoArray) {
+      for (const info of infoArray ?? []) {
         if (info.address === address) {
           interfaceName = name;
           break outer; // exit out of both loops
@@ -522,14 +525,15 @@ export class NetworkManager extends EventEmitter {
 
     const names: InterfaceName[] = [];
     Object.entries(os.networkInterfaces()).forEach(([name, infos]) => {
-      for (const info of infos) {
+      for (const info of infos ?? []) {
         // we add the loopback interface or interfaces which got a unique (global or local) ipv6 address
         // we currently don't just add all interfaces with ipv4 addresses as are often interfaces like VPNs, container/vms related
 
         // unique global or unique local ipv6 addresses give an indication that we are truly connected to "the Internet"
         // as something like SLAAC must be going on
         // in the end
-        if (info.internal || info.family === "IPv4" || info.family === "IPv6" && info.scopeid === 0) {
+        // @ts-expect-error Nodejs 18+ uses the number 4/6 instead of the string "IPv4"/"IPv6"
+        if (info.internal || (info.family === "IPv4" || info.family === 4) || (info.family === "IPv6" || info.family === 6) && info.scopeid === 0) {
           if (!names.includes(name)) {
             names.push(name);
           }
@@ -543,7 +547,7 @@ export class NetworkManager extends EventEmitter {
 
   private static getLoopbackInterface(): InterfaceName {
     for (const [name, infos] of Object.entries(os.networkInterfaces())) {
-      for (const info of infos) {
+      for (const info of infos ?? []) {
         if (info.internal) {
           return name;
         }
@@ -754,11 +758,12 @@ export class NetworkManager extends EventEmitter {
           return;
         }
 
+        const interfaceArrayOffset = os.platform() === "sunos" ? 0 : 2;
         const lines = stdout.split(os.EOL);
         const names: InterfaceName[] = [];
 
         for (let i = 1; i < lines.length - 1; i++) {
-          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[2];
+          const interfaceName = lines[i].trim().split(NetworkManager.SPACE_PATTERN)[interfaceArrayOffset];
           if (!interfaceName) {
             debug(`${os.platform()}: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;

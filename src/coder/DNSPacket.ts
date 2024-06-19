@@ -239,12 +239,12 @@ export class DNSPacket {
           if (packet.getEstimatedEncodingLength() + estimatedSize <= udpPayloadSize) { // size check on estimated calculations
             currentPacket.addAnswers(answer);
           } else if (packet.getEncodingLength() + estimatedSize <= udpPayloadSize) { // check if the record may fit when message compression is used.
-            // we may still have a false positive here, as the currently can't compute the REAL encoding for the answer
+            // we may still have a false positive here, as they currently can't compute the REAL encoding for the answer
             // record, thus we rely on the estimated size
             currentPacket.addAnswers(answer);
           } else {
             if (currentPacket.questions.size === 0 && currentPacket.answers.size === 0) {
-              // we encountered a record which is to big and can't fit in a udpPayloadSize sized packet
+              // we encountered a record which is too big and can't fit in a udpPayloadSize sized packet
 
               // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
               //    large to fit in a single MTU-sized multicast response packet, a
@@ -574,7 +574,7 @@ export class DNSPacket {
       const decoded = decoder(context, coder, buffer, offset);
       offset += decoded.readBytes;
 
-      if (decoded.data) { // if the rdata is not supported by us or we encountered an parsing error, we ignore the record
+      if (decoded.data) { // if the rdata is not supported by us, or we encountered a parsing error, we ignore the record
         destination.push(decoded.data);
       }
     }

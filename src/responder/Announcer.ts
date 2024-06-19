@@ -27,7 +27,7 @@ export interface AnnouncerOptions {
 }
 
 /**
- * This class is used to execute the announce process for a given service as define in RFC 6762 8.3.
+ * This class is used to execute the 'announce' process for a given service as define in RFC 6762 8.3.
  *
  * The Multicast DNS responder MUST send at least two unsolicited
  * responses, one second apart.  To provide increased robustness against

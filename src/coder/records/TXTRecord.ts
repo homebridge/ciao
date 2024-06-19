@@ -19,7 +19,7 @@ export class TXTRecord extends ResourceRecord {
       super(name);
     }
 
-    this.txt = txt;
+    this.txt = txt.length === 0 ? [Buffer.from([])] : txt;
   }
 
   protected getRDataEncodingLength(): number {
@@ -76,7 +76,7 @@ export class TXTRecord extends ResourceRecord {
     while (offset < buffer.length) {
       const length = buffer.readUInt8(offset++);
 
-      txtData.push(buffer.slice(offset, offset + length));
+      txtData.push(buffer.subarray(offset, offset + length));
       offset += length;
     }
 

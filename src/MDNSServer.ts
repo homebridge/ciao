@@ -329,7 +329,7 @@ export class MDNSServer {
     const promises: Promise<TimedSendResult>[] = [];
     for (const [name, socket] of this.sockets) {
       if (!service.advertisesOnInterface(name)) {
-        // i don't like the fact that we put the check inside the MDNSServer, as it should be independent of the above layer.
+        // I don't like the fact that we put the check inside the MDNSServer, as it should be independent of the above layer.
         // Though I think this is currently the easiest approach.
         continue;
       }
@@ -551,7 +551,7 @@ export class MDNSServer {
     }
     if (this.checkIfPacketWasPreviouslySentFromUs(networkInterface.name, buffer)) {
       // multicastLoopback is enabled for every interface, meaning we would receive our own response
-      // packets here. Thus we silence them. We can't disable multicast loopback, as otherwise
+      // packets here. Thus, we silence them. We can't disable multicast loopback, as otherwise
       // queriers on the same host won't receive our packets
       return;
     }
@@ -561,9 +561,9 @@ export class MDNSServer {
     // A CERTAIN! interface, we will nonetheless receive packets from ALL other interfaces even the loopback interfaces.
     // This is not the case on platforms like e.g. macOS. There stuff is properly filtered, and we only receive packets
     // for the given interface we specified in our membership.
-    // This has the problem, that when receiving packets from other interfaces, that we leak out addresses which don't
-    // exists on the given interface. We can't do much about it, as in typically multiple subnet networks, it is valid
-    // that we receive a packet from a ip address which doesn't belong into the subnet of our given interface.
+    // This has the problem, that when receiving packets from other interfaces, that we leak addresses which don't
+    // exist on the given interface. We can't do much about it, as in typically multiple subnet networks, it is valid
+    // that we receive a packet from an ip address which doesn't belong into the subnet of our given interface.
     // What we can do at least, is the following two things:
     // * if we are listening on the loopback interface, we filter out any traffic which doesn't belong to the loopback interface
     // * if we receive a packet from the loopback interface, we filter those out as well.

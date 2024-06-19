@@ -1,10 +1,17 @@
-# @homebridge/ciao
+<p align="center">
+  <a href="https://homebridge.io"><img src="https://raw.githubusercontent.com/homebridge/branding/latest/logos/homebridge-color-round-stylized.png" height="140"></a>
+</p>
+<span align="center">
+
+# Ciao
 
 [![NPM-Version](https://badgen.net/npm/v/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Version Beta](https://badgen.net/npm/v/@homebridge/ciao/beta)](https://www.npmjs.org/package/@homebridge/ciao)
 [![NPM-Downloads](https://badgen.net/npm/dt/@homebridge/ciao)](https://www.npmjs.org/package/@homebridge/ciao)
 [![Node Build](https://github.com/homebridge/ciao/actions/workflows/build.yml/badge.svg)](https://github.com/homebridge/ciao/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=master)](https://coveralls.io/github/homebridge/ciao?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/homebridge/ciao/badge.svg?branch=latest)](https://coveralls.io/github/homebridge/ciao?branch=latest)
+
+</span>
 
 `ciao` is a [RFC 6763](https://tools.ietf.org/html/rfc6763) compliant `dns-sd` library,
 advertising on multicast dns ([RFC 6762](https://tools.ietf.org/html/rfc6762))
@@ -77,34 +84,34 @@ service.destroy();
 
 ## Documentation 
 
-The full documentation can be found [here](https://developers.homebridge.io/ciao/globals.html).
+The full documentation can be found [here](https://developers.homebridge.io/ciao/modules.html).
 
 ### API overview
 
 This section links to the most important aspects of the documentation as used in the example above.
 
-First of all the [getResponder](https://developers.homebridge.io/ciao/globals.html#getresponder) function 
-should be used to get a reference to a [Responder](https://developers.homebridge.io/ciao/classes/responder.html) object.
-The function takes some optional [options](https://developers.homebridge.io/ciao/interfaces/mdnsserveroptions.html)
+First of all the [getResponder](https://developers.homebridge.io/ciao/functions/getResponder.html) function 
+should be used to get a reference to a [Responder](https://developers.homebridge.io/ciao/classes/Responder.html) object.
+The function takes some optional [options](https://developers.homebridge.io/ciao/interfaces/MDNSServerOptions.html)
 to configure the underlying mdns server.
 
-The [createService](https://developers.homebridge.io/ciao/classes/responder.html#createservice) method of the `Responder`
-object can now be used to create a new [CiaoService](https://developers.homebridge.io/ciao/classes/ciaoservice.html) 
-supplying the desired [configuration](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html)
+The [createService](https://developers.homebridge.io/ciao/classes/Responder.html#createService) method of the `Responder`
+object can now be used to create a new [CiaoService](https://developers.homebridge.io/ciao/classes/CiaoService.html) 
+supplying the desired [configuration](https://developers.homebridge.io/ciao/interfaces/ServiceOptions.html)
 as the first parameter. You might have a look at the 
-_[restrictedAddresses](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#restrictedAddresses)_
-(and _[disableIpv6](https://developers.homebridge.io/ciao/interfaces/serviceoptions.html#disableIpv6)_) configuration
+_[restrictedAddresses](https://developers.homebridge.io/ciao/interfaces/ServiceOptions.html#restrictedAddresses)_
+(and _[disabledIpv6](https://developers.homebridge.io/ciao/interfaces/ServiceOptions.html#disabledIpv6)_) configuration
 if you don't want to advertise on all available addresses/network interfaces.
 
-The [advertise](https://developers.homebridge.io/ciao/classes/ciaoservice.html#advertise) method can now be called
+The [advertise](https://developers.homebridge.io/ciao/classes/CiaoService.html#advertise) method can now be called
 on the `service` object to start advertising the service on the network.
-An application should ideally listen to the [NAME_CHANGE](https://developers.homebridge.io/ciao/enums/serviceevent.html#name_changed)
+An application should ideally listen to the [NAME_CHANGED](https://developers.homebridge.io/ciao/enums/ServiceEvent.html#NAME_CHANGED)
 event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
-The method [updateTxt](https://developers.homebridge.io/ciao/classes/ciaoservice.html#updatetxt) can be used
+The method [updateTxt](https://developers.homebridge.io/ciao/classes/CiaoService.html#updateTxt) can be used
 to update the contest of the txt exposed by the service.
 
 Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the 
-[shutdown](https://developers.homebridge.io/ciao/classes/responder.html#shutdown) method of the responder object.
+[shutdown](https://developers.homebridge.io/ciao/classes/Responder.html#shutdown) method of the responder object.
 This will ensure, that goodbye packets are sent out on all connected network interfaces and all hosts
 on the network get instantly notified of the shutdown.
 Otherwise, stale data will remain in the caches of surrounding mdns browsers. 

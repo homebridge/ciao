@@ -133,7 +133,12 @@ export function removeTLD(hostname: string): string {
 export function enlargeIPv6(address: string): string {
   assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
 
-  // we are not supporting ipv4-mapped ipv6 addresses here
+  // Check if the address is an IPv4-mapped IPv6 address
+  if (address.includes(".")) {
+    const ipv4Address = address.split(".").slice(-4).join(".");
+    return ipv4Address;
+  }
+
   assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
 
   const split = address.split(":");

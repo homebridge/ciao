@@ -436,7 +436,7 @@ export class MDNSServer {
     }
     assert(this.bound, "Cannot send packets before server is not bound!");
 
-    const ipHeaderSize = family === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER;
+    const ipHeaderSize = family === IPFamily.IPv4 ? MDNSServer.DEFAULT_IP4_HEADER : MDNSServer.DEFAULT_IP6_HEADER;
 
     // RFC 6762 17.
     assert(ipHeaderSize + MDNSServer.UDP_HEADER + message.length <= 9000,
@@ -495,7 +495,7 @@ export class MDNSServer {
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
-        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
+        socket.setRecvBufferSize(800 * 1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
@@ -574,7 +574,8 @@ export class MDNSServer {
 
     if (isIPv6) {
       if (networkInterface.loopback !== rinfo.address.includes("%lo")) {
-        debug("Received packet on a %s interface (%s) which is coming from a %s interface (%s)", networkInterface.loopback ? "loopback" : "non-loopback", name, rinfo.address.includes("%lo") ? "loopback" : "non-loopback", rinfo.address);
+        debug("Received packet on a %s interface (%s) which is coming from a %s interface (%s)", networkInterface.loopback
+          ? "loopback" : "non-loopback", name, rinfo.address.includes("%lo") ? "loopback" : "non-loopback", rinfo.address);
         // return;
       }
     } else {
@@ -585,7 +586,7 @@ export class MDNSServer {
         }
       } else if (this.networkManager.isLoopbackNetaddressV4(ip4Netaddress)) {
         debug("Received packet on interface '%s' which is not coming from the same subnet: %o", name,
-          {address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4});
+          { address: rinfo.address, netaddress: ip4Netaddress, interface: networkInterface.ipv4 });
         return;
       }
     }
@@ -646,7 +647,7 @@ export class MDNSServer {
       || error.message.includes("ENETUNREACH") || error.message.includes("EHOSTUNREACH")
       || error.message.includes("EPERM") || error.message.includes("EINVAL");
     if (silenced) {
-      debug ("Silenced and ignored error (This is/should not be a problem, this message is only for informational purposes): " + error.message);
+      debug("Silenced and ignored error (This is/should not be a problem, this message is only for informational purposes): " + error.message);
     }
     return silenced;
   }

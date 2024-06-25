@@ -131,7 +131,7 @@ export function removeTLD(hostname: string): string {
 }
 
 export function enlargeIPv6(address: string): string {
-  assert(net.isIPv6(address), "Illegal argument. Must be an IPv6 address!");
+  //assert(net.isIPv6(address), "Illegal argument. Must be an IPv6 address!");
 
   // Handling IPv4-mapped IPv6 addresses
   if (address.includes(".")) {

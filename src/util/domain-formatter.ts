@@ -139,7 +139,6 @@ export function enlargeIPv6(address: string): string {
     return ipv4Address;
   }
 
-  assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
   const ipv4MappedIPv6Regex = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/;
   const match = ipv4MappedIPv6Regex.exec(address);
   if (match) {

@@ -131,21 +131,20 @@ export function removeTLD(hostname: string): string {
 }
 
 export function enlargeIPv6(address: string): string {
-  assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
+  assert(net.isIPv6(address), "Illegal argument. Must be an IPv6 address!");
 
-  // Check if the address is an IPv4-mapped IPv6 address
+  // Handling IPv4-mapped IPv6 addresses
   if (address.includes(".")) {
-    const ipv4Address = address.split(".").slice(-4).join(".");
-    return ipv4Address;
+    return address; // Return as is because it's an IPv4-mapped address
   }
 
   const ipv4MappedIPv6Regex = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/;
   const match = ipv4MappedIPv6Regex.exec(address);
   if (match) {
-    return match[1];
+    return match[1]; // Return the IPv4 part
   }
 
-  const split = address.split(":");
+  let split = address.split(":");
 
   if (split[0] === "") {
     split.splice(0, 1);
@@ -179,8 +178,18 @@ export function enlargeIPv6(address: string): string {
     }
   }
 
+  // Find and expand zero compression "::"
+  const zeroCompressionIndex = split.indexOf("");
+  if (zeroCompressionIndex !== -1) {
+    split.splice(zeroCompressionIndex, 1, ...Array(8 - split.length + 1).fill("0"));
+  }
+  
+  // Pad each segment with leading zeros
+  split = split.map(segment => segment.padStart(4, "0"));
+    
   const result = split.join(":");
-  assert(split.length <= 8, `Resulting ipv6 address has more than 8 sections (${result})!`);
+  assert(split.length <= 8, `Resulting IPv6 address has more than 8 sections (${result})!`);
+
   return result;
 }
 
@@ -246,13 +255,34 @@ export function shortenIPv6(address: string | string[]): string {
   return result;
 }
 
+// Helper function to check if an address is an IPv4 bridged to IPv6
+function isIPv4BridgedToIPv6(address: string): boolean {
+  return /^::ffff:([0-9a-f]{8})$/i.test(address);
+}
+
+// Add a new function to handle IPv4 bridged to IPv6 addresses
+export function formatIPv4BridgedToIPv6(address: string): string {
+  assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
+
+  // Convert IPv4 address to its hexadecimal representation
+  const hexParts = address.split(".").map(part => parseInt(part).toString(16).padStart(2, "0"));
+  const ipv6Part = `::ffff:${hexParts.join("")}`;
+
+  // Convert the hexadecimal representation to the standard IPv6 format
+  return ipv6Part.replace(/(.{4})(.{4})$/, "$1:$2");
+}
+
 export function formatReverseAddressPTRName(address: string): string {
   if (net.isIPv4(address)) {
     const split = address.split(".").reverse();
-
     return split.join(".") + ".in-addr.arpa";
-  } else if (net.isIPv6(address)) {
-    address = enlargeIPv6(address).toUpperCase();
+  } else if (net.isIPv6(address) || isIPv4BridgedToIPv6(address)) {
+    if (isIPv4BridgedToIPv6(address)) {
+      // Convert IPv4-mapped IPv6 address to pure IPv6 format before processing
+      address = formatIPv4BridgedToIPv6(address.split("::ffff:")[1]);
+    } else {
+      address = enlargeIPv6(address).toUpperCase();
+    }
 
     const nibbleSplit = address.replace(/:/g, "").split("").reverse();
     assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length! " + nibbleSplit.length);
@@ -319,3 +349,4 @@ export function getNetAddress(address: string, netmask: string): string {
     throw new Error("Illegal argument. Address is not an ip address!");
   }
 }
+

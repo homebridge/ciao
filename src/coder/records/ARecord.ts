@@ -14,14 +14,19 @@ export class ARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.A, ttl || ARecord.RR_DEFAULT_TTL_SHORT, flushFlag);
+      super(name, RType.A, ttl || ARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.A);
       super(name);
     }
 
-    assert(net.isIPv4(ipAddress), "IP address is not in v4 format!");
-    this.ipAddress = ipAddress;
+    // Adjust validation to accept IPv4-mapped IPv6 addresses
+    const isIPv4 = net.isIPv4(ipAddress);
+    const isIPv4MappedIPv6 = /^::ffff:0{0,4}:((25[0-5]|(2[0-4]|1\d|\d)\d)\.){3}(25[0-5]|(2[0-4]|1\d|\d)\d)$/i.test(ipAddress);
+    assert(isIPv4 || isIPv4MappedIPv6, "IP address is not in v4 or IPv4-mapped v6 format!");
+
+    // Store the original IP address or convert IPv4-mapped IPv6 to IPv4
+    this.ipAddress = isIPv4MappedIPv6 ? ipAddress.split(":").pop() as string : ipAddress;
   }
 
   protected getRDataEncodingLength(): number {

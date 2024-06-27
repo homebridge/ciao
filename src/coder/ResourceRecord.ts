@@ -39,6 +39,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   ttl: number;
 
   flushFlag = false;
+  address?: AddressInfo;
 
   protected constructor(headerData: RecordRepresentation);
   protected constructor(name: string, type: RType, ttl?: number, flushFlag?: boolean, clazz?: RClass);

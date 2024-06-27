@@ -15,16 +15,22 @@ export class AAAARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.AAAA, ttl || AAAARecord.RR_DEFAULT_TTL_SHORT, flushFlag);
+      super(name, RType.AAAA, ttl || AAAARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.AAAA);
       super(name);
     }
 
-    assert(net.isIPv6(ipAddress), "IP address is not in v6 format!");
+    // Enhanced validation to check for IPv6 and IPv4-mapped IPv6 addresses
+    assert(net.isIPv6(ipAddress) || this.isIPv4MappedIPv6(ipAddress), "IP address is not in v6 or IPv4-mapped v6 format!");
     this.ipAddress = ipAddress;
   }
-
+  // Utility method to check for IPv4-mapped IPv6 addresses
+  private isIPv4MappedIPv6(ipAddress: string): boolean {
+    const ipv4MappedIPv6Regex = /^::ffff:(0{1,4}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/i;
+    return ipv4MappedIPv6Regex.test(ipAddress);
+  }
+  
   protected getRDataEncodingLength(): number {
     return 16; // 16 byte ipv6 address
   }

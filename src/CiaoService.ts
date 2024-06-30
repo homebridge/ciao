@@ -68,7 +68,7 @@ export interface ServiceOptions {
   subtypes?: (ServiceType | string)[];
   /**
    * Port of the service.
-   * If not supplied it must be set later via {@link updatePort} BEFORE advertising the service.
+   * If not supplied it must be set later via {@link CiaoService.updatePort} BEFORE advertising the service.
    */
   port?: number;
 

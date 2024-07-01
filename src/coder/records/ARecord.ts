@@ -23,7 +23,7 @@ export class ARecord extends ResourceRecord {
     // Adjust validation to accept IPv4-mapped IPv6 addresses
     const isIPv4 = net.isIPv4(ipAddress);
     //const isIPv4MappedIPv6 = /^::ffff:0{0,4}:((25[0-5]|(2[0-4]|1\d|\d)\d)\.){3}(25[0-5]|(2[0-4]|1\d|\d)\d)$/i.test(ipAddress);
-    const isIPv4MappedIPv6 = /^::ffff:(\d{1,3}\.){3}\d{1,3}$/i.test(ipAddress)
+    const isIPv4MappedIPv6 = /^::ffff:(\d{1,3}\.){3}\d{1,3}$/i.test(ipAddress);
     assert(isIPv4 || isIPv4MappedIPv6, "IP address is not in v4 or IPv4-mapped v6 format!");
 
     // Store the original IP address or convert IPv4-mapped IPv6 to IPv4

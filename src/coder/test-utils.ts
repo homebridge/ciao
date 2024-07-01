@@ -4,8 +4,17 @@ import { DNSPacket } from "./DNSPacket";
 import { Question } from "./Question";
 import { ResourceRecord } from "./ResourceRecord";
 
+// Utility function to convert IPv4-mapped IPv6 addresses to IPv4
+function convertIPv4MappedIPv6ToIPv4(address: string): string {
+  //const ipv4MappedIPv6Regex = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
+  //const match = address.match(ipv4MappedIPv6Regex);
+  //return match ? match[1] : address;
+  return address.replace(/^::ffff:/i, "");
+}
+
+// Adjusted decodeContext to use the utility function for the address
 const decodeContext: AddressInfo = {
-  address: "0.0.0.0",
+  address: convertIPv4MappedIPv6ToIPv4("::ffff:0.0.0.0"),
   family: "ipv4",
   port: 5353,
 };
@@ -23,6 +32,7 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
   coder = new DNSLabelCoder(legacyUnicast);
   coder.initBuf(buffer);
 
+  // Adjusted to use the potentially converted address in decodeContext
   const decodedRecord = record instanceof Question
     ? Question.decode(decodeContext, coder, buffer, 0)
     : ResourceRecord.decode(decodeContext, coder, buffer, 0);

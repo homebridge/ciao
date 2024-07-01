@@ -160,7 +160,7 @@ export function enlargeIPv6(address: string): string {
     return address; // Return as is because it's an IPv4-mapped address
   }
 
-  const ipv4MappedIPv6Regex = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/;
+  const ipv4MappedIPv6Regex = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i;
   const match = ipv4MappedIPv6Regex.exec(address);
   if (match) {
     return match[1]; // Return the IPv4 part

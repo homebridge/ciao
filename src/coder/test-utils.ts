@@ -6,9 +6,10 @@ import { ResourceRecord } from "./ResourceRecord";
 
 // Utility function to convert IPv4-mapped IPv6 addresses to IPv4
 function convertIPv4MappedIPv6ToIPv4(address: string): string {
-  const ipv4MappedIPv6Regex = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
-  const match = address.match(ipv4MappedIPv6Regex);
-  return match ? match[1] : address;
+  //const ipv4MappedIPv6Regex = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
+  //const match = address.match(ipv4MappedIPv6Regex);
+  //return match ? match[1] : address;
+  return address.replace(/^::ffff:/i, "");
 }
 
 // Adjusted decodeContext to use the utility function for the address

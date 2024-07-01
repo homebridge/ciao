@@ -27,9 +27,10 @@ export class AAAARecord extends ResourceRecord {
   }
   // Utility method to check for IPv4-mapped IPv6 addresses
   private isIPv4MappedIPv6(ipAddress: string): boolean {
-    const ipv4MappedIPv6Regex = /^::ffff:(0{1,4}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/i;
-    return ipv4MappedIPv6Regex.test(ipAddress);
-  }
+    //const ipv4MappedIPv6Regex = /^::ffff:(0{1,4}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/i;
+    //return ipv4MappedIPv6Regex.test(ipAddress);
+    return /^::ffff:(\d{1,3}\.){3}\d{1,3}$/i.test(ipAddress);  
+  }  
   
   protected getRDataEncodingLength(): number {
     return 16; // 16 byte ipv6 address

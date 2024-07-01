@@ -574,7 +574,13 @@ export class MDNSServer {
 
     if (isIPv6) {
       if (networkInterface.loopback !== rinfo.address.includes("%lo")) {
-        debug("Received packet on a %s interface (%s) which is coming from a %s interface (%s)", networkInterface.loopback ? "loopback" : "non-loopback", name, rinfo.address.includes("%lo") ? "loopback" : "non-loopback", rinfo.address);
+        debug(
+          "Received packet on a %s interface (%s) which is coming from a %s interface (%s)",
+          networkInterface.loopback ? "loopback" : "non-loopback",
+          name,
+          rinfo.address.includes("%lo") ? "loopback" : "non-loopback",
+          rinfo.address,
+        );
         // return;
       }
     } else {

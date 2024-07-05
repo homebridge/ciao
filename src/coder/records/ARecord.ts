@@ -3,7 +3,6 @@ import net from "net";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";
 import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
-import { getIPFromV4Mapped, isIPv4Mapped } from "../../util/v4mapped";
 
 export class ARecord extends ResourceRecord {
 
@@ -21,13 +20,9 @@ export class ARecord extends ResourceRecord {
       super(name);
     }
 
-    // Adjust validation to accept IPv4-mapped IPv6 addresses
-    const isIPv4 = net.isIPv4(ipAddress);
-    const isV4Mapped = isIPv4Mapped(ipAddress);
-    assert(isIPv4 || isV4Mapped, "IP address is not in v4 or IPv4-mapped v6 format!");
+    assert(net.isIPv4(ipAddress), "IP address is not in IPv4 format!");
 
-    // Store the original IP address or convert IPv4-mapped IPv6 to IPv4
-    this.ipAddress = isV4Mapped ? getIPFromV4Mapped(ipAddress) as string : ipAddress;
+    this.ipAddress = ipAddress;
   }
 
   protected getRDataEncodingLength(): number {

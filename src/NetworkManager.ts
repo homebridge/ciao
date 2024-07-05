@@ -20,7 +20,6 @@ export type IPAddress = IPv4Address | IPv6Address;
 
 export const enum IPFamily {
   IPv4 = "IPv4",
-  IPv4MappedIPv6 = "IPv4MappedIPv6",
   IPv6 = "IPv6",
 }
 

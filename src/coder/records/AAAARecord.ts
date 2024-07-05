@@ -7,7 +7,7 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class AAAARecord extends ResourceRecord {
 
-  public static readonly DEFAULT_TTL = 120;
+  public static readonly DEFAULT_TTL = AAAARecord.RR_DEFAULT_TTL_SHORT;
 
   readonly ipAddress: string;
 
@@ -21,17 +21,10 @@ export class AAAARecord extends ResourceRecord {
       super(name);
     }
 
-    // Enhanced validation to check for IPv6 and IPv4-mapped IPv6 addresses
-    assert(net.isIPv6(ipAddress) || this.isIPv4MappedIPv6(ipAddress), "IP address is not in v6 or IPv4-mapped v6 format!");
+    assert(net.isIPv6(ipAddress), "IP address is not in v6 format!");
     this.ipAddress = ipAddress;
   }
-  // Utility method to check for IPv4-mapped IPv6 addresses
-  private isIPv4MappedIPv6(ipAddress: string): boolean {
-    //const ipv4MappedIPv6Regex = /^::ffff:(0{1,4}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/i;
-    //return ipv4MappedIPv6Regex.test(ipAddress);
-    return /^::ffff:(\d{1,3}\.){3}\d{1,3}$/i.test(ipAddress);  
-  }  
-  
+
   protected getRDataEncodingLength(): number {
     return 16; // 16 byte ipv6 address
   }
@@ -40,11 +33,11 @@ export class AAAARecord extends ResourceRecord {
     const oldOffset = offset;
 
     const address = enlargeIPv6(this.ipAddress);
-    const bytes = address.split(":");
-    assert(bytes.length === 8, "invalid ip address");
+    const hextets = address.split(":");
+    assert(hextets.length === 8, "invalid IP address");
 
-    for (const byte of bytes) {
-      const number = parseInt(byte, 16);
+    for (const hextet of hextets) {
+      const number = parseInt(hextet, 16);
       buffer.writeUInt16BE(number, offset);
       offset += 2;
     }

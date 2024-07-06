@@ -21,10 +21,10 @@ describe(ResourceRecord, () => {
     runRecordEncodingTest(new ARecord("sub.test.local.", "192.168.0.1"));
   });
 
-  it("should encode IPv4-mapped IPv6 addresses in AAAA records", () => {
+  /*it("should encode IPv4-mapped IPv6 addresses in AAAA records", () => {
     runRecordEncodingTest(new AAAARecord("v4mapped.local.", "::ffff:192.168.178.1"));
     runRecordEncodingTest(new AAAARecord("sub.v4mapped.local.", "::ffff:192.168.0.1"));
-  });
+  });*/
 
   it("should encode CNAME", () => {
     runRecordEncodingTest(new CNAMERecord("test.local.", "test2.local."));

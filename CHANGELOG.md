@@ -7,6 +7,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Added
 
 - Add support for publishing on IPv6 networks (#19) (@adriancable)
+- Add support for IPv4-mapped IPv6 addresses (#43) (@donavanbecker & @hjdhjd)
 
 ### Changed
 

@@ -2,6 +2,7 @@ import assert from "assert";
 import net from "net";
 import { ServiceType } from "../CiaoService";
 import { Protocol } from "../index";
+import { getIPFromV4Mapped, isIPv4Mapped } from "./v4mapped";
 
 function isProtocol(part: string): boolean {
   return part === "_" + Protocol.TCP || part === "_" + Protocol.UDP;
@@ -130,49 +131,35 @@ export function removeTLD(hostname: string): string {
   return hostname.slice(0, lastDot);
 }
 
+export function formatMappedIPv4Address(address: string): string {
+  if (!isIPv4Mapped(address)) {
+    assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
+  }
+
+  assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
+
+  // Convert IPv4 address to its hexadecimal representation
+  const hexParts = address.split(".").map(part => parseInt(part).toString(16).padStart(2, "0"));
+  const ipv6Part = `::ffff:${hexParts.join("")}`;
+
+  // Convert the hexadecimal representation to the standard IPv6 format
+  return ipv6Part.replace(/(.{4})(.{4})$/, "$1:$2");
+}
+
 export function enlargeIPv6(address: string): string {
   assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
 
-  // we are not supporting ipv4-mapped ipv6 addresses here
-  assert(!address.includes("."), "ipv4-mapped ipv6 addresses are currently unsupported!");
-
-  const split = address.split(":");
-
-  if (split[0] === "") {
-    split.splice(0, 1);
-
-    while (split.length < 8) {
-      split.unshift("0000");
-    }
-  } else if (split[split.length - 1] === "") {
-    split.splice(split.length -1, 1);
-
-    while (split.length < 8) {
-      split.push("0000");
-    }
-  } else if (split.length < 8) {
-    let emptySection: number;
-    for (emptySection = 0; emptySection < split.length; emptySection++) {
-      if (split[emptySection] === "") { // find the first empty section
-        break;
-      }
-    }
-
-    const replacements: string [] = new Array(9 - split.length).fill("0000");
-    split.splice(emptySection, 1, ...replacements);
-  }
-
-  for (let i = 0; i < split.length; i++) {
-    const element = split[i];
-    if (element.length < 4) {
-      const zeros = new Array(4 - element.length).fill("0").join("");
-      split.splice(i, 1, zeros + element);
-    }
-  }
-
-  const result = split.join(":");
-  assert(split.length <= 8, `Resulting ipv6 address has more than 8 sections (${result})!`);
-  return result;
+  const parts = address.split("::");
+  
+  // Initialize head and tail arrays
+  const head = parts[0] ? parts[0].split(":") : [];
+  const tail = parts[1] ? parts[1].split(":") : [];
+  
+  // Calculate the number of groups to fill in with "0000" when we expand
+  const fill = new Array(8 - head.length - tail.length).fill("0000");
+  
+  // Combine it all and normalize each hextet to be 4 characters long
+  return [...head, ...fill, ...tail].map(hextet => hextet.padStart(4, "0")).join(":");
 }
 
 export function shortenIPv6(address: string | string[]): string {
@@ -242,16 +229,22 @@ export function formatReverseAddressPTRName(address: string): string {
     const split = address.split(".").reverse();
 
     return split.join(".") + ".in-addr.arpa";
-  } else if (net.isIPv6(address)) {
-    address = enlargeIPv6(address).toUpperCase();
+  } 
 
-    const nibbleSplit = address.replace(/:/g, "").split("").reverse();
-    assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length! " + nibbleSplit.length);
-
-    return nibbleSplit.join(".") + ".ip6.arpa";
-  } else {
+  if (!net.isIPv6(address)) {
     throw new Error("Supplied illegal ip address format: " + address);
   }
+
+  if (isIPv4Mapped(address)) {
+    return (getIPFromV4Mapped(address) as string).split(".").reverse().join(".") + ".in-addr.arpa";
+  }
+
+  address = enlargeIPv6(address).toUpperCase();
+
+  const nibbleSplit = address.replace(/:/g, "").split("").reverse();
+  assert(nibbleSplit.length === 32, "Encountered invalid ipv6 address length! " + nibbleSplit.length);
+
+  return nibbleSplit.join(".") + ".ip6.arpa";
 }
 
 export function ipAddressFromReversAddressName(name: string): string {

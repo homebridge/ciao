@@ -7,7 +7,7 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class AAAARecord extends ResourceRecord {
 
-  public static readonly DEFAULT_TTL = 120;
+  public static readonly DEFAULT_TTL = AAAARecord.RR_DEFAULT_TTL_SHORT;
 
   readonly ipAddress: string;
 
@@ -15,7 +15,7 @@ export class AAAARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.AAAA, ttl || AAAARecord.RR_DEFAULT_TTL_SHORT, flushFlag);
+      super(name, RType.AAAA, ttl || AAAARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.AAAA);
       super(name);
@@ -33,11 +33,11 @@ export class AAAARecord extends ResourceRecord {
     const oldOffset = offset;
 
     const address = enlargeIPv6(this.ipAddress);
-    const bytes = address.split(":");
-    assert(bytes.length === 8, "invalid ip address");
+    const hextets = address.split(":");
+    assert(hextets.length === 8, "invalid IP address");
 
-    for (const byte of bytes) {
-      const number = parseInt(byte, 16);
+    for (const hextet of hextets) {
+      const number = parseInt(hextet, 16);
       buffer.writeUInt16BE(number, offset);
       offset += 2;
     }

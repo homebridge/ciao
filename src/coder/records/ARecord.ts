@@ -6,7 +6,7 @@ import { RecordRepresentation, ResourceRecord } from "../ResourceRecord";
 
 export class ARecord extends ResourceRecord {
 
-  public static readonly DEFAULT_TTL = 120;
+  public static readonly DEFAULT_TTL = ARecord.RR_DEFAULT_TTL_SHORT;
 
   readonly ipAddress: string;
 
@@ -14,13 +14,14 @@ export class ARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.A, ttl || ARecord.RR_DEFAULT_TTL_SHORT, flushFlag);
+      super(name, RType.A, ttl || ARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.A);
       super(name);
     }
 
-    assert(net.isIPv4(ipAddress), "IP address is not in v4 format!");
+    assert(net.isIPv4(ipAddress), "IP address is not in IPv4 format!");
+
     this.ipAddress = ipAddress;
   }
 

@@ -4,6 +4,7 @@ import { DNSPacket } from "./DNSPacket";
 import { Question } from "./Question";
 import { ResourceRecord } from "./ResourceRecord";
 
+// Adjusted decodeContext to use the utility function for the address
 const decodeContext: AddressInfo = {
   address: "0.0.0.0",
   family: "ipv4",
@@ -23,12 +24,13 @@ export function runRecordEncodingTest(record: Question | ResourceRecord, legacyU
   coder = new DNSLabelCoder(legacyUnicast);
   coder.initBuf(buffer);
 
+
+  // test the decodeRecord method
   const decodedRecord = record instanceof Question
     ? Question.decode(decodeContext, coder, buffer, 0)
     : ResourceRecord.decode(decodeContext, coder, buffer, 0);
   expect(decodedRecord.readBytes).toBe(buffer.length);
 
-  //
   const record2 = decodedRecord.data!;
   expect(record2).toBeDefined();
 

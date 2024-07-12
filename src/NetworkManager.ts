@@ -3,7 +3,7 @@ import assert from "assert";
 import childProcess from "child_process";
 import createDebug from "debug";
 import { EventEmitter } from "events";
-import deepEqual from "fast-deep-equal";
+import {isDeepStrictEqual as deepEqual} from "util";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
 import { getNetAddress } from "./util/domain-formatter";

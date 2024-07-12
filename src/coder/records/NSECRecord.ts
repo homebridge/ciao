@@ -1,5 +1,5 @@
 import assert from "assert";
-import deepEqual from "fast-deep-equal";
+import {isDeepStrictEqual as deepEqual} from "util";
 import { dnsLowerCase } from "../../util/dns-equal";
 import { DNSLabelCoder } from "../DNSLabelCoder";
 import { DecodedData, RType } from "../DNSPacket";

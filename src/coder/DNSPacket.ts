@@ -1,5 +1,5 @@
 import assert from "assert";
-import deepEqual from "fast-deep-equal";
+import {isDeepStrictEqual as deepEqual} from "util";
 import { AddressInfo } from "net";
 import { dnsTypeToString } from "./dns-string-utils";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";

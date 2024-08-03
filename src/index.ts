@@ -1,7 +1,7 @@
 import "source-map-support/register"; // registering node-source-map-support for typescript stack traces
 import createDebug from "debug";
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const version: string = require("../package.json").version;
 if (version.includes("beta") || process.env.BCT) { // enable debug output if beta version or running bonjour conformance testing
   const debug = process.env.DEBUG;

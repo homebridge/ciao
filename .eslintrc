@@ -26,6 +26,7 @@
     "brace-style": ["error"],
     "prefer-arrow-callback": "warn",
     "max-len": ["warn", 180],
+    "@typescript-eslint/no-unused-vars": ["error", { "caughtErrors": "none" }],
 
     "@typescript-eslint/camelcase": "off", // off as dns-packet has a lot of stuff like this
     "@typescript-eslint/no-non-null-assertion": "off",

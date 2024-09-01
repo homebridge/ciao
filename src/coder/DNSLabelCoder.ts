@@ -38,7 +38,7 @@ export class DNSLabelCoder {
   private static readonly NOT_POINTER_MASK = 0x3FFF;
   private static readonly NOT_POINTER_MASK_ONE_BYTE = 0x3F;
 
-  public buffer?: Buffer;
+  private buffer?: Buffer;
   readonly legacyUnicastEncoding: boolean;
   private startOfRR?: number;
   private startOfRData?: number;

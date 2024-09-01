@@ -2,7 +2,7 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
-## BETA
+## v1.3.1 (2024-08-07)
 
 ### Changed
 

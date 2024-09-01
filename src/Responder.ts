@@ -383,7 +383,9 @@ export class Responder implements PacketHandler {
       service.serviceState = ServiceState.UNANNOUNCED;
     }
 
-    callback && callback();
+    if (typeof callback === "function") {
+      callback();
+    }
     return Promise.resolve();
   }
 

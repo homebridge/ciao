@@ -2,7 +2,14 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
-## BETA
+## v1.3.1 (2024-08-07)
+
+### Changed
+
+- Add support for node 22 in `engines`
+- Updated dependencies + fix lint
+
+## v1.3.0 (2024-07-08)
 
 ### Added
 
@@ -14,6 +21,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - update dependencies
 - update dependencies, fix typedoc (#44)
 - update changelog, fix lint
+- Fix: minor housekeeping. (#48) (@@hjdhjd)
 
 ## v1.2.0 (2024-04-10)
 

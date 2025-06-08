@@ -2,6 +2,12 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.2 (Unreleased)
+
+### Changed
+
+- Update dependencies
+
 ## v1.3.1 (2024-08-07)
 
 ### Changed

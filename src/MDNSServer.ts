@@ -184,12 +184,14 @@ export class MDNSServer {
   public static readonly MULTICAST_IPV6 = "FF02::FB";
 
   public static readonly SEND_TIMEOUT = 200; // milliseconds
+  public static readonly SENTPACKETS_CLEANUP_TIMEOUT = 5000; // milliseconds
 
   private readonly handler: PacketHandler;
   private readonly networkManager: NetworkManager;
 
   private readonly sockets: Map<InterfaceName, Socket> = new Map();
-  private readonly sentPackets: Map<InterfaceName, string[]> = new Map();
+  private readonly sentPackets: Map<InterfaceName, Map<number, number[]>> = new Map();
+  private sentPacketCleanupTimeout: NodeJS.Timeout | undefined;
 
   // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
@@ -269,6 +271,11 @@ export class MDNSServer {
 
     for (const socket of this.sockets.values()) {
       socket.close();
+    }
+
+    if (undefined !== this.sentPacketCleanupTimeout) {
+      clearTimeout(this.sentPacketCleanupTimeout);
+      this.sentPacketCleanupTimeout = undefined;
     }
 
     this.bound = false;
@@ -444,27 +451,70 @@ export class MDNSServer {
   }
 
   private maintainSentPacketsInterface(name: InterfaceName, packet: Buffer): void {
-    const base64 = packet.toString("base64");
-    const packets = this.sentPackets.get(name);
+    const hash = MDNSServer.fastHash(packet);
+
+    let packets = this.sentPackets.get(name);
+
     if (!packets) {
-      this.sentPackets.set(name, [base64]);
-    } else {
-      packets.push(base64);
+      packets = new Map<number, number[]>();
+      this.sentPackets.set(name, packets);
     }
+
+    const times = packets.get(hash);
+
+    if (times) {
+      times.push(Date.now());
+    } else {
+      packets.set(hash, [ Date.now() ]);
+    }
+
+    this.scheduleSentPacketsCleanup();
   }
 
   private checkIfPacketWasPreviouslySentFromUs(name: InterfaceName, packet: Buffer): boolean {
-    const base64 = packet.toString("base64");
+    const hash = MDNSServer.fastHash(packet);
     const packets = this.sentPackets.get(name);
-    if (packets) {
-      const index = packets.indexOf(base64);
-      if (index !== -1) {
-        packets.splice(index, 1);
-        return true;
+    const times = packets?.get?.(hash);
+
+    if (times?.length) {
+      times.splice(0, 1);
+      if (!times.length && packets) {
+        packets.delete(hash);
       }
+      return true;
     }
 
     return false;
+  }
+
+  private scheduleSentPacketsCleanup() {
+    if (undefined === this.sentPacketCleanupTimeout && !this.closed) {
+      this.sentPacketCleanupTimeout = setTimeout(() => {
+        this.sentPacketCleanupTimeout = undefined;
+
+        const expiryTime = Date.now() - MDNSServer.SENTPACKETS_CLEANUP_TIMEOUT;
+        let remaining = 0;
+
+        for (const [_, packets] of this.sentPackets) {
+          for (const [key, times] of packets) {
+            while (times.length && times[0] <= expiryTime) {
+              times.splice(0, 1);
+            }
+
+            if (!times.length) {
+              packets.delete(key);
+            }
+
+            remaining += times.length;
+          }
+        }
+
+        if (remaining > 0) {
+          this.scheduleSentPacketsCleanup();
+        }
+
+      }, MDNSServer.SENTPACKETS_CLEANUP_TIMEOUT * 1.5);
+    }
   }
 
   private createDgramSocket(name: InterfaceName, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
@@ -641,6 +691,24 @@ export class MDNSServer {
         console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + error.stack);
       }
     }
+  }
+
+  // see https://en.wikipedia.org/wiki/Jenkins_hash_function
+  private static fastHash(packet: Buffer) {
+    const str = packet.toString("utf-8");
+    let a = 0, h = 0;
+
+    for (let i = 0; i < str.length; i++) {
+      h = a + str.charCodeAt(i);
+      h += h << 10;
+      a = h ^ (h >> 6);
+      a = a & a; // clamp to integer
+    }
+
+    h = a + (a << 3);
+    h ^= h >> 11;
+
+    return h + (h << 15);
   }
 
   private static isSilencedSocketError(error: Error): boolean {

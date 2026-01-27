@@ -200,16 +200,20 @@ export class Prober {
   }
 
   private checkLocalConflicts() {
+    // Only check for FQDN conflicts with local services, not hostname conflicts.
+    // Per RFC 6762/6763, multiple services on the same host CAN share a hostname
+    // since they share the same A/AAAA records. Only the FQDN must be unique.
+    // See: https://github.com/homebridge/ciao/issues/20
     let containsAnswer = false;
     for (const service of this.responder.getAnnouncedServices()) {
-      if (service.getLowerCasedFQDN() === this.service.getLowerCasedFQDN() || service.getLowerCasedHostname() === this.service.getLowerCasedHostname()) {
+      if (service.getLowerCasedFQDN() === this.service.getLowerCasedFQDN()) {
         containsAnswer = true;
         break;
       }
     }
 
     if (containsAnswer) {
-      debug("Probing for '%s' failed as of local service. Doing a name change", this.service.getFQDN());
+      debug("Probing for '%s' found conflicting FQDN with existing local service. Doing a name change", this.service.getFQDN());
       this.handleNameChange();
     }
   }

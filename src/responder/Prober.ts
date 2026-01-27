@@ -223,23 +223,30 @@ export class Prober {
       return;
     }
 
+    // Only check for FQDN conflicts in responses, not hostname conflicts.
+    // Multiple services on the same host CAN share a hostname (they share A/AAAA records).
+    // Real hostname conflicts (different host with same hostname but different IPs) will be
+    // detected later via A/AAAA record conflict detection in Responder.checkRecordConflictType().
+    // See: https://github.com/homebridge/ciao/issues/20
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     for (const record of packet.answers.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN()) {
         containsAnswer = true;
         break;
       }
     }
-    for (const record of packet.additionals.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
-        containsAnswer = true;
-        break;
+    if (!containsAnswer) {
+      for (const record of packet.additionals.values()) {
+        if (record.getLowerCasedName() === this.service.getLowerCasedFQDN()) {
+          containsAnswer = true;
+          break;
+        }
       }
     }
 
     if (containsAnswer) { // abort and cancel probes
-      debug("Probing for '%s' failed. Doing a name change", this.service.getFQDN());
+      debug("Probing for '%s' failed due to FQDN conflict. Doing a name change", this.service.getFQDN());
       this.handleNameChange();
     }
   }
@@ -263,9 +270,11 @@ export class Prober {
 
     // if we are currently probing and receiving a query which is also a probing query
     // which matches the desired name we run the tiebreaking algorithm to decide on the winner
+    // Only check FQDN, not hostname - multiple services can share a hostname.
+    // See: https://github.com/homebridge/ciao/issues/20
     let needsTiebreaking = false;
     for (const question of packet.questions.values()) {
-      if (question.getLowerCasedName() === this.service.getLowerCasedFQDN() || question.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (question.getLowerCasedName() === this.service.getLowerCasedFQDN()) {
         needsTiebreaking = true;
         break;
       }
@@ -283,9 +292,11 @@ export class Prober {
     }
 
     // first of all check if the contents of authorities answers our query
+    // Only check FQDN, not hostname - multiple services can share a hostname.
+    // See: https://github.com/homebridge/ciao/issues/20
     let conflict = packet.authorities.size === 0;
     for (const record of packet.authorities.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN()) {
         conflict = true;
         break;
       }

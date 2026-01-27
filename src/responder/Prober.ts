@@ -4,7 +4,7 @@ import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
+import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError, TimedSendResult } from "../MDNSServer";
 import { Responder } from "../Responder";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
@@ -41,6 +41,7 @@ export class Prober {
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent
   private sentQueriesForCurrentTry = 0;
   private sentQueries = 0;
+  private cancelled = false;
 
   constructor(responder: Responder, server: MDNSServer, service: CiaoService) {
     assert(responder, "responder must be defined");
@@ -84,6 +85,7 @@ export class Prober {
   }
 
   public cancel(): void {
+    this.cancelled = true;
     this.clear();
 
     this.promiseReject!(Prober.CANCEL_REASON);
@@ -119,6 +121,12 @@ export class Prober {
   }
 
   private sendProbeRequest(): void {
+    // Check FIRST before any network operations - prober may have been cancelled
+    if (this.cancelled || this.service.serviceState !== ServiceState.PROBING) {
+      debug("Service '%s' probing cancelled or no longer in probing state. Skipping probe request.", this.service.getFQDN());
+      return;
+    }
+
     if (this.sentQueriesForCurrentTry === 0) { // this is the first query sent, init some stuff
       // RFC 6762 8.2. When a host is probing for a group of related records with the same
       //    name (e.g., the SRV and TXT record describing a DNS-SD service), only
@@ -162,11 +170,20 @@ export class Prober {
       new Question(this.service.getHostname(), QType.ANY, true),
     ];
 
-    this.server.sendQueryBroadcast({
-      questions: questions,
-      // TODO certified homekit accessories only include the main service PTR record
-      authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-    }, this.service).then(results => {
+    let sendPromise: Promise<TimedSendResult[]>;
+    try {
+      sendPromise = this.server.sendQueryBroadcast({
+        questions: questions,
+        // TODO certified homekit accessories only include the main service PTR record
+        authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
+      }, this.service);
+    } catch (error) {
+      // Server may have been closed while we were waiting - silently abort
+      debug("Failed to send probe query for '%s': %s", this.service.getFQDN(), error instanceof Error ? error.message : error);
+      return;
+    }
+
+    sendPromise.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);

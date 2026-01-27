@@ -375,12 +375,13 @@ export class Responder implements PacketHandler {
       return promise;
     } else if (service.serviceState === ServiceState.PROBING) {
       debug("[%s] Canceling probing", service.getFQDN());
+      // Set state BEFORE canceling to prevent race condition where Prober's
+      // sendQueryBroadcast().then() callback checks serviceState and continues
+      service.serviceState = ServiceState.UNANNOUNCED;
       if (this.currentProber && this.currentProber.getService() === service) {
         this.currentProber.cancel();
         this.currentProber = undefined;
       }
-
-      service.serviceState = ServiceState.UNANNOUNCED;
     }
 
     if (typeof callback === "function") {

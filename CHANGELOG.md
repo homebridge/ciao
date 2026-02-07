@@ -6,6 +6,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - dependency updates
 - update release script for oidc releases
+- add `package-lock.json` to npm package
 
 ## v1.3.4 (2025-07-23)
 

@@ -169,6 +169,5 @@ jobs:
           release_name: v${{ needs.publish.outputs.npm_version }}
           body: |
             v${{ needs.publish.outputs.npm_version }}
-            [How To Test Upcoming Changes](https://github.com/homebridge/ciao/wiki/How-To-Test-Upcoming-Changes)
           keep_num: 5
           keep_tags: false

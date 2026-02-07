@@ -5,6 +5,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ## v1.3.5 (Unreleased)
 
 - dependency updates
+- update release script for oidc releases
 
 ## v1.3.4 (2025-07-23)
 

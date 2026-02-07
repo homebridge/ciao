@@ -51,8 +51,8 @@
     "types",
     "README.md",
     "LICENSE",
-    "package.json"
-
+    "package.json",
+    "package-lock.json"
   ],
   "dependencies": {
     "debug": "^4.4.3",

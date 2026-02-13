@@ -686,13 +686,30 @@ export class MDNSServer {
         // Handle IPv4
         let socket = this.sockets.get(change.name);
         if (!change.outdatedIpv4 && change.updatedIpv4) {
-          // this does currently not happen, as we exclude ipv6 only interfaces
-          // thus such a change would be happening through the ADDED array
-          assert.fail("Reached illegal state! IPv4 address changed from undefined to defined!");
+          // On dynamic networks (e.g., Starlink, cellular), an interface may gain
+          // an IPv4 address after initially appearing as IPv6-only. Handle gracefully
+          // by treating it like a new interface addition for IPv4.
+          debug("IPv4 address appeared on changed interface %s (was undefined, now %s). Adding membership.", change.name, change.updatedIpv4);
+          if (socket) {
+            try {
+              socket.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
+              socket.setMulticastInterface(change.updatedIpv4);
+            } catch (error) {
+              debug("Error adding membership for newly appeared IPv4 on %s: %s", change.name, error.message);
+            }
+          }
         } else if (change.outdatedIpv4 && !change.updatedIpv4) {
-          // this does currently not happen, as we exclude ipv6 only interfaces
-          // thus such a change would be happening through the REMOVED array
-          assert.fail("Reached illegal state! IPV4 address change from defined to undefined!");
+          // On dynamic networks, an interface may lose its IPv4 address temporarily
+          // (e.g., Starlink network flap, DHCP lease expiry). Handle gracefully by
+          // dropping the old membership instead of crashing.
+          debug("IPv4 address disappeared on changed interface %s (was %s, now undefined). Dropping membership.", change.name, change.outdatedIpv4);
+          if (socket) {
+            try {
+              socket.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
+            } catch (error) {
+              debug("Error dropping membership for disappeared IPv4 on %s: %s", change.name, error.message);
+            }
+          }
         } else if (socket && change.outdatedIpv4 && change.updatedIpv4) {
           try {
             socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);

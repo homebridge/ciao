@@ -448,7 +448,6 @@ export class MDNSServer {
   }
 
   private assertBeforeSend(message: Buffer, family: IPFamily): void {
-    assert(!this.closed, "Cannot send packets on a closed mdns server!");
     assert(this.bound, "Cannot send packets before server is not bound!");
 
     const ipHeaderSize = family === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER;

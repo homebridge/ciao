@@ -99,6 +99,13 @@ export class QueuedResponse {
     return true;
   }
 
+  public cancel(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+
   public combineWithUniqueResponseIfPossible(response: QueryResponse, interfaceName: string): boolean {
     if (this.interfaceName !== interfaceName) {
       // can't combine packets which get sent via different interfaces

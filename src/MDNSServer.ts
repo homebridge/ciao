@@ -21,7 +21,7 @@ import {
   NetworkUpdate,
 } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
-import { InterfaceNotFoundError, ServerClosedError } from "./util/errors";
+import { InterfaceNotFoundError } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
 
 const debug = createDebug("ciao:MDNSServer");
@@ -307,6 +307,14 @@ export class MDNSServer {
   public sendResponse(response: DNSPacket, endpoint: EndpointInfo, callback?: SendCallback): void;
   public sendResponse(response: DNSPacket, interfaceName: InterfaceName, callback?: SendCallback): void;
   public sendResponse(response: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName, callback?: SendCallback): void {
+    if (this.closed) {
+      // silently drop responses during shutdown
+      if (callback) {
+        callback();
+      }
+      return;
+    }
+
     this.send(response, endpointOrInterface).then(result => {
       if (result.status === "rejected") {
         if (callback) {
@@ -321,6 +329,10 @@ export class MDNSServer {
   }
 
   private sendOnAllNetworksForService(packet: DNSPacket, service: CiaoService): Promise<TimedSendResult[]> {
+    if (this.closed) {
+      return Promise.resolve([]); // silently drop broadcasts during shutdown
+    }
+
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
@@ -372,6 +384,11 @@ export class MDNSServer {
   }
 
   public send(packet: DNSPacket, endpointOrInterface: EndpointInfo | InterfaceName): Promise<SendResult> {
+    if (this.closed) {
+      const name = typeof endpointOrInterface === "string" ? endpointOrInterface : endpointOrInterface.interface;
+      return Promise.resolve({ status: "rejected", interface: name, reason: new Error("Server is closed") });
+    }
+
     this.checkUnicastResponseFlag(packet);
 
     const message = packet.encode();
@@ -431,9 +448,7 @@ export class MDNSServer {
   }
 
   private assertBeforeSend(message: Buffer, family: IPFamily): void {
-    if (this.closed) {
-      throw new ServerClosedError("Cannot send packets on a closed mdns server!");
-    }
+    assert(!this.closed, "Cannot send packets on a closed mdns server!");
     assert(this.bound, "Cannot send packets before server is not bound!");
 
     const ipHeaderSize = family === IPFamily.IPv4? MDNSServer.DEFAULT_IP4_HEADER: MDNSServer.DEFAULT_IP6_HEADER;

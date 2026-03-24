@@ -560,7 +560,7 @@ export class NetworkManager extends EventEmitter {
   private static getWindowsNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("arp -a | findstr /C:\"---\"", (error, stdout) => {
+      childProcess.exec("arp -a | findstr /C:\"---\"", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -611,7 +611,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 "ndp -a -n |grep -v permanent" with filtering for "expired"
-      childProcess.exec("arp -a -n -l", async (error, stdout) => {
+      childProcess.exec("arp -a -n -l", { windowsHide: true }, async (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -663,7 +663,7 @@ export class NetworkManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       // we use "ip neigh" here instead of the aliases like "ip neighbour" or "ip neighbor"
       // as those were only added like 5 years ago https://github.com/shemminger/iproute2/commit/ede723964a065992bf9d0dbe3f780e65ca917872
-      childProcess.exec("ip neigh show", (error, stdout) => {
+      childProcess.exec("ip neigh show", { windowsHide: true }, (error, stdout) => {
         if (error) {
           if (error.message.includes("ip: not found")) {
             debug("LINUX: ip was not found on the system. Falling back to assuming network interfaces!");
@@ -717,7 +717,7 @@ export class NetworkManager extends EventEmitter {
   private static getFreeBSDNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("arp -a -n", (error, stdout) => {
+      childProcess.exec("arp -a -n", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -752,7 +752,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ndp -a -n | grep R" (grep for reachable; maybe exclude permanent?)
-      childProcess.exec("arp -a -n", (error, stdout) => {
+      childProcess.exec("arp -a -n", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -805,7 +805,7 @@ export class NetworkManager extends EventEmitter {
          * Other messages handled here.
          * "All Wi-Fi network services are disabled": encountered on macOS VM machines
          */
-      childProcess.exec("networksetup -getairportnetwork " + name, (error, stdout) => {
+      childProcess.exec("networksetup -getairportnetwork " + name, { windowsHide: true }, (error, stdout) => {
         if (error) {
           if (stdout.includes("not a Wi-Fi interface")) {
             resolve(WifiState.NOT_A_WIFI_INTERFACE);

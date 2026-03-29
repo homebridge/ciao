@@ -1,4 +1,5 @@
 import assert from "assert";
+import { createHash } from "crypto";
 import createDebug from "debug";
 import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
@@ -184,12 +185,13 @@ export class MDNSServer {
   public static readonly MULTICAST_IPV6 = "FF02::FB";
 
   public static readonly SEND_TIMEOUT = 200; // milliseconds
+  private static readonly SENT_PACKET_TTL = 2000; // milliseconds
 
   private readonly handler: PacketHandler;
   private readonly networkManager: NetworkManager;
 
   private readonly sockets: Map<InterfaceName, Socket> = new Map();
-  private readonly sentPackets: Map<InterfaceName, string[]> = new Map();
+  private readonly sentPackets: Map<InterfaceName, Map<string, number>> = new Map();
 
   // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
@@ -275,6 +277,7 @@ export class MDNSServer {
     this.closed = true;
 
     this.sockets.clear();
+    this.sentPackets.clear();
   }
 
   public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, service: CiaoService): Promise<TimedSendResult[]> {
@@ -444,22 +447,28 @@ export class MDNSServer {
   }
 
   private maintainSentPacketsInterface(name: InterfaceName, packet: Buffer): void {
-    const base64 = packet.toString("base64");
-    const packets = this.sentPackets.get(name);
+    const hash = createHash("sha256").update(packet).digest("hex");
+    let packets = this.sentPackets.get(name);
     if (!packets) {
-      this.sentPackets.set(name, [base64]);
-    } else {
-      packets.push(base64);
+      packets = new Map();
+      this.sentPackets.set(name, packets);
     }
+    packets.set(hash, Date.now());
   }
 
   private checkIfPacketWasPreviouslySentFromUs(name: InterfaceName, packet: Buffer): boolean {
-    const base64 = packet.toString("base64");
     const packets = this.sentPackets.get(name);
     if (packets) {
-      const index = packets.indexOf(base64);
-      if (index !== -1) {
-        packets.splice(index, 1);
+      const cutoff = Date.now() - MDNSServer.SENT_PACKET_TTL;
+      for (const [hash, sentAt] of packets) {
+        if (sentAt < cutoff) {
+          packets.delete(hash);
+        }
+      }
+
+      const hash = createHash("sha256").update(packet).digest("hex");
+      if (packets.has(hash)) {
+        packets.delete(hash);
         return true;
       }
     }

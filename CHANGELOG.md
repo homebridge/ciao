@@ -2,6 +2,11 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.6 (Pending Release)
+
+- Add compliance review note for RFC 6762 and RFC 6763 (@NorthernMan54)
+- dependency updates
+
 ## v1.3.5 (2026-02-07)
 
 - dependency updates

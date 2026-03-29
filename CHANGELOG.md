@@ -6,6 +6,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - Add compliance review note for RFC 6762 and RFC 6763 (@NorthernMan54)
 - dependency updates
+- rebuild docs after `typedoc` update
 
 ## v1.3.5 (2026-02-07)
 

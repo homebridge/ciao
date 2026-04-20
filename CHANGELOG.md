@@ -10,6 +10,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: gracefully handle sends on closed server during shutdown (@shields)
 - fix: handle IPv4 address transitions gracefully on dynamic networks (@henryclawdius)
 - fix: replace ip neigh show with ip -o link show in getLinuxNetworkInterfaces (@NorthernMan54)
+- docs: regenerate typedoc docs for release
 
 ## v1.3.6 (2026-03-29)
 

@@ -1,5 +1,36 @@
 import { MDNSServer, SendResultFailedRatio } from "./MDNSServer";
 
+// Build an MDNSServer with only the state needed for sent-packet bookkeeping.
+// The real constructor spins up a NetworkManager (enumerates OS interfaces) and
+// arranges sockets — neither is needed for exercising loopback-suppression logic
+// in isolation.
+function makeBareServer(): MDNSServer {
+  const server = Object.create(MDNSServer.prototype) as MDNSServer;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).sentPackets = new Map();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).sentPacketsCleanupTimer = undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).closed = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).bound = true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).sockets = new Map();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).networkManager = { shutdown: () => { /* no-op */ } };
+  return server;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const maintain = (s: MDNSServer, iface: string, buf: Buffer) =>
+  (s as any).maintainSentPacketsInterface(iface, buf);
+const check = (s: MDNSServer, iface: string, buf: Buffer): boolean =>
+  (s as any).checkIfPacketWasPreviouslySentFromUs(iface, buf);
+const hashPacket = (buf: Buffer): string => (MDNSServer as any).hashPacket(buf);
+const sentPacketsMap = (s: MDNSServer): Map<string, Map<string, number[]>> =>
+  (s as any).sentPackets;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 describe(MDNSServer, () => {
   it("SendResultFailedRatio", () => {
     expect(SendResultFailedRatio([
@@ -27,5 +58,140 @@ describe(MDNSServer, () => {
     ])).toBe(1);
 
     expect(SendResultFailedRatio([])).toBe(0);
+  });
+
+  describe("hashPacket", () => {
+    it("produces the same hash for byte-equal buffers from different backing memory", () => {
+      const a = Buffer.from([0, 1, 2, 3, 0xff, 0x80, 0x7f]);
+      const b = Buffer.from([0, 1, 2, 3, 0xff, 0x80, 0x7f]);
+      expect(a).not.toBe(b);
+      expect(hashPacket(a)).toBe(hashPacket(b));
+    });
+
+    it("distinguishes buffers that differ by a single byte", () => {
+      const a = Buffer.from([0, 1, 2, 3]);
+      const b = Buffer.from([0, 1, 2, 4]);
+      expect(hashPacket(a)).not.toBe(hashPacket(b));
+    });
+
+    it("preserves all byte values (no lossy UTF-8 collapse for invalid sequences)", () => {
+      // Two different invalid UTF-8 sequences would collapse to U+FFFD if hashed via
+      // toString("utf-8"); over raw bytes they must remain distinct.
+      const a = Buffer.from([0xff, 0xfe]);
+      const b = Buffer.from([0xfe, 0xff]);
+      expect(hashPacket(a)).not.toBe(hashPacket(b));
+    });
+  });
+
+  describe("sentPackets loopback suppression", () => {
+    it("matches a previously maintained packet exactly once", () => {
+      const server = makeBareServer();
+      const packet = Buffer.from([1, 2, 3, 4, 5]);
+
+      maintain(server, "eth0", packet);
+      expect(check(server, "eth0", packet)).toBe(true);
+      // A second loopback of the same packet must not be silenced — we only sent it once.
+      expect(check(server, "eth0", packet)).toBe(false);
+    });
+
+    it("returns false for a packet never sent on that interface", () => {
+      const server = makeBareServer();
+      expect(check(server, "eth0", Buffer.from([9, 9, 9]))).toBe(false);
+    });
+
+    it("preserves duplicate-packet semantics (two sends -> two matches)", () => {
+      // Regression guard: if the store collapses duplicates to a single key/timestamp,
+      // the second loopback of a rapidly-repeated packet would be handed to the handler
+      // as if it were a legitimate incoming query.
+      const server = makeBareServer();
+      const packet = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+
+      maintain(server, "eth0", packet);
+      maintain(server, "eth0", packet);
+
+      expect(check(server, "eth0", packet)).toBe(true);
+      expect(check(server, "eth0", packet)).toBe(true);
+      expect(check(server, "eth0", packet)).toBe(false);
+    });
+
+    it("isolates tracking per interface", () => {
+      const server = makeBareServer();
+      const packet = Buffer.from([7, 7, 7]);
+
+      maintain(server, "eth0", packet);
+      expect(check(server, "eth1", packet)).toBe(false);
+      expect(check(server, "eth0", packet)).toBe(true);
+    });
+
+    it("removes the hash key once its timestamp array is drained", () => {
+      const server = makeBareServer();
+      const packet = Buffer.from([1, 2, 3]);
+
+      maintain(server, "eth0", packet);
+      const ifaceMap = sentPacketsMap(server).get("eth0")!;
+      expect(ifaceMap.size).toBe(1);
+
+      check(server, "eth0", packet);
+      expect(ifaceMap.size).toBe(0);
+    });
+  });
+
+  describe("sentPackets cleanup timer", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("evicts unmatched entries once they exceed SENT_PACKETS_TTL", () => {
+      const server = makeBareServer();
+      const packet = Buffer.from([1, 2, 3]);
+
+      maintain(server, "eth0", packet);
+      expect(sentPacketsMap(server).get("eth0")!.size).toBe(1);
+
+      // One full TTL gets the cleanup pass to fire; a hair beyond TTL makes every
+      // recorded timestamp strictly older than the cutoff.
+      jest.advanceTimersByTime(MDNSServer.SENT_PACKETS_TTL + 1);
+
+      expect(sentPacketsMap(server).get("eth0")!.size).toBe(0);
+      // The previously-tracked packet must no longer be silenced — if it arrived now
+      // it is a genuine external packet as far as we can tell.
+      expect(check(server, "eth0", packet)).toBe(false);
+    });
+
+    it("reschedules itself while younger entries remain", () => {
+      const server = makeBareServer();
+      const oldPacket = Buffer.from([1]);
+      const youngPacket = Buffer.from([2]);
+
+      maintain(server, "eth0", oldPacket);
+      // Age the first entry partway through its TTL, then record a second packet.
+      jest.advanceTimersByTime(MDNSServer.SENT_PACKETS_TTL / 2);
+      maintain(server, "eth0", youngPacket);
+
+      // First cleanup fires at t = TTL: oldPacket is now past its cutoff, youngPacket
+      // is half-expired and should survive.
+      jest.advanceTimersByTime(MDNSServer.SENT_PACKETS_TTL / 2 + 1);
+      const ifaceMap = sentPacketsMap(server).get("eth0")!;
+      expect(ifaceMap.has(hashPacket(oldPacket))).toBe(false);
+      expect(ifaceMap.has(hashPacket(youngPacket))).toBe(true);
+
+      // Advance past the reschedule so the remaining entry also expires.
+      jest.advanceTimersByTime(MDNSServer.SENT_PACKETS_TTL);
+      expect(ifaceMap.size).toBe(0);
+    });
+
+    it("stops rescheduling once the store is drained", () => {
+      const server = makeBareServer();
+      maintain(server, "eth0", Buffer.from([1]));
+
+      jest.advanceTimersByTime(MDNSServer.SENT_PACKETS_TTL + 1);
+      expect(sentPacketsMap(server).get("eth0")!.size).toBe(0);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).sentPacketsCleanupTimer).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    });
   });
 });

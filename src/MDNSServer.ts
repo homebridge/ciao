@@ -1,4 +1,5 @@
 import assert from "assert";
+import { createHash } from "crypto";
 import createDebug from "debug";
 import dgram, { Socket } from "dgram";
 import { AddressInfo } from "net";
@@ -184,12 +185,21 @@ export class MDNSServer {
   public static readonly MULTICAST_IPV6 = "FF02::FB";
 
   public static readonly SEND_TIMEOUT = 200; // milliseconds
+  // Sent packets are tracked to suppress multicast loopback. Entries older than this
+  // are pruned: loopback normally completes in <1ms, so 5s gives ample headroom while
+  // preventing unbounded growth when packets never loop back (observed on some Linux
+  // setups and busy mDNS networks).
+  public static readonly SENT_PACKETS_TTL = 5000; // milliseconds
 
   private readonly handler: PacketHandler;
   private readonly networkManager: NetworkManager;
 
   private readonly sockets: Map<InterfaceName, Socket> = new Map();
-  private readonly sentPackets: Map<InterfaceName, string[]> = new Map();
+  // Per-interface map of packet-hash -> array of send timestamps. An array (not a single
+  // timestamp) is required so that duplicate packets sent in quick succession each have a
+  // corresponding loopback suppression — matching the original array-based semantics.
+  private readonly sentPackets: Map<InterfaceName, Map<string, number[]>> = new Map();
+  private sentPacketsCleanupTimer: NodeJS.Timeout | undefined;
 
   // RFC 6762 15.1. If we are not the first responder bound to 5353 we can't receive unicast responses
   // thus the QU flag must not be used in queries. Responders are only affected when sending probe queries.
@@ -271,10 +281,16 @@ export class MDNSServer {
       socket.close();
     }
 
+    if (this.sentPacketsCleanupTimer !== undefined) {
+      clearTimeout(this.sentPacketsCleanupTimer);
+      this.sentPacketsCleanupTimer = undefined;
+    }
+
     this.bound = false;
     this.closed = true;
 
     this.sockets.clear();
+    this.sentPackets.clear();
   }
 
   public sendQueryBroadcast(query: DNSQueryDefinition | DNSProbeQueryDefinition, service: CiaoService): Promise<TimedSendResult[]> {
@@ -444,27 +460,89 @@ export class MDNSServer {
   }
 
   private maintainSentPacketsInterface(name: InterfaceName, packet: Buffer): void {
-    const base64 = packet.toString("base64");
-    const packets = this.sentPackets.get(name);
+    const hash = MDNSServer.hashPacket(packet);
+    let packets = this.sentPackets.get(name);
     if (!packets) {
-      this.sentPackets.set(name, [base64]);
-    } else {
-      packets.push(base64);
+      packets = new Map<string, number[]>();
+      this.sentPackets.set(name, packets);
     }
+
+    const timestamps = packets.get(hash);
+    if (timestamps) {
+      timestamps.push(Date.now());
+    } else {
+      packets.set(hash, [Date.now()]);
+    }
+
+    this.scheduleSentPacketsCleanup();
   }
 
   private checkIfPacketWasPreviouslySentFromUs(name: InterfaceName, packet: Buffer): boolean {
-    const base64 = packet.toString("base64");
     const packets = this.sentPackets.get(name);
-    if (packets) {
-      const index = packets.indexOf(base64);
-      if (index !== -1) {
-        packets.splice(index, 1);
-        return true;
+    if (!packets) {
+      return false;
+    }
+
+    const hash = MDNSServer.hashPacket(packet);
+    const timestamps = packets.get(hash);
+    if (timestamps && timestamps.length > 0) {
+      timestamps.shift(); // remove exactly one entry, preserving duplicate-packet semantics
+      if (timestamps.length === 0) {
+        packets.delete(hash);
       }
+      return true;
     }
 
     return false;
+  }
+
+  /**
+   * Schedules a one-shot cleanup pass that prunes {@link sentPackets} entries older than
+   * {@link SENT_PACKETS_TTL}. Reschedules itself while entries remain. Does nothing if a
+   * pass is already scheduled or the server is closed.
+   *
+   * Opportunistic pruning on receive would not suffice: on setups where some packets
+   * never loop back (RFC 6762 doesn't guarantee loopback delivery over UDP), the map
+   * would otherwise grow without bound on quiet or outbound-heavy interfaces.
+   */
+  private scheduleSentPacketsCleanup(): void {
+    if (this.sentPacketsCleanupTimer !== undefined || this.closed) {
+      return;
+    }
+
+    this.sentPacketsCleanupTimer = setTimeout(() => {
+      this.sentPacketsCleanupTimer = undefined;
+
+      const cutoff = Date.now() - MDNSServer.SENT_PACKETS_TTL;
+      let remaining = 0;
+
+      for (const packets of this.sentPackets.values()) {
+        for (const [hash, timestamps] of packets) {
+          while (timestamps.length > 0 && timestamps[0] <= cutoff) {
+            timestamps.shift();
+          }
+          if (timestamps.length === 0) {
+            packets.delete(hash);
+          } else {
+            remaining += timestamps.length;
+          }
+        }
+      }
+
+      if (remaining > 0) {
+        this.scheduleSentPacketsCleanup();
+      }
+    }, MDNSServer.SENT_PACKETS_TTL);
+
+    // Don't let the cleanup timer hold the event loop open on otherwise-idle processes.
+    this.sentPacketsCleanupTimer.unref?.();
+  }
+
+  private static hashPacket(packet: Buffer): string {
+    // md5 over raw bytes: non-cryptographic use (loopback dedup only), operates on the
+    // buffer directly (no lossy UTF-8 conversion), and ~2-3x faster than sha256 for the
+    // small DNS packets we handle in this hot path.
+    return createHash("md5").update(packet).digest("base64");
   }
 
   private createDgramSocket(name: InterfaceName, reuseAddr = false, type: "udp4" | "udp6" = "udp4"): Socket {
@@ -668,6 +746,7 @@ export class MDNSServer {
         // Handle IPv4
         let socket = this.sockets.get(networkInterface.name);
         this.sockets.delete(networkInterface.name);
+        this.sentPackets.delete(networkInterface.name);
         if (socket) {
           socket.close();
         }
@@ -675,6 +754,7 @@ export class MDNSServer {
         // Handle IPv6
         socket = this.sockets.get(networkInterface.name + "/6");
         this.sockets.delete(networkInterface.name + "/6");
+        this.sentPackets.delete(networkInterface.name + "/6");
         if (socket) {
           socket.close();
         }

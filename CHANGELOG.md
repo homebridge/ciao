@@ -9,6 +9,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: add windowsHide to all child_process.exec calls (@Spaztazim)
 - fix: gracefully handle sends on closed server during shutdown (@shields)
 - fix: handle IPv4 address transitions gracefully on dynamic networks (@henryclawdius)
+- fix: replace ip neigh show with ip -o link show in getLinuxNetworkInterfaces (@NorthernMan54)
 
 ## v1.3.6 (2026-03-29)
 

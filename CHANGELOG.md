@@ -5,6 +5,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ## v1.3.7 (Pending Release)
 
 - chore: dependency updates
+- fix: MDNSServer sentPackets memory leak
 
 ## v1.3.6 (2026-03-29)
 

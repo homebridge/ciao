@@ -32,7 +32,7 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
-import { ERR_INTERFACE_NOT_FOUND, ERR_SERVER_CLOSED } from "./util/errors";
+import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
 import Timeout = NodeJS.Timeout;
@@ -223,6 +223,11 @@ export class Responder implements PacketHandler {
     if (this.broadcastInterval) {
       clearTimeout(this.broadcastInterval);
     }
+
+    for (const response of this.delayedMulticastResponses) {
+      response.cancel();
+    }
+    this.delayedMulticastResponses.splice(0);
 
     Responder.INSTANCES.delete(this.optionsString);
 
@@ -979,9 +984,6 @@ export class Responder implements PacketHandler {
           if (error.name === ERR_INTERFACE_NOT_FOUND) {
             debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
               Math.round(response.getTimeSinceCreation()), interfaceName);
-          } else if (error.name === ERR_SERVER_CLOSED) {
-            debug("Multicast response (delayed %dms) was cancelled as the server is about to be shutdown!",
-              Math.round(response.getTimeSinceCreation()));
           } else {
             throw error;
           }

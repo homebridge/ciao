@@ -8,6 +8,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: MDNSServer sentPackets memory leak
 - fix: add windowsHide to all child_process.exec calls (@Spaztazim)
 - fix: gracefully handle sends on closed server during shutdown (@shields)
+- fix: handle IPv4 address transitions gracefully on dynamic networks (@henryclawdius)
 
 ## v1.3.6 (2026-03-29)
 

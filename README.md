@@ -32,6 +32,10 @@ as defined and required by Apple.
 
 The full documentation can be found [here](https://developers.homebridge.io/ciao/modules.html).
 
+## Dependencies
+
+As **ciao** leverages the `ip` command it works better with the package `iproute2` installed.  While not required, it can identify network interfaces easier with `iproute2` installed.
+
 ## Installation
 
 Add `ciao` as a dependency to your project by running the following command:

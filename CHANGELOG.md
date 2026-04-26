@@ -6,6 +6,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - chore: dependency updates
 - fix: MDNSServer sentPackets memory leak
+- fix: add windowsHide to all child_process.exec calls (@Spaztazim)
 
 ## v1.3.6 (2026-03-29)
 

@@ -11,7 +11,7 @@ describe(NetworkManager, () => {
   describe(getLinuxNetworkInterfaces, () => {
     it("should parse interfaces from arp cache", async () => {
       // @ts-expect-error
-      execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "ip neigh show") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
@@ -34,7 +34,7 @@ describe(NetworkManager, () => {
 
     it("should handle error caused by exec", () => {
       // @ts-expect-error
-      execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         callback(new Error("test"), "192.168.0.3 dev asdf lladdr 00:00:00:00:00:00 REACHABLE\n", "");
       });
 
@@ -47,7 +47,7 @@ describe(NetworkManager, () => {
 
     it("should handle double spaces correctly", async () => {
       // @ts-expect-error
-      execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         if (command !== "ip neigh show") {
           console.warn("Command for getLinuxNetworkInterfaces differs from the expected input!");
         }
@@ -70,7 +70,7 @@ describe(NetworkManager, () => {
 
     it("should handle empty arp cache", () => {
       // @ts-expect-error
-      execMock.mockImplementationOnce((command: string, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
         callback(null, "", "");
       });
 

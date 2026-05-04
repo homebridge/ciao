@@ -65,14 +65,14 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.6.0",
     "@types/source-map-support": "^0.5.10",
-    "@typescript-eslint/eslint-plugin": "^8.59.0",
-    "@typescript-eslint/parser": "^8.59.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
     "eslint": "^8.57.1",
     "jest": "^30.3.0",
     "rimraf": "^6.1.3",
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typedoc": "^0.28.19",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

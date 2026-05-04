@@ -18,7 +18,8 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "preserveConstEnums": true,
-        "useUnknownInCatchVariables": false
+        "useUnknownInCatchVariables": false,
+        "types": ["node", "jest"]
     },
     "include": [
         "src/"

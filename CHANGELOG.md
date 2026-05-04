@@ -6,6 +6,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - chore: dependency updates
 - fix: handle orphaned rejections in advertise retry and goodbye paths
+- docs: regenerate typedoc docs for release
 
 ## v1.3.7 (2026-04-26)
 

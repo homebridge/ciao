@@ -5,6 +5,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ## v1.3.8 (Pending Release)
 
 - chore: dependency updates
+- fix: handle orphaned rejections in advertise retry and goodbye paths
 
 ## v1.3.7 (2026-04-26)
 

@@ -13,7 +13,7 @@ export class QueuedResponse {
   private readonly packet: DNSPacket;
   private readonly interfaceName: InterfaceName;
 
-  private timeOfCreation = new Date().getTime(); // epoch time millis
+  private timeOfCreation = Date.now(); // epoch time millis
   estimatedTimeToBeSent = 0; // epoch time millis
   private delay = -1;
   private timer?: Timeout;
@@ -38,16 +38,16 @@ export class QueuedResponse {
    * @returns The total delay.
    */
   public getTimeSinceCreation(): number {
-    return new Date().getTime() - this.timeOfCreation;
+    return Date.now() - this.timeOfCreation;
   }
 
   public getTimeTillSent(): number {
-    return Math.max(0, this.estimatedTimeToBeSent - new Date().getTime());
+    return Math.max(0, this.estimatedTimeToBeSent - Date.now());
   }
 
   public calculateRandomDelay(): void {
     this.delay = Math.random() * 100 + 20; // delay of 20ms - 120ms
-    this.estimatedTimeToBeSent = new Date().getTime() + this.delay;
+    this.estimatedTimeToBeSent = Date.now() + this.delay;
   }
 
   public scheduleResponse(callback: () => void): void {

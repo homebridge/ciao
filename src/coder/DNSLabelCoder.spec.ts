@@ -56,6 +56,40 @@ describe(DNSLabelCoder, () => {
       DNSLabelCoder.DISABLE_COMPRESSION = previous;
     });
 
+    // Regression: the >=256 branch of the "10" local-compression label type
+    // used `localPointer -= -256`, which adds 256 instead of subtracting. The
+    // draft format for these pointers is rare in the wild, but any decode that
+    // reached this branch would resolve to the wrong place (or trip the
+    // "must point to a prior location" assertion).
+    it("decodes a local-compression pointer with the >=256 (RData-relative) form", () => {
+      const buf = Buffer.alloc(40, 0xff);
+
+      // Lay down a real name "X." at offset 6 (1 length byte, 'X', 0).
+      buf[6] = 1;
+      buf[7] = "X".charCodeAt(0);
+      buf[8] = 0;
+
+      // Local-compression pointer at offset 20:
+      //   byte0 = 0x81 → high bits 10 (LOCAL_COMPRESSION_ONE_BYTE)
+      //   byte1 = 0x00
+      //   readUInt16BE(20) & 0x3FFF = 0x0100 = 256
+      // After the fix this becomes 256 - 256 = 0, then offset by startOfRData (6),
+      // landing at the "X." name. The bug would compute 256 + 256 = 512 + 6 = 518
+      // (out of range, and beyond oldOffset, tripping the assertion).
+      buf[20] = 0x81;
+      buf[21] = 0x00;
+
+      const coder = new DNSLabelCoder();
+      coder.initBuf(buf);
+      // startOfRData=6 means the >=256-form pointer (after subtracting 256)
+      // resolves relative to offset 6.
+      coder.initRRLocation(0, 6, 30);
+
+      const decoded = coder.decodeName(20);
+      expect(decoded.data).toBe("X.");
+      expect(decoded.readBytes).toBe(2); // pointer is exactly 2 bytes
+    });
+
     it("should decode name compression", () => {
       const coder = new DNSLabelCoder();
 

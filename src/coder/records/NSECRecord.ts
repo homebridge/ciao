@@ -158,17 +158,22 @@ export class NSECRecord extends ResourceRecord {
         }
       }
 
+      // The bitmap must be large enough to address the byte holding the highest
+      // rrtype in the window, i.e. (lowByte >> 3) + 1 bytes. The previous
+      // ceil(low/8) form underflowed by one for rrtypes that are exact multiples
+      // of 8 (e.g. TXT=16) — encoding a window containing only such a type would
+      // write past the end of the bitmap buffer.
       if (!window) {
         window = {
           windowId: windowId,
-          bitMapSize: Math.ceil((rrtype & 0xFF) / 8),
+          bitMapSize: ((rrtype & 0xFF) >> 3) + 1,
           rrtypes: [rrtype],
         };
         rrTypeWindows.push(window);
       } else {
         window.rrtypes.push(rrtype);
 
-        const bitMapSize = Math.ceil((rrtype & 0xFF) / 8);
+        const bitMapSize = ((rrtype & 0xFF) >> 3) + 1;
         if (bitMapSize > window.bitMapSize) {
           window.bitMapSize = bitMapSize;
         }

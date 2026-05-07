@@ -250,8 +250,24 @@ export class Announcer {
         additionals: additionals,
       });
 
+      // server.send synchronously throws InterfaceNotFoundError when the socket
+      // for `name` is removed between the getBoundInterfaceNames snapshot and
+      // here (network change races). Wrap in try/catch so the throw becomes a
+      // rejected SendResult instead of propagating out of the setTimeout
+      // callback in sendAnnouncement and crashing the process.
+      let sendPromise: Promise<TimedSendResult>;
+      try {
+        sendPromise = server.send(packet, name);
+      } catch (error) {
+        sendPromise = Promise.resolve<TimedSendResult>({
+          status: "rejected",
+          interface: name,
+          reason: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+
       promises.push(Promise.race([
-        server.send(packet, name),
+        sendPromise,
         PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
           <SendTimeoutResult>{
             status: "timeout",

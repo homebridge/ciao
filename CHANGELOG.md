@@ -8,6 +8,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: accumulate per-packet results in sendQueryBroadcast
 - fix: report interface name in sendResponse error messages
 - fix: track newly added loopback interfaces in loopback map
+- fix: drop stray boolean argument from send-failure log calls
 
 ## v1.3.8 (2026-05-04)
 

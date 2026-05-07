@@ -522,7 +522,7 @@ export class Responder implements PacketHandler {
     this.server.sendResponseBroadcast(response, service).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
-        console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`), true);
+        console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`));
         if (callback) {
           callback(new Error("Updating records failed as of socket errors!"));
         }

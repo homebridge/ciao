@@ -18,6 +18,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - perf: use Buffer.compare for TXT and OPT data equality checks
 - refactor: collapse identical NSEC name encoding branches
 - docs: clarify advertiseIpv6 default in MDNSServerOptions
+- fix: unref TruncatedQuery timer so stalled handshakes don't pin event loop
 
 ## v1.3.8 (2026-05-04)
 

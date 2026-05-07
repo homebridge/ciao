@@ -16,6 +16,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: replace deprecated String#substr with slice
 - perf: use Date.now() instead of new Date().getTime()
 - perf: use Buffer.compare for TXT and OPT data equality checks
+- refactor: collapse identical NSEC name encoding branches
 
 ## v1.3.8 (2026-05-04)
 

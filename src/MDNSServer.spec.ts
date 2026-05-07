@@ -1,5 +1,6 @@
-import { MDNSServer, SendResultFailedRatio } from "./MDNSServer";
+import { MDNSServer, SendResultFailedRatio, TimedSendResult } from "./MDNSServer";
 import { NetworkUpdate } from "./NetworkManager";
+import { DNSPacket } from "./coder/DNSPacket";
 
 // Build an MDNSServer with only the state needed for sent-packet bookkeeping.
 // The real constructor spins up a NetworkManager (enumerates OS interfaces) and
@@ -91,6 +92,66 @@ describe(MDNSServer, () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (server as any).handleUpdatedNetworkInterfaces(update);
       }).not.toThrow();
+    });
+  });
+
+  describe("sendQueryBroadcast aggregation", () => {
+    // Regression: the inner loop used results.concat(value) — concat returns a
+    // *new* array without mutating, so per-packet results were dropped. Empty
+    // results then short-circuited SendResultFailedRatio to 0, hiding total
+    // socket failure as a clean success.
+    it("accumulates per-packet results across multiple split packets", async () => {
+      const server = makeBareServer();
+      const packetA = {} as DNSPacket;
+      const packetB = {} as DNSPacket;
+      const packetsSpy = jest
+        .spyOn(DNSPacket, "createDNSQueryPackets")
+        .mockReturnValue([packetA, packetB]);
+
+      const perPacketResults: Map<DNSPacket, TimedSendResult[]> = new Map([
+        [packetA, [
+          { status: "fulfilled", interface: "eth0" },
+          { status: "rejected", interface: "eth1", reason: new Error("boom") },
+        ]],
+        [packetB, [
+          { status: "timeout", interface: "eth0" },
+          { status: "fulfilled", interface: "eth1" },
+        ]],
+      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sendOnAllNetworksForService = jest.fn(
+        (packet: DNSPacket) => Promise.resolve(perPacketResults.get(packet)!),
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results = await (server as any).sendQueryBroadcast({} as any, {} as any);
+
+      expect(results).toHaveLength(4);
+      // SendResultFailedRatio must now see the real outcomes — old behaviour
+      // returned [] which silently rounded to 0.
+      expect(SendResultFailedRatio(results)).toBeGreaterThan(0);
+
+      packetsSpy.mockRestore();
+    });
+
+    it("propagates total socket failure rather than masking it as success", async () => {
+      const server = makeBareServer();
+      const packetsSpy = jest
+        .spyOn(DNSPacket, "createDNSQueryPackets")
+        .mockReturnValue([{} as DNSPacket]);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sendOnAllNetworksForService = jest.fn().mockResolvedValue([
+        { status: "rejected", interface: "eth0", reason: new Error("a") },
+        { status: "rejected", interface: "eth1", reason: new Error("b") },
+      ] as TimedSendResult[]);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results = await (server as any).sendQueryBroadcast({} as any, {} as any);
+
+      expect(SendResultFailedRatio(results)).toBe(1);
+
+      packetsSpy.mockRestore();
     });
   });
 

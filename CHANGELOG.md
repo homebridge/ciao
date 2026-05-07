@@ -5,6 +5,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ## v1.3.9 (Pending Release)
 
 - chore: dependency updates
+- fix: accumulate per-packet results in sendQueryBroadcast
 
 ## v1.3.8 (2026-05-04)
 

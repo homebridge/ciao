@@ -169,7 +169,7 @@ export class Prober {
     }, this.service).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
-        console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`), true);
+        console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`));
         this.endProbing(false);
         this.promiseReject!(new Error("Probing failed as of socket errors!"));
         return; // all failed => thus probing failed

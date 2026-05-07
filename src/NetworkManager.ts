@@ -298,7 +298,7 @@ export class NetworkManager extends EventEmitter {
       } else { // new interface was added/started
         this.currentInterfaces.set(name, networkInterface);
         if (networkInterface.loopback) {
-          this.currentInterfaces.set(name, networkInterface);
+          this.loopbackInterfaces.set(name, networkInterface);
         }
 
         (added ??= []).push(networkInterface);

@@ -155,6 +155,48 @@ describe(MDNSServer, () => {
     });
   });
 
+  describe("sendResponse error reporting", () => {
+    // Regression: the constructed Error used result.reason.name (always the
+    // string "Error") instead of result.interface, so callers couldn't tell
+    // which socket actually failed.
+    it("identifies the failing interface in the callback error", done => {
+      const server = makeBareServer();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).send = jest.fn().mockResolvedValue({
+        status: "rejected",
+        interface: "eth7",
+        reason: new Error("EHOSTUNREACH"),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sendResponse({}, "eth7", (err?: Error) => {
+        expect(err).toBeDefined();
+        expect(err!.message).toContain("on eth7");
+        expect(err!.message).toContain("EHOSTUNREACH");
+        // Old form started with "Encountered socket error on Error:" because
+        // result.reason.name evaluates to "Error" — guard against regression.
+        expect(err!.message).not.toMatch(/on Error:/);
+        done();
+      });
+    });
+
+    it("preserves the underlying reason message verbatim", done => {
+      const server = makeBareServer();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).send = jest.fn().mockResolvedValue({
+        status: "rejected",
+        interface: "lo0",
+        reason: new Error("send EBADF"),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sendResponse({}, "lo0", (err?: Error) => {
+        expect(err!.message).toBe("Encountered socket error on lo0: send EBADF");
+        done();
+      });
+    });
+  });
+
   it("SendResultFailedRatio", () => {
     expect(SendResultFailedRatio([
       { status: "fulfilled", interface: "eth0"},

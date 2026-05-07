@@ -154,8 +154,8 @@ export interface MDNSServerOptions {
    */
   advertiseIpv4?: boolean;
   /**
-   * If specified, the mDNS server will advertise on IPv6.
-   * Defaults to true.
+   * If set to true, the mDNS server will advertise on IPv6.
+   * Defaults to false — IPv6 advertising is opt-in.
    */
   advertiseIpv6?: boolean;
 }

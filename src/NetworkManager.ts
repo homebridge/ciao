@@ -419,7 +419,14 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      assert(ipv4Info || ipv6Info, "Could not find valid addresses for interface '" + name + "'");
+      // An interface listed by the platform helper can legitimately have no
+      // usable IPv4/IPv6 address — for instance a down virtual interface, or
+      // one whose only address was filtered out by `excludeIpv6`. Asserting
+      // here aborted the whole enumeration; skipping is the correct response.
+      if (!ipv4Info && !ipv6Info) {
+        debug("Skipping interface '%s': no usable IPv4 or IPv6 address", name);
+        continue;
+      }
 
       if (this.excludeIpv6Only && !ipv4Info) {
         continue;

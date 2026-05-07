@@ -41,6 +41,52 @@ describe(TruncatedQuery, () => {
     });
   }, 1000);
 
+  describe("timer lifecycle", () => {
+    it("does not pin the event loop on the finalisation timer", () => {
+      const packet = DNSPacket.createDNSQueryPacket({
+        questions: [new Question("test.local", QType.A)],
+        answers: [answerA1()],
+      });
+      packet.flags.truncation = true;
+
+      const truncatedQuery = new TruncatedQuery(packet);
+
+      // The 400-500ms finalisation timer is created with setTimeout — it must be
+      // unref'd so an idle process is allowed to exit while the handshake stalls.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const timer = (truncatedQuery as any).timer as NodeJS.Timeout;
+      expect(timer.hasRef()).toBe(false);
+
+      clearTimeout(timer);
+    });
+
+    it("re-unrefs the timer after a follow-up truncated packet", () => {
+      const packet0 = DNSPacket.createDNSQueryPacket({
+        questions: [new Question("test.local", QType.A)],
+        answers: [answerA1()],
+      });
+      packet0.flags.truncation = true;
+
+      const packet1 = DNSPacket.createDNSQueryPacket({
+        questions: [],
+        answers: [answerA2()],
+      });
+      packet1.flags.truncation = true;
+
+      const truncatedQuery = new TruncatedQuery(packet0);
+      // appendDNSPacket calls resetTimer() which creates a fresh timer; it too
+      // must be unref'd so a stalled multi-packet handshake never holds the
+      // event loop open.
+      truncatedQuery.appendDNSPacket(packet1);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const timer = (truncatedQuery as any).timer as NodeJS.Timeout;
+      expect(timer.hasRef()).toBe(false);
+
+      clearTimeout(timer);
+    });
+  });
+
   it("should assemble truncated queries", async () => {
     const packet0 = DNSPacket.createDNSQueryPacket({
       questions: [new Question("test.local", QType.A)],

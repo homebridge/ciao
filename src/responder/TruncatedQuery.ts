@@ -77,7 +77,9 @@ export class TruncatedQuery extends EventEmitter {
     }
 
     // timeout in time interval between 400-500ms
-    return this.timer = setTimeout(this.timeout.bind(this), 400 + Math.random() * 100);
+    this.timer = setTimeout(this.timeout.bind(this), 400 + Math.random() * 100);
+    this.timer.unref(); // don't let a stalled truncated-query handshake keep the loop alive
+    return this.timer;
   }
 
   private timeout(): void {

@@ -132,10 +132,6 @@ export function removeTLD(hostname: string): string {
 }
 
 export function formatMappedIPv4Address(address: string): string {
-  if (!isIPv4Mapped(address)) {
-    assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
-  }
-
   assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
 
   // Convert IPv4 address to its hexadecimal representation

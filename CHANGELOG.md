@@ -12,6 +12,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: handle rejection from sendResponseBroadcast in record update path
 - fix: size NSEC bitmaps to fit rrtypes at byte boundaries
 - fix: correct sign on local-compression pointer offset
+- refactor: drop redundant assertion in formatMappedIPv4Address
 
 ## v1.3.8 (2026-05-04)
 

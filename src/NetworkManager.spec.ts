@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { NetworkManager } from "./NetworkManager";
+import { NetworkManager, NetworkInterface, InterfaceName } from "./NetworkManager";
 import childProcess, { ExecException } from "child_process";
 
 const execMock = jest.spyOn(childProcess, "exec");
@@ -76,4 +76,84 @@ describe(NetworkManager, () => {
       });
     });
   });
+
+  describe("checkForNewInterfaces - loopback tracking", () => {
+    // Build a NetworkManager without invoking the constructor so we don't open
+    // sockets or enumerate the host's real interfaces.
+    function makeBareManager(): NetworkManager {
+      const manager = Object.create(NetworkManager.prototype) as NetworkManager;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).currentInterfaces = new Map<InterfaceName, NetworkInterface>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).loopbackInterfaces = new Map<InterfaceName, NetworkInterface>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).currentTimer = setTimeout(() => { /* no-op */ }, 1_000_000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).currentTimer.unref();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).scheduleNextJob = () => { /* no-op */ };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).emit = () => true; // swallow NETWORK_UPDATE events
+      return manager;
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // Regression: when a NEW interface appeared post-startup the new-interface
+    // branch wrote to currentInterfaces twice instead of populating
+    // loopbackInterfaces. isLoopbackNetaddressV4 then never matched the
+    // runtime-added loopback, so the cross-interface packet filter on Linux
+    // failed for these interfaces.
+    it("places a runtime-added loopback into loopbackInterfaces", async () => {
+      const manager = makeBareManager();
+      const lo: NetworkInterface = {
+        name: "lo",
+        loopback: true,
+        mac: "00:00:00:00:00:00",
+        ipv4: "127.0.0.1",
+        ipv4Netaddress: "127.0.0.0",
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).getCurrentNetworkInterfaces = jest.fn().mockResolvedValue(
+        new Map([["lo", lo]]),
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (manager as any).checkForNewInterfaces();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((manager as any).loopbackInterfaces.has("lo")).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((manager as any).currentInterfaces.has("lo")).toBe(true);
+      expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
+    });
+
+    it("does not place non-loopback interfaces into loopbackInterfaces", async () => {
+      const manager = makeBareManager();
+      const eth: NetworkInterface = {
+        name: "eth0",
+        loopback: false,
+        mac: "00:00:00:00:00:01",
+        ipv4: "192.168.1.10",
+        ipv4Netaddress: "192.168.1.0",
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).getCurrentNetworkInterfaces = jest.fn().mockResolvedValue(
+        new Map([["eth0", eth]]),
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (manager as any).checkForNewInterfaces();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((manager as any).loopbackInterfaces.has("eth0")).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((manager as any).currentInterfaces.has("eth0")).toBe(true);
+    });
+  });
+
 });

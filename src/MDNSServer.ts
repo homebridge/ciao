@@ -337,7 +337,7 @@ export class MDNSServer {
     this.send(response, endpointOrInterface).then(result => {
       if (result.status === "rejected") {
         if (callback) {
-          callback(new Error("Encountered socket error on " + result.reason.name + ": " + result.reason.message));
+          callback(new Error("Encountered socket error on " + result.interface + ": " + result.reason.message));
         } else {
           MDNSServer.logSocketError(result.interface, result.reason);
         }

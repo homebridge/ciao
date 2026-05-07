@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { NetworkManager, NetworkInterface, InterfaceName } from "./NetworkManager";
 import childProcess, { ExecException } from "child_process";
+import os from "os";
 
 const execMock = jest.spyOn(childProcess, "exec");
 
@@ -129,6 +130,87 @@ describe(NetworkManager, () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).currentInterfaces.has("lo")).toBe(true);
       expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
+    });
+
+    // Regression: getCurrentNetworkInterfaces asserted that every listed
+    // interface exposed at least one usable IP — but the newer `ip -o link
+    // show` helper enumerates more virtual/down interfaces, and `excludeIpv6`
+    // can filter out the only addresses on an IPv6-only link. Both cases
+    // crashed the entire enumeration. The fix skips such interfaces.
+    it("skips an interface with no usable addresses instead of crashing the scan", async () => {
+      const manager = makeBareManager();
+      // Configure the bare manager for the production code path of
+      // getCurrentNetworkInterfaces.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).restrictedInterfaces = undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).excludeIpv6 = false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).excludeIpv6Only = false;
+
+      // getNetworkInterfaceNames is private/static; cast via any to spy on it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const namesSpy = jest.spyOn(NetworkManager as any, "getNetworkInterfaceNames")
+        .mockResolvedValue(["eth0", "veth_dead"] as never);
+      const osSpy = jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        eth0: [{
+          family: "IPv4",
+          address: "192.168.1.10",
+          netmask: "255.255.255.0",
+          mac: "00:00:00:00:00:01",
+          internal: false,
+          cidr: "192.168.1.10/24",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any],
+        // veth_dead has no usable address — the legacy assert blew up here.
+        veth_dead: [],
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await (manager as any).getCurrentNetworkInterfaces();
+
+      expect(result.has("eth0")).toBe(true);
+      expect(result.has("veth_dead")).toBe(false);
+
+      namesSpy.mockRestore();
+      osSpy.mockRestore();
+    });
+
+    it("skips an IPv6-only interface when excludeIpv6 strips its addresses", async () => {
+      const manager = makeBareManager();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).restrictedInterfaces = undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).excludeIpv6 = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).excludeIpv6Only = false;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const namesSpy = jest.spyOn(NetworkManager as any, "getNetworkInterfaceNames")
+        .mockResolvedValue(["v6only"] as never);
+      const osSpy = jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        v6only: [{
+          family: "IPv6",
+          address: "fe80::1",
+          netmask: "ffff:ffff:ffff:ffff::",
+          mac: "00:00:00:00:00:02",
+          internal: false,
+          scopeid: 1,
+          cidr: "fe80::1/64",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any],
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await (manager as any).getCurrentNetworkInterfaces();
+
+      // The interface had only an IPv6 address but excludeIpv6 filtered it
+      // out — the resulting (no-address) interface must be skipped, not
+      // turned into a crash.
+      expect(result.size).toBe(0);
+
+      namesSpy.mockRestore();
+      osSpy.mockRestore();
     });
 
     it("does not place non-loopback interfaces into loopbackInterfaces", async () => {

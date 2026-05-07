@@ -20,6 +20,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - docs: clarify advertiseIpv6 default in MDNSServerOptions
 - fix: unref TruncatedQuery timer so stalled handshakes don't pin event loop
 - fix: convert synchronous send throw to rejected SendResult in Announcer
+- fix: skip address-less interfaces instead of aborting enumeration
 
 ## v1.3.8 (2026-05-04)
 

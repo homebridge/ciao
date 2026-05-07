@@ -31,7 +31,7 @@ export class TruncatedQuery extends EventEmitter {
 
   constructor(packet: DNSPacket) {
     super();
-    this.timeOfArrival = new Date().getTime();
+    this.timeOfArrival = Date.now();
     this.packet = packet;
 
     this.timer = this.resetTimer();
@@ -46,7 +46,7 @@ export class TruncatedQuery extends EventEmitter {
   }
 
   public getTotalWaitTime(): number {
-    return new Date().getTime() - this.timeOfArrival;
+    return Date.now() - this.timeOfArrival;
   }
 
   public appendDNSPacket(packet: DNSPacket): TruncatedQueryResult {
@@ -55,7 +55,7 @@ export class TruncatedQuery extends EventEmitter {
     this.arrivedPackets++;
 
     if (packet.flags.truncation) { // if the appended packet is again truncated, restart the timeout
-      const time = new Date().getTime();
+      const time = Date.now();
 
       if (time - this.timeOfArrival > 5 * 1000) { // if the first packet, is more than 5 seconds old, we abort
         return TruncatedQueryResult.ABORT;

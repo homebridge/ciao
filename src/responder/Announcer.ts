@@ -92,7 +92,7 @@ export class Announcer {
       this.timer = setTimeout(this.sendAnnouncement.bind(this), 0);
       this.timer.unref();
 
-      this.nextAnnouncementTime = new Date().getTime();
+      this.nextAnnouncementTime = Date.now();
     }));
   }
 
@@ -178,7 +178,7 @@ export class Announcer {
         this.timer = setTimeout(this.sendAnnouncement.bind(this), this.nextInterval);
         this.timer.unref();
 
-        this.nextAnnouncementTime = new Date().getTime() + this.nextInterval;
+        this.nextAnnouncementTime = Date.now() + this.nextInterval;
         this.nextInterval *= this.announceIntervalIncreaseFactor;
       }
     });

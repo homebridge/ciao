@@ -601,7 +601,7 @@ export class Responder implements PacketHandler {
    * @private method called by the MDNSServer when an incoming query needs ot be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
-    const start = new Date().getTime();
+    const start = Date.now();
 
     const endpointId = endpoint.address + ":" + endpoint.port + ":" + endpoint.interface; // used to match truncated queries
 
@@ -713,7 +713,7 @@ export class Responder implements PacketHandler {
       }
 
       this.server.sendResponse(unicastResponse.asPacket(), endpoint);
-      const time = new Date().getTime() - start;
+      const time = Date.now() - start;
       debug("Sending response via unicast to %s (took %d ms): %s", JSON.stringify(endpoint), time, unicastResponse.asString(udpPayloadSize));
     }
 
@@ -728,7 +728,7 @@ export class Responder implements PacketHandler {
         // we probably could not answer them all (because not all of them were directed to us).
         // All those conditions are overridden if this is a probe query. To those queries we must respond instantly!
 
-        const time = new Date().getTime() - start;
+        const time = Date.now() - start;
         this.enqueueDelayedMulticastResponse(multicastResponse.asPacket(), endpoint.interface, time);
       } else {
         // otherwise the response is sent immediately, if there isn't any packet in the queue
@@ -746,7 +746,7 @@ export class Responder implements PacketHandler {
           }
 
           if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
-            const time = new Date().getTime() - start;
+            const time = Date.now() - start;
             sentWithLaterPacket = true;
             debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later", endpoint.interface, time);
             break;
@@ -755,7 +755,7 @@ export class Responder implements PacketHandler {
 
         if (!sentWithLaterPacket) {
           this.server.sendResponse(multicastResponse.asPacket(), endpoint.interface);
-          const time = new Date().getTime() - start;
+          const time = Date.now() - start;
           debug("Sending response via multicast on network %s (took %d ms): %s", endpoint.interface, time, multicastResponse.asString(udpPayloadSize));
         }
       }

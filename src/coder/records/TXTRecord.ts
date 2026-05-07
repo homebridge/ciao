@@ -54,13 +54,14 @@ export class TXTRecord extends ResourceRecord {
   }
 
   public dataEquals(record: TXTRecord): boolean {
-    // deepEquals on buffers doesn't really work
+    // deepEquals on buffers doesn't really work; Buffer.compare avoids
+    // the per-byte hex stringification of the previous implementation.
     if (this.txt.length !== record.txt.length) {
       return false;
     }
 
     for (let i = 0; i < this.txt.length; i++) {
-      if (this.txt[i].toString("hex") !== record.txt[i].toString("hex")) {
+      if (Buffer.compare(this.txt[i], record.txt[i]) !== 0) {
         return false;
       }
     }

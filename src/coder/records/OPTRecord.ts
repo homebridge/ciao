@@ -149,7 +149,8 @@ export class OPTRecord extends ResourceRecord {
   }
 
   private static optionsEquality(a: OPTOption[], b: OPTOption[]): boolean {
-    // deepEquals on buffers doesn't really work
+    // deepEquals on buffers doesn't really work; Buffer.compare avoids
+    // the per-byte hex stringification of the previous implementation.
     if (a.length !== b.length) {
       return false;
     }
@@ -157,7 +158,7 @@ export class OPTRecord extends ResourceRecord {
     for (let i = 0; i < a.length; i++) {
       if (a[i].code !== b[i].code) {
         return false;
-      } else if (a[i].data.toString("hex") !== b[i].data.toString("hex")) {
+      } else if (Buffer.compare(a[i].data, b[i].data) !== 0) {
         return false;
       }
     }

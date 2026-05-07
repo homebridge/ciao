@@ -895,7 +895,7 @@ export class Responder implements PacketHandler {
           const buffer0 = txt[i];
           const buffer1 = txtRecord.txt[i];
 
-          if (buffer0.length !== buffer1.length || buffer0.toString("hex") !== buffer1.toString("hex")) {
+          if (Buffer.compare(buffer0, buffer1) !== 0) {
             debug("[%s] Noticed conflicting record on the network. TXT with differing data.", service.getFQDN());
             return ConflictType.CONFLICTING_RDATA;
           }

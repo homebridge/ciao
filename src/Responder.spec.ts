@@ -21,6 +21,71 @@ function makeAnnouncedService() {
 }
 
 describe(Responder, () => {
+  describe("handleServiceRecordUpdate - rejection handling", () => {
+    let logSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      logSpy = jest.spyOn(console, "log").mockImplementation(() => { /* swallow */ });
+    });
+
+    afterEach(() => {
+      logSpy.mockRestore();
+    });
+
+    // Regression: handleServiceRecordUpdate only wired the success branch of
+    // the broadcast promise, so encode/assert failures inside
+    // sendResponseBroadcast surfaced as unhandled rejections (#69-style
+    // orphan rejection). The rejection handler must instead notify the
+    // optional callback with the underlying error.
+    it("forwards a synchronous broadcast rejection to the callback", async () => {
+      const cause = new Error("encode failed");
+      const responder = makeBareResponder(() => Promise.reject(cause));
+
+      const service = makeAnnouncedService();
+      const errors: (Error | undefined)[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (responder as any).handleServiceRecordUpdate(
+        service,
+        { answers: [], additionals: [] },
+        (err?: Error) => errors.push(err),
+      );
+
+      // Drain a few microtasks so the rejection handler runs.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe(cause);
+      // Failure was also logged so a maintainer can see what happened.
+      expect(logSpy).toHaveBeenCalled();
+    });
+
+    it("wraps a non-Error rejection reason into an Error for the callback", async () => {
+      // sendResponseBroadcast theoretically might reject with a non-Error
+      // value; the callback signature is RecordsUpdateCallback and expects an
+      // Error. Verify the wrapper.
+      const responder = makeBareResponder(() => Promise.reject("encode-string-failure"));
+
+      const service = makeAnnouncedService();
+      const errors: (Error | undefined)[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (responder as any).handleServiceRecordUpdate(
+        service,
+        { answers: [], additionals: [] },
+        (err?: Error) => errors.push(err),
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(Error);
+      expect((errors[0] as Error).message).toBe("encode-string-failure");
+    });
+  });
+
   describe("handleServiceRecordUpdate - log call shape", () => {
     let logSpy: jest.SpyInstance;
 

@@ -53,19 +53,17 @@ export class NSECRecord extends ResourceRecord {
   }
 
   protected getRDataEncodingLength(coder: DNSLabelCoder): number {
-    // RFC 4034 4.1.1. name compression MUST NOT be used for the nextDomainName, though RFC 6762 18.14 specifies it should
-    return (coder.legacyUnicastEncoding
-      ? coder.getUncompressedNameLength(this.nextDomainName)
-      : coder.getUncompressedNameLength(this.nextDomainName)) // we skip compression for NSEC records for now, as Ubiquiti mdns forward can't handle that
+    // RFC 4034 4.1.1. name compression MUST NOT be used for the nextDomainName,
+    // and although RFC 6762 18.14 says it should, we keep it uncompressed
+    // because Ubiquiti mdns forward can't decode the compressed form.
+    return coder.getUncompressedNameLength(this.nextDomainName)
       + this.getRRTypesBitMapEncodingLength();
   }
 
   protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
 
-    const length = coder.legacyUnicastEncoding
-      ? coder.encodeUncompressedName(this.nextDomainName, offset)
-      : coder.encodeUncompressedName(this.nextDomainName, offset); // we skip compression for NSEC records for now, as Ubiquiti mdns forward can't handle that
+    const length = coder.encodeUncompressedName(this.nextDomainName, offset);
     offset += length;
 
     // RFC 4034 4.1.2. type bit maps field has the following format ( Window Block # | Bitmap Length | Bitmap )+ (with | concatenation)

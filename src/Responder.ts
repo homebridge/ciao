@@ -539,6 +539,15 @@ export class Responder implements PacketHandler {
       if (callback) {
         callback();
       }
+    }, reason => {
+      // sendResponseBroadcast can reject synchronously (e.g. encode/assert failures
+      // before any send is attempted). Without this handler the rejection would
+      // surface as an unhandled promise rejection — same orphan-rejection footgun
+      // that bit the advertise/goodbye paths in homebridge/ciao#69.
+      console.log(`[${service.getFQDN()}] failed to broadcast records update: ${reason?.message ?? reason}`);
+      if (callback) {
+        callback(reason instanceof Error ? reason : new Error(String(reason)));
+      }
     });
   }
 

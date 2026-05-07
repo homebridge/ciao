@@ -307,8 +307,11 @@ export class MDNSServer {
     return Promise.all(promises).then((values: TimedSendResult[][]) => {
       const results: TimedSendResult[] = [];
 
-      for (const value of values) { // replace with .flat method when we have node >= 11.0.0 requirement
-        results.concat(value);
+      for (const value of values) {
+        // Array.concat returns a new array without mutating; use push so per-packet
+        // results are actually accumulated. The previous form silently produced an
+        // empty array, hiding socket failures from probe/query failure-ratio checks.
+        results.push(...value);
       }
 
       return results;

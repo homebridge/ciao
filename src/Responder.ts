@@ -1214,7 +1214,7 @@ export class Responder implements PacketHandler {
    * @returns true if any records got added
    */
   private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, type: RType.A | RType.AAAA, dest: RecordAddMethod): boolean {
-    const endpointInterface = endpoint.interface.endsWith("/6") ? endpoint.interface.substr(0, endpoint.interface.length - 2) : endpoint.interface;
+    const endpointInterface = endpoint.interface.endsWith("/6") ? endpoint.interface.slice(0, -2) : endpoint.interface;
 
     if (type === RType.A) {
       const record = service.aRecord(endpointInterface);

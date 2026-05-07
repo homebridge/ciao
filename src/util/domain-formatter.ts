@@ -173,7 +173,7 @@ export function shortenIPv6(address: string | string[]): string {
       }
     }
 
-    address[i] = part.substr(j);
+    address[i] = part.slice(j);
   }
 
   let longestBlockOfZerosIndex = -1;

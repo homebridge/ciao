@@ -53,7 +53,7 @@ jobs:
       - name: Get Release Tag (Latest Only)
         if: steps.release-type.outputs.type == 'latest'
         id: get_version
-        uses: jannemattila/get-version-from-tag@v3
+        uses: jannemattila/get-version-from-tag@v4
 
       - name: Tag Info (Latest Only)
         if: steps.release-type.outputs.type == 'latest'
@@ -161,7 +161,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Create nightly release
         id: create_release
-        uses: viperproject/create-nightly-release@v1
+        uses: viperproject/create-nightly-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

@@ -295,6 +295,12 @@ export class Responder implements PacketHandler {
         return PromiseTimeout(2000).then(() => this.advertiseService(service, () => {
           // empty
         }));
+      }).catch(error => {
+        // Terminal handler: the recursive advertiseService retry above is fire-and-forget, so any
+        // rejection from the retry chain (probe failure, socket error, repeated cancellation) has
+        // no caller to .catch it and would otherwise surface as an unhandled rejection and crash
+        // the host process. See homebridge/ciao#69.
+        console.error(`[${service.getFQDN()}] giving up advertising after retry: ${error?.message ?? error}`);
       });
 
       callback(); // service is considered announced. After the call to the announce() method the service state is set to ANNOUNCING
@@ -566,7 +572,13 @@ export class Responder implements PacketHandler {
       // just assume unannounced. we won't be answering anymore, so the record will be flushed from cache sometime.
       service.serviceState = ServiceState.UNANNOUNCED;
       service.currentAnnouncer = undefined;
-      return Promise.reject(reason);
+      // Mirror the behaviour of private announce() above: a goodbye that races with shutdown/republish
+      // and gets cancelled is not an error — the caller was tearing the service down anyway. Forwarding
+      // CANCEL_REASON here would force every shutdown path to attach a .catch for a non-error condition,
+      // which is the orphan-rejection footgun that bit homebridge/ciao#69.
+      if (reason !== Announcer.CANCEL_REASON) {
+        return Promise.reject(reason);
+      }
     });
   }
 

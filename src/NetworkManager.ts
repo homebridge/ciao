@@ -560,7 +560,7 @@ export class NetworkManager extends EventEmitter {
   private static getWindowsNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("arp -a | findstr /C:\"---\"", (error, stdout) => {
+      childProcess.exec("arp -a | findstr /C:\"---\"", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -611,7 +611,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 "ndp -a -n |grep -v permanent" with filtering for "expired"
-      childProcess.exec("arp -a -n -l", async (error, stdout) => {
+      childProcess.exec("arp -a -n -l", { windowsHide: true }, async (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -661,9 +661,10 @@ export class NetworkManager extends EventEmitter {
   private static getLinuxNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      // we use "ip neigh" here instead of the aliases like "ip neighbour" or "ip neighbor"
-      // as those were only added like 5 years ago https://github.com/shemminger/iproute2/commit/ede723964a065992bf9d0dbe3f780e65ca917872
-      childProcess.exec("ip neigh show", (error, stdout) => {
+      // "ip -o link show" lists all network interfaces (one per line) without exposing
+      // neighbor/ARP table data about other machines on the network.
+      // The -o flag ensures one-line-per-interface output for reliable parsing.
+      childProcess.exec("ip -o link show", { windowsHide: true }, (error, stdout) => {
         if (error) {
           if (error.message.includes("ip: not found")) {
             debug("LINUX: ip was not found on the system. Falling back to assuming network interfaces!");
@@ -681,22 +682,23 @@ export class NetworkManager extends EventEmitter {
         for (let i = 0; i < lines.length - 1; i++) {
           const parts = lines[i].trim().split(NetworkManager.SPACE_PATTERN);
 
-          let devIndex = 0;
-          for (; devIndex < parts.length; devIndex++) {
-            if (parts[devIndex] === "dev") {
-              // the next index marks the interface name
-              break;
-            }
-          }
-
-          if (devIndex >= parts.length) {
-            debug(`LINUX: Out of bounds when reading interface name from line ${i}: '${lines[i]}'`);
+          // ip -o link show output format: "<index>: <name>: <flags> ..."
+          // need at least 3 parts: index, name, flags
+          if (parts.length < 3 || !parts[1] || !parts[2]) {
+            debug(`LINUX: Failed to parse interface from line ${i}: '${lines[i]}'`);
             continue;
           }
 
-          const interfaceName = parts[devIndex + 1];
+          // parts[1] is "<name>:" — strip the trailing colon
+          const interfaceName = parts[1].replace(/:$/, "");
           if (!interfaceName) {
             debug(`LINUX: Failed to read interface name from line ${i}: '${lines[i]}'`);
+            continue;
+          }
+
+          // parts[2] contains the interface flags e.g. "<BROADCAST,MULTICAST,UP,LOWER_UP>"
+          // skip loopback interfaces
+          if (parts[2].includes("LOOPBACK")) {
             continue;
           }
 
@@ -717,7 +719,7 @@ export class NetworkManager extends EventEmitter {
   private static getFreeBSDNetworkInterfaces(): Promise<InterfaceName[]> {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
-      childProcess.exec("arp -a -n", (error, stdout) => {
+      childProcess.exec("arp -a -n", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -752,7 +754,7 @@ export class NetworkManager extends EventEmitter {
     // does not return loopback interface
     return new Promise((resolve, reject) => {
       // for ipv6 something like "ndp -a -n | grep R" (grep for reachable; maybe exclude permanent?)
-      childProcess.exec("arp -a -n", (error, stdout) => {
+      childProcess.exec("arp -a -n", { windowsHide: true }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -805,7 +807,7 @@ export class NetworkManager extends EventEmitter {
          * Other messages handled here.
          * "All Wi-Fi network services are disabled": encountered on macOS VM machines
          */
-      childProcess.exec("networksetup -getairportnetwork " + name, (error, stdout) => {
+      childProcess.exec("networksetup -getairportnetwork " + name, { windowsHide: true }, (error, stdout) => {
         if (error) {
           if (stdout.includes("not a Wi-Fi interface")) {
             resolve(WifiState.NOT_A_WIFI_INTERFACE);

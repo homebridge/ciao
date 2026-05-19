@@ -2,6 +2,29 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.8 (2026-05-04)
+
+- chore: dependency updates
+- fix: handle orphaned rejections in advertise retry and goodbye paths
+- docs: regenerate typedoc docs for release
+
+## v1.3.7 (2026-04-26)
+
+- chore: dependency updates
+- fix: MDNSServer sentPackets memory leak
+- fix: add windowsHide to all child_process.exec calls (@Spaztazim)
+- fix: gracefully handle sends on closed server during shutdown (@shields)
+- fix: handle IPv4 address transitions gracefully on dynamic networks (@henryclawdius)
+- fix: replace ip neigh show with ip -o link show in getLinuxNetworkInterfaces (@NorthernMan54)
+- docs: regenerate typedoc docs for release
+- docs: add dependencies section to readme file (@NorthernMan54)
+
+## v1.3.6 (2026-03-29)
+
+- Add compliance review note for RFC 6762 and RFC 6763 (@NorthernMan54)
+- dependency updates
+- rebuild docs after `typedoc` update
+
 ## v1.3.5 (2026-02-07)
 
 - dependency updates

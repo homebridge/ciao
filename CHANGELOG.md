@@ -22,6 +22,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: convert synchronous send throw to rejected SendResult in Announcer
 - fix: skip address-less interfaces instead of aborting enumeration
 - chore(ci): bump release workflow action versions
+- docs: fix typo in handleQuery JSDoc comment
 
 ## v1.3.8 (2026-05-04)
 

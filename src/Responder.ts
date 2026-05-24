@@ -598,7 +598,7 @@ export class Responder implements PacketHandler {
   }
 
   /**
-   * @private method called by the MDNSServer when an incoming query needs ot be handled
+   * @private method called by the MDNSServer when an incoming query needs to be handled
    */
   handleQuery(packet: DNSPacket, endpoint: EndpointInfo): void {
     const start = Date.now();

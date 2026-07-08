@@ -10,6 +10,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: add cmd property to mocked ExecException in NetworkManager tests
 - docs: regenerate typedoc docs for release
 - chore: update `actions/checkout` to `v7`
+- chore: added `deprecate-past-pre-releases` workflow
 
 ## v1.3.9 (2026-05-25)
 

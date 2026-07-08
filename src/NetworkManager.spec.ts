@@ -33,7 +33,10 @@ describe(NetworkManager, () => {
     it("should handle error caused by exec", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
-        callback(new Error("test"), "3: asdf: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\\ link/ether 00:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff\n", "");
+        callback(
+          Object.assign(new Error("test"), { cmd: command }),
+          "3: asdf: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\\ link/ether 00:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff\n",
+          "");
       });
 
       return getLinuxNetworkInterfaces().then(() => {

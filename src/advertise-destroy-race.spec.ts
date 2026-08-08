@@ -169,12 +169,16 @@ describe("immediate advertise()/destroy() lifecycle race", () => {
   it("keeps the service usable when shutdown rejects", async () => {
     const service = makeService();
     const shutdownError = new Error("goodbye failed");
+    let shutdownAttempts = 0;
     service.serviceState = ServiceState.ANNOUNCED;
-    service.on(InternalServiceEvent.UNPUBLISH, callback => callback(shutdownError));
+    service.on(InternalServiceEvent.UNPUBLISH, callback => {
+      callback(shutdownAttempts++ === 0? shutdownError: undefined);
+    });
 
     await expect(service.destroy()).rejects.toThrow(shutdownError);
 
-    expect(service.isDestroyed()).toBe(false);
+    await expect(service.end()).resolves.toBeUndefined();
+    expect(shutdownAttempts).toBe(2);
     expect(service.listenerCount(InternalServiceEvent.UNPUBLISH)).toBe(1);
   });
 

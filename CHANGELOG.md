@@ -15,6 +15,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: send the probe and announce retry chatter to debug instead of the console (#72)
 - fix: let an empty DEBUG decline a prerelease build's automatic debug output (#72)
 - fix: read DEBUG before the debug package erases an empty one (#72)
+- fix: cancel queued advertisement after service destruction (#73)
 
 ## v1.3.10 (2026-07-08)
 

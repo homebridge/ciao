@@ -236,23 +236,30 @@ export class DNSPacket {
           const answer = answers[i];
           const estimatedSize = answer.getEncodingLength(NonCompressionLabelCoder.INSTANCE);
 
-          if (packet.getEstimatedEncodingLength() + estimatedSize <= udpPayloadSize) { // size check on estimated calculations
+          // The size checks and the oversized-record fallback must both look at
+          // currentPacket, not at the first packet. Measuring `packet` meant that once
+          // the list had been truncated once, every remaining answer was compared
+          // against the already-full first packet, failed both checks, and was then
+          // crammed into that same first packet - growing it past udpPayloadSize while
+          // emitting an empty truncated packet per answer, and never consuming the
+          // answer so the loop could not make progress.
+          if (currentPacket.getEstimatedEncodingLength() + estimatedSize <= udpPayloadSize) { // size check on estimated calculations
             currentPacket.addAnswers(answer);
-          } else if (packet.getEncodingLength() + estimatedSize <= udpPayloadSize) { // check if the record may fit when message compression is used.
+          } else if (currentPacket.getEncodingLength() + estimatedSize <= udpPayloadSize) { // check if the record may fit when message compression is used.
             // we may still have a false positive here, as they currently can't compute the REAL encoding for the answer
             // record, thus we rely on the estimated size
             currentPacket.addAnswers(answer);
+          } else if (currentPacket.questions.size === 0 && currentPacket.answers.size === 0) {
+            // we encountered a record which is too big and can't fit in a udpPayloadSize sized packet
+
+            // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
+            //    large to fit in a single MTU-sized multicast response packet, a
+            //    Multicast DNS responder SHOULD send the resource record alone, in a
+            //    single IP datagram, using multiple IP fragments.
+            currentPacket.addAnswers(answer);
+            i++; // count it as consumed, otherwise the outer loop offers it again forever
+            break;
           } else {
-            if (currentPacket.questions.size === 0 && currentPacket.answers.size === 0) {
-              // we encountered a record which is too big and can't fit in a udpPayloadSize sized packet
-
-              // RFC 6762 17. In the case of a single Multicast DNS resource record that is too
-              //    large to fit in a single MTU-sized multicast response packet, a
-              //    Multicast DNS responder SHOULD send the resource record alone, in a
-              //    single IP datagram, using multiple IP fragments.
-              packet.addAnswers(answer);
-            }
-
             break;
           }
         }

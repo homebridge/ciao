@@ -576,6 +576,7 @@ export class CiaoService extends EventEmitter {
           additionals: [ this.serviceNSECRecord() ],
         });
       }, 50);
+      this.txtTimer.unref(); // a pending debounce must not hold the event loop open at shutdown
     }
   }
 

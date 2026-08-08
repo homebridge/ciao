@@ -8,6 +8,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - fix: stop advertising a service under another service's name
 - fix: don't crash the process when a probe query can't be built
+- fix: unref the txt debounce timer so it can't delay shutdown
 
 ## v1.3.10 (2026-07-08)
 

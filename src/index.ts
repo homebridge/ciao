@@ -1,4 +1,8 @@
 import "source-map-support/register"; // registering node-source-map-support for typescript stack traces
+// ⚠️ MUST stay above the `debug` import: loading `debug` deletes an empty DEBUG from
+// the environment, so the value has to be read before that happens. Pinned by the
+// import-order test in util/captured-debug-env.spec.ts (homebridge/ciao#72).
+import { capturedDebugEnv } from "./util/captured-debug-env";
 import createDebug from "debug";
 import { prereleaseDebugNamespaces } from "./util/prerelease-debug";
 
@@ -6,7 +10,7 @@ import { prereleaseDebugNamespaces } from "./util/prerelease-debug";
 const version: string = require("../package.json").version;
 // enable debug output if beta version or running bonjour conformance testing,
 // unless DEBUG is explicitly set to empty to decline it
-const prereleaseNamespaces = prereleaseDebugNamespaces(version, process.env.DEBUG, !!process.env.BCT);
+const prereleaseNamespaces = prereleaseDebugNamespaces(version, capturedDebugEnv, !!process.env.BCT);
 if (prereleaseNamespaces) {
   createDebug.enable(prereleaseNamespaces);
 }

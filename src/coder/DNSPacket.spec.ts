@@ -51,4 +51,38 @@ describe(DNSPacket, () => {
       ],
     })[0]);
   });
+
+  // Regression: the size checks inside the known-answer splitting loop measured the
+  // FIRST packet instead of the packet currently being filled. Once the list had been
+  // truncated once, every remaining answer failed both checks and was appended to
+  // that already-full first packet, so the split produced an oversized first packet
+  // plus one empty truncated packet per remaining answer.
+  it("splits a known-answer list across packets without overfilling the first one", () => {
+    const udpPayloadSize = 200;
+
+    // 40 PTR records with distinct names, so nothing compresses away to nothing and
+    // the list comfortably needs more than one 200 byte packet.
+    const answers = Array.from({ length: 40 }, (_, i) =>
+      new PTRRecord("_hap._tcp.local.", `instance-number-${i}._hap._tcp.local.`));
+
+    const packets = DNSPacket.createDNSQueryPackets({
+      questions: [ new Question("_hap._tcp.local.", QType.PTR, false, QClass.IN) ],
+      answers,
+    }, udpPayloadSize);
+
+    expect(packets.length).toBeGreaterThan(1);
+
+    // no packet may exceed the payload size, and none may be left empty
+    for (const packet of packets) {
+      expect(packet.encode().length).toBeLessThanOrEqual(udpPayloadSize);
+      expect(packet.questions.size + packet.answers.size).toBeGreaterThan(0);
+    }
+
+    // every answer must survive the split exactly once, and every packet except the
+    // last must be marked truncated
+    const carried = packets.reduce((total, packet) => total + packet.answers.size, 0);
+    expect(carried).toBe(answers.length);
+    packets.slice(0, -1).forEach(packet => expect(packet.flags.truncation).toBe(true));
+    expect(packets[packets.length - 1].flags.truncation).toBeFalsy();
+  });
 });

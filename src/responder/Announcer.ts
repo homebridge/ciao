@@ -154,7 +154,8 @@ export class Announcer {
     Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
-        console.error(SendResultFormatError(results, `[${this.service.getFQDN()}] Failed to send ${this.goodbye? "goodbye": "announcement"} requests`));
+        // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)
+        debug(SendResultFormatError(results, `[${this.service.getFQDN()}] Failed to send ${this.goodbye? "goodbye": "announcement"} requests`));
         this.promiseReject!(new Error(`${this.goodbye? "Goodbye": "Announcement"} failed as of socket errors!`));
         return; // all failed => thus announcement failed
       }

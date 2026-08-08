@@ -176,7 +176,9 @@ export class Prober {
         authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
       }, this.service);
     } catch (error) {
-      console.error(`Failed to build probe queries for '${this.service.getFQDN()}': ${error instanceof Error? error.message: String(error)}`);
+      // debug: this rejects the probe, and the Responder logs and retries it - the console
+      // does not need the same failure twice (homebridge/ciao#72)
+      debug(`Failed to build probe queries for '${this.service.getFQDN()}': ${error instanceof Error? error.message: String(error)}`);
       this.endProbing(false);
       this.promiseReject!(error instanceof Error? error: new Error(String(error)));
       return;
@@ -185,7 +187,8 @@ export class Prober {
     broadcast.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
-        console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`));
+        // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)
+        debug(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`));
         this.endProbing(false);
         this.promiseReject!(new Error("Probing failed as of socket errors!"));
         return; // all failed => thus probing failed

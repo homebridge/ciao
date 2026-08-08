@@ -13,6 +13,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore(lint): migrate to eslint 10 flat config
 - chore(deps): dependency updates
 - fix: send the probe and announce retry chatter to debug instead of the console (#72)
+- fix: let an empty DEBUG decline a prerelease build's automatic debug output (#72)
 
 ## v1.3.10 (2026-07-08)
 

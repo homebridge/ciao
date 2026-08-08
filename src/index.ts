@@ -1,17 +1,14 @@
 import "source-map-support/register"; // registering node-source-map-support for typescript stack traces
 import createDebug from "debug";
+import { prereleaseDebugNamespaces } from "./util/prerelease-debug";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const version: string = require("../package.json").version;
-if (version.includes("beta") || process.env.BCT) { // enable debug output if beta version or running bonjour conformance testing
-  const debug = process.env.DEBUG;
-  if (!debug || !debug.includes("ciao")) {
-    if (!debug) {
-      createDebug.enable("ciao:*");
-    } else {
-      createDebug.enable(debug + ",ciao:*");
-    }
-  }
+// enable debug output if beta version or running bonjour conformance testing,
+// unless DEBUG is explicitly set to empty to decline it
+const prereleaseNamespaces = prereleaseDebugNamespaces(version, process.env.DEBUG, !!process.env.BCT);
+if (prereleaseNamespaces) {
+  createDebug.enable(prereleaseNamespaces);
 }
 
 import "./coder/records/index";

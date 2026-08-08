@@ -10,6 +10,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: don't crash the process when a probe query can't be built
 - fix: unref the txt debounce timer so it can't delay shutdown
 - fix: split a known-answer list across packets instead of looping forever
+- chore(lint): migrate to eslint 10 flat config
 
 ## v1.3.10 (2026-07-08)
 

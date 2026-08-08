@@ -11,6 +11,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: unref the txt debounce timer so it can't delay shutdown
 - fix: split a known-answer list across packets instead of looping forever
 - chore(lint): migrate to eslint 10 flat config
+- chore(deps): dependency updates
 
 ## v1.3.10 (2026-07-08)
 

@@ -13,6 +13,7 @@ interface FakeResponderInternal {
   servicePointer: Map<string, string[]>;
   announcedServices: Map<string, CiaoService>;
   getAnnouncedServices: () => IterableIterator<CiaoService>;
+  probe?: (service: CiaoService) => Promise<void>;
 }
 
 interface FakeResponderFacade {
@@ -105,6 +106,76 @@ describe("immediate advertise()/destroy() lifecycle race", () => {
     });
     await expect(advertisePromise).resolves.toBeUndefined();
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("does not announce when destroy lands after probing has started", async () => {
+    const { responder } = makeFakeResponder();
+    const service = makeService();
+    wire(responder, service);
+
+    let finishProbe: () => void = () => {
+      throw new Error("probe did not start");
+    };
+    const probePromise = new Promise<void>(resolve => {
+      finishProbe = resolve;
+    });
+    const probe = jest.fn((probingService: CiaoService) => {
+      probingService.serviceState = ServiceState.PROBING;
+      return probePromise.then(() => {
+        probingService.serviceState = ServiceState.PROBED;
+      });
+    });
+    responder.probe = probe;
+
+    const advertisePromise = service.advertise();
+    await flush();
+
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(service.serviceState).toBe(ServiceState.PROBING);
+
+    await service.destroy();
+    finishProbe();
+    await flush();
+
+    await expect(advertisePromise).resolves.toBeUndefined();
+    expect(announceSpy).not.toHaveBeenCalled();
+    expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+    expect(Array.from(responder.getAnnouncedServices())).toHaveLength(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("survives repeated immediate advertise/destroy races without leftover work", async () => {
+    const cycles = 50;
+
+    for (let i = 0; i < cycles; i++) {
+      const { responder, server } = makeFakeResponder();
+      const service = makeService();
+      wire(responder, service);
+
+      const advertisePromise = service.advertise();
+      await service.destroy();
+      await expect(advertisePromise).resolves.toBeUndefined();
+
+      expect(server.sendQueryBroadcast).not.toHaveBeenCalled();
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(Array.from(responder.getAnnouncedServices())).toHaveLength(0);
+    }
+
+    await advance(5000);
+    expect(announceSpy).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the service usable when shutdown rejects", async () => {
+    const service = makeService();
+    const shutdownError = new Error("goodbye failed");
+    service.serviceState = ServiceState.ANNOUNCED;
+    service.on(InternalServiceEvent.UNPUBLISH, callback => callback(shutdownError));
+
+    await expect(service.destroy()).rejects.toThrow(shutdownError);
+
+    expect(service.isDestroyed()).toBe(false);
+    expect(service.listenerCount(InternalServiceEvent.UNPUBLISH)).toBe(1);
   });
 
   it("preserves the existing guard against destroying a service twice", async () => {

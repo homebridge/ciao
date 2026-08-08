@@ -283,11 +283,22 @@ export class Responder implements PacketHandler {
     //  - Prober will call the Responder to generate responses to its queries to
     //      resolve name conflicts the same way as with other services on the network
 
-    this.promiseChain = this.promiseChain // we synchronize all ongoing probes here
-      .then(() => service.rebuildServiceRecords()) // build the records the first time for the prober
-      .then(() => this.probe(service)); // probe errors are catch below
+    this.promiseChain = this.promiseChain.then(() => {
+      if (service.isDestroyed()) {
+        throw Prober.CANCEL_REASON;
+      }
+
+      service.rebuildServiceRecords();
+      return this.probe(service); // probe errors are catch below
+    });
 
     return this.promiseChain.then(() => {
+      if (service.isDestroyed()) {
+        service.serviceState = ServiceState.UNANNOUNCED;
+        callback();
+        return;
+      }
+
       // we are not returning the promise returned by announced here, only PROBING is synchronized
       this.announce(service).catch(reason => {
         // handle announce errors

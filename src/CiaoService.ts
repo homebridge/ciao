@@ -449,10 +449,25 @@ export class CiaoService extends EventEmitter {
    * @returns
    */
   public async destroy(): Promise<void> {
-    await this.end();
-
+    const endPromise = this.end();
     this.destroyed = true;
+
+    try {
+      await endPromise;
+    } catch (error) {
+      this.destroyed = false;
+      throw error;
+    }
+
     this.removeAllListeners();
+  }
+
+  /**
+   * Internal lifecycle query used by {@link Responder} to avoid directly reading private state.
+   * @private
+   */
+  public isDestroyed(): boolean {
+    return this.destroyed;
   }
 
   /**

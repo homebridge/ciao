@@ -7,6 +7,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changes
 
 - fix: stop advertising a service under another service's name
+- fix: don't crash the process when a probe query can't be built
 
 ## v1.3.10 (2026-07-08)
 

@@ -4,7 +4,7 @@ import { CiaoService, ServiceState } from "../CiaoService";
 import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ResourceRecord } from "../coder/ResourceRecord";
-import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError } from "../MDNSServer";
+import { EndpointInfo, MDNSServer, SendResultFailedRatio, SendResultFormatError, TimedSendResult } from "../MDNSServer";
 import { Responder } from "../Responder";
 import * as tiebreaking from "../util/tiebreaking";
 import { rrComparator, TiebreakingResult } from "../util/tiebreaking";
@@ -162,11 +162,27 @@ export class Prober {
       new Question(this.service.getHostname(), QType.ANY, true),
     ];
 
-    this.server.sendQueryBroadcast({
-      questions: questions,
-      // TODO certified homekit accessories only include the main service PTR record
-      authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
-    }, this.service).then(results => {
+    // sendQueryBroadcast builds and encodes the packet synchronously, so a probe
+    // query too big to fit an MTU-sized packet (a long TXT record plus subtype PTRs
+    // plus one address record per interface adds up) throws right here rather than
+    // rejecting. This runs from a setTimeout callback, so an escaping throw is an
+    // uncaught exception that takes the whole host process down instead of failing
+    // just this probe. Same reasoning as the try/catch in Announcer's send path.
+    let broadcast: Promise<TimedSendResult[]>;
+    try {
+      broadcast = this.server.sendQueryBroadcast({
+        questions: questions,
+        // TODO certified homekit accessories only include the main service PTR record
+        authorities: this.records, // include records we want to announce in authorities to support Simultaneous Probe Tiebreaking (RFC 6762 8.2.)
+      }, this.service);
+    } catch (error) {
+      console.error(`Failed to build probe queries for '${this.service.getFQDN()}': ${error instanceof Error? error.message: String(error)}`);
+      this.endProbing(false);
+      this.promiseReject!(error instanceof Error? error: new Error(String(error)));
+      return;
+    }
+
+    broadcast.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         console.error(SendResultFormatError(results, `Failed to send probe queries for '${this.service.getFQDN()}'`));
@@ -196,6 +212,11 @@ export class Prober {
       this.timer.unref();
 
       this.checkLocalConflicts();
+    }).catch(error => {
+      // Terminal handler. endProbing(true) emits 'name-change' to the consumer, and a
+      // throwing consumer listener would otherwise become an unhandled rejection with
+      // no caller to catch it - there is none, this chain is started from a timer.
+      console.error(`Probing for '${this.service.getFQDN()}' failed unexpectedly: ${error?.message ?? error}`);
     });
   }
 

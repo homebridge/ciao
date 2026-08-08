@@ -12,6 +12,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: split a known-answer list across packets instead of looping forever
 - chore(lint): migrate to eslint 10 flat config
 - chore(deps): dependency updates
+- fix: send the probe and announce retry chatter to debug instead of the console (#72)
 
 ## v1.3.10 (2026-07-08)
 

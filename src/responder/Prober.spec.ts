@@ -33,15 +33,25 @@ function fakeService() {
 describe(Prober, () => {
   describe("send failure handling", () => {
     let errorSpy: jest.SpyInstance;
+    let logSpy: jest.SpyInstance;
+    let warnSpy: jest.SpyInstance;
 
     beforeEach(() => {
       errorSpy = jest.spyOn(console, "error").mockImplementation(() => {
-        // keep the expected error out of the test output
+        // keep any unexpected error out of the test output
+      });
+      logSpy = jest.spyOn(console, "log").mockImplementation(() => {
+        // as above
+      });
+      warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {
+        // as above
       });
     });
 
     afterEach(() => {
       errorSpy.mockRestore();
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
       jest.useRealTimers();
     });
 
@@ -69,6 +79,34 @@ describe(Prober, () => {
 
       await expect(probing).rejects.toBe(thrown);
       expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(1);
+    });
+
+    // Regression (homebridge/ciao#72): a failing probe is retried every 2 seconds by the
+    // Responder, so logging it to the console here put a line out on every attempt,
+    // forever. The failure still reaches the caller through the rejected promise, and
+    // whatever actually broke is reported by MDNSServer - the console gets nothing.
+    it("keeps a failing probe off the console", async () => {
+      const server = {
+        sendQueryBroadcast: jest.fn(() => {
+          throw new Error("Probe query packet exceeds the mtu size (1600>1440).");
+        }),
+      };
+      const responder = { getAnnouncedServices: () => [] };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prober = new Prober(responder as any, server as any, fakeService() as any);
+
+      jest.useFakeTimers();
+      const probing = prober.probe();
+      probing.catch(() => {
+        // the rejection is the caller's channel - asserted in the test above
+      });
+      jest.advanceTimersByTime(250);
+      await Promise.resolve();
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
     });
 
     it("does not let the throw escape the timer callback", () => {

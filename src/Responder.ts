@@ -291,7 +291,11 @@ export class Responder implements PacketHandler {
       // we are not returning the promise returned by announced here, only PROBING is synchronized
       this.announce(service).catch(reason => {
         // handle announce errors
-        console.log(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
+        // debug, not console: this retries itself in 2 seconds and usually succeeds, so it is
+        // not something the consumer can act on. Whatever actually broke - a socket or bind
+        // error - is still reported loudly by MDNSServer, which owns it. Logging every retry
+        // here as well put a line on the console every 2 seconds forever (homebridge/ciao#72).
+        debug(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
         return PromiseTimeout(2000).then(() => this.advertiseService(service, () => {
           // empty
         }));
@@ -318,7 +322,8 @@ export class Responder implements PacketHandler {
       if (reason === Prober.CANCEL_REASON) {
         callback();
       } else { // other errors are only thrown when sockets error occur
-        console.log(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+        // debug, not console - same reasoning as the announce retry above
+        debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
         return PromiseTimeout(2000).then(() => this.advertiseService(service, callback));
       }
     });

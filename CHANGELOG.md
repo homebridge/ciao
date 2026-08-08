@@ -2,6 +2,12 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.11 (Pending Release)
+
+### Changes
+
+- fix: stop advertising a service under another service's name
+
 ## v1.3.10 (2026-07-08)
 
 ### Changes

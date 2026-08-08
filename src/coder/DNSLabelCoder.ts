@@ -388,7 +388,23 @@ export class DNSLabelCoder {
     }
 
     if (!exitByBreak) {
-      equalLabels++; // accommodate for the top level label (fqdn doesn't start with a dot)
+      // The loop ran out of characters rather than finding one that differs, so the
+      // shorter name is a character-wise suffix of the longer one. That only means
+      // they share the top-most label if the shorter name starts on a label boundary
+      // in the longer one - "local." inside "foo.local." does, "local." inside
+      // "Xlocal." does not.
+      //
+      // Crediting a label unconditionally meant "Bridge._hap._tcp.local." looked like
+      // it shared four labels with "My Bridge._hap._tcp.local.", so it was encoded as
+      // a bare pointer to it and went out on the wire under the other service's name.
+      const comparedCharacters = Math.min(lastAIndex, lastBIndex);
+      const lastLongerIndex = Math.max(lastAIndex, lastBIndex);
+      const boundaryIndex = lastLongerIndex - comparedCharacters - 1;
+      const longer = lastAIndex >= lastBIndex? a: b;
+
+      if (boundaryIndex < 0 || longer.charAt(boundaryIndex) === ".") {
+        equalLabels++; // accommodate for the top level label (fqdn doesn't start with a dot)
+      }
     }
 
     return equalLabels;

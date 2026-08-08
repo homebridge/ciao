@@ -90,6 +90,42 @@ describe(DNSLabelCoder, () => {
       expect(decoded.readBytes).toBe(2); // pointer is exactly 2 bytes
     });
 
+    // Regression: computeLabelSuffixLength credited a shared top-level label
+    // whenever the shorter name ran out of characters without one differing, so a
+    // name that is a mid-label suffix of an earlier one ("Bridge._hap._tcp.local."
+    // inside "My Bridge._hap._tcp.local.") was encoded as a bare pointer to it.
+    // Two child bridges named that way put out one PTR instead of two and two SRV
+    // records claiming the same name with different ports.
+    it.each([
+      [ "My Bridge._hap._tcp.local.", "Bridge._hap._tcp.local." ], // shares 3 labels, not 4
+      [ "Ceiling Lights.local.", "Lights.local." ], // shares 1 label, not 2
+      [ "Xlocal.", "local." ], // shares nothing at all
+      [ "foo.local.", "local." ], // genuinely shares 1 label - must still compress
+      [ "foo.local.", "bar.local." ], // genuinely shares 1 label
+      [ "foo.local.", "foo.local." ], // identical - must still compress to a full pointer
+    ])("round trips %s alongside %s", (first, second) => {
+      const names = [ first, second ];
+
+      const lengthCoder = new DNSLabelCoder();
+      const length = names.reduce((total, name) => total + lengthCoder.getNameLength(name), 0);
+
+      const buffer = Buffer.alloc(length);
+      const encoder = new DNSLabelCoder();
+      encoder.initBuf(buffer);
+
+      const offsets: number[] = [];
+      let offset = 0;
+      for (const name of names) {
+        offsets.push(offset);
+        offset += encoder.encodeName(name, offset);
+      }
+      expect(offset).toBe(length); // the length pass and the encode pass must agree
+
+      const decoder = new DNSLabelCoder();
+      decoder.initBuf(buffer);
+      expect(offsets.map(at => decoder.decodeName(at).data)).toEqual(names);
+    });
+
     it("should decode name compression", () => {
       const coder = new DNSLabelCoder();
 

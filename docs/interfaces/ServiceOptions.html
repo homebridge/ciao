@@ -1,5 +1,5 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>ServiceOptions | @homebridge/ciao - v1.3.10</title><meta name="description" content="Documentation for @homebridge/ciao"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
-<div class="tsd-toolbar-contents container"><a href="../index.html" class="title">@homebridge/ciao - v1.3.10</a>
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>ServiceOptions | @homebridge/ciao - v1.3.11</title><meta name="description" content="Documentation for @homebridge/ciao"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="../index.html" class="title">@homebridge/ciao - v1.3.11</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
 <div id="tsd-search-status" aria-live="polite" aria-atomic="true">
@@ -15,7 +15,7 @@
 </div></section>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ServiceOptions</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#disabledipv6">disabledIpv6</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#domain">domain</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#hostname">hostname</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#name">name</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#port">port</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#protocol">protocol</a><span class="tsd-signature-symbol">?:</span> <a href="../enums/Protocol.html" class="tsd-signature-type tsd-kind-enum">Protocol</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#restrictedaddresses">restrictedAddresses</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#subtypes">subtypes</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#txt">txt</a><span class="tsd-signature-symbol">?:</span> <a href="../types/ServiceTxt.html" class="tsd-signature-type tsd-kind-type-alias">ServiceTxt</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#type">type</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L55">CiaoService.ts:55</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L55">CiaoService.ts:55</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -45,7 +45,7 @@ This can be used to simulate binding on 0.0.0.0.
 May be combined with <a href="#restrictedaddresses" class="tsd-kind-property">restrictedAddresses</a>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L116">CiaoService.ts:116</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L116">CiaoService.ts:116</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="domain"><code class="tsd-tag">Optional</code><span>domain</span><a href="#domain" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">domain</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
@@ -53,7 +53,7 @@ May be combined with <a href="#restrictedaddresses" class="tsd-kind-property">re
 The domain will also be automatically appended to the hostname.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L94">CiaoService.ts:94</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L94">CiaoService.ts:94</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="hostname"><code class="tsd-tag">Optional</code><span>hostname</span><a href="#hostname" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">hostname</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
@@ -62,14 +62,14 @@ The specified hostname must not include the TLD.
 If undefined the service name will be used as default.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L84">CiaoService.ts:84</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L84">CiaoService.ts:84</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="name"><span>name</span><a href="#name" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">name</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>Instance name of the service</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L59">CiaoService.ts:59</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L59">CiaoService.ts:59</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="port"><code class="tsd-tag">Optional</code><span>port</span><a href="#port" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">port</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span></div>
@@ -77,14 +77,14 @@ If undefined the service name will be used as default.</p>
 If not supplied it must be set later via <a href="../classes/CiaoService.html#updateport" class="tsd-kind-method">CiaoService.updatePort</a> BEFORE advertising the service.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L73">CiaoService.ts:73</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L73">CiaoService.ts:73</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="protocol"><code class="tsd-tag">Optional</code><span>protocol</span><a href="#protocol" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">protocol</span><span class="tsd-signature-symbol">?:</span> <a href="../enums/Protocol.html" class="tsd-signature-type tsd-kind-enum">Protocol</a></div>
 <div class="tsd-comment tsd-typography"><p>The protocol the service uses. Default is TCP.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L78">CiaoService.ts:78</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L78">CiaoService.ts:78</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="restrictedaddresses"><code class="tsd-tag">Optional</code><span>restricted<wbr/>Addresses</span><a href="#restrictedaddresses" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">restrictedAddresses</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
@@ -99,7 +99,7 @@ If an ip address is given, the ip address must be valid at the time of service c
 configured to ignore this interface, the service won't be advertised on the interface.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L110">CiaoService.ts:110</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L110">CiaoService.ts:110</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="subtypes"><code class="tsd-tag">Optional</code><span>subtypes</span><a href="#subtypes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">subtypes</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
@@ -107,21 +107,21 @@ configured to ignore this interface, the service won't be advertised on the inte
 Refer to <a href="../enums/ServiceType.html" class="tsd-kind-enum">ServiceType</a> for some known examples.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L68">CiaoService.ts:68</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L68">CiaoService.ts:68</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="txt"><code class="tsd-tag">Optional</code><span>txt</span><a href="#txt" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">txt</span><span class="tsd-signature-symbol">?:</span> <a href="../types/ServiceTxt.html" class="tsd-signature-type tsd-kind-type-alias">ServiceTxt</a></div>
 <div class="tsd-comment tsd-typography"><p>If defined, a txt record will be published with the given service.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L88">CiaoService.ts:88</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L88">CiaoService.ts:88</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="type"><span>type</span><a href="#type" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">type</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>Type of the service.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/homebridge/ciao/blob/0ae3516f5607ae21e58a149fe795b6edb087aaf8/src/CiaoService.ts#L63">CiaoService.ts:63</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/homebridge/ciao/blob/f6b727ab0a4fcc7d35a6fd893f2addf55e529c9e/src/CiaoService.ts#L63">CiaoService.ts:63</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -138,7 +138,7 @@ Refer to <a href="../enums/ServiceType.html" class="tsd-kind-enum">ServiceType</
 <details open class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Properties</summary>
 <div><a href="#disabledipv6"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>disabled<wbr/>Ipv6</span></a><a href="#domain"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>domain</span></a><a href="#hostname"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>hostname</span></a><a href="#name"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>name</span></a><a href="#port"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>port</span></a><a href="#protocol"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>protocol</span></a><a href="#restrictedaddresses"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>restricted<wbr/>Addresses</span></a><a href="#subtypes"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>subtypes</span></a><a href="#txt"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>txt</span></a><a href="#type"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>type</span></a></div></details></div></details></div>
 <div class="site-menu">
-<nav class="tsd-navigation"><a href="../modules.html">@homebridge/ciao - v1.3.10</a>
+<nav class="tsd-navigation"><a href="../modules.html">@homebridge/ciao - v1.3.11</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">
 <li>Loading...</li></ul></nav></div></div></div><footer></footer>
 <div class="overlay"></div></body></html>

@@ -598,8 +598,12 @@ export class MDNSServer {
 
         // assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
         if (!interfaceAddress) {
-          // There isn't necessarily an IPv4 and IPv6 address assigned to every interface even on dual-stack systems
-          console.log("Warning: no " + (isIPv6 ? "IPv6" : "IPv4") + " address available on " + networkInterface.name);
+          // There isn't necessarily an IPv4 and IPv6 address assigned to every interface even on dual-stack systems.
+          // Because that is normal rather than a fault, it goes to debug: this fires once per interface per family
+          // at bind time, and again on every network change, so on a dual-stack host with several adapters it would
+          // otherwise print on a perfectly healthy default start - which is exactly what a quiet-console consumer
+          // cannot have (#72).
+          debug("Warning: no " + (isIPv6 ? "IPv6" : "IPv4") + " address available on " + networkInterface.name);
           try {
             socket.close();
           } catch (error) {

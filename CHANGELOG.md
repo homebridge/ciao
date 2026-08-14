@@ -2,6 +2,12 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.12 (Pending Release)
+
+### Changes
+
+- fix: send the missing-address bind warning to debug instead of the console (#72)
+
 ## v1.3.11 (2026-08-13)
 
 ### Changes

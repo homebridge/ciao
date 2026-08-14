@@ -359,4 +359,52 @@ describe(MDNSServer, () => {
       expect(jest.getTimerCount()).toBe(0);
     });
   });
+
+  describe("bindSocket - interface with no address for the family", () => {
+    /**
+     * A dual-stack host routinely has interfaces carrying only one family, and
+     * the bind path treats that as normal - it closes the socket and resolves.
+     * It must therefore not write to the console: it fires once per interface
+     * per family at bind time and again on every network change, so on a
+     * healthy default start it would print several times, which is what broke
+     * quiet-console consumers in #72.
+     */
+    it("reports a missing address through debug, not the console", async () => {
+      const server = makeBareServer();
+      let closed = false;
+      const socket = {
+        once: () => socket,
+        on: () => socket,
+        removeListener: () => socket,
+        setRecvBufferSize: () => { /* no-op */ },
+        close: () => {
+          closed = true; 
+        },
+        bind: (port: number, callback: () => void) => callback(),
+      };
+
+      const logSpy = jest.spyOn(console, "log").mockImplementation(() => { /* capture */ });
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => { /* capture */ });
+
+      try {
+        // "IPv4" is IPFamily.IPv4; the enum is `const`, so its value is inlined
+        // rather than importable at runtime from a spec.
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        await (server as any).bindSocket(
+          socket as any,
+          { name: "en0", loopback: false, mac: "00:00:00:00:00:00" } as any,
+          "IPv4" as any,
+        );
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+
+        expect(logSpy).not.toHaveBeenCalled();
+        expect(warnSpy).not.toHaveBeenCalled();
+        // The socket is still cleaned up - going quiet must not mean doing less.
+        expect(closed).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
+    });
+  });
 });

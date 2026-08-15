@@ -7,6 +7,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changes
 
 - fix: send the missing-address bind warning to debug instead of the console (#72)
+- chore(deps): dependency updates
 
 ## v1.3.11 (2026-08-13)
 

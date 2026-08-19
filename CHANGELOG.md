@@ -2,6 +2,12 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.3.13 (Pending Release)
+
+### Changes
+
+- ci: rename the pr-labeler caller job from stale to label
+
 ## v1.3.12 (2026-08-15)
 
 ### Changes

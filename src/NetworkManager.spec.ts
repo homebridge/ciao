@@ -70,6 +70,23 @@ describe(NetworkManager, () => {
       expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
     });
 
+    it("should drop the link suffix from VLAN, macvlan and veth interface names", async () => {
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        callback(null,
+          "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\ link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n" +
+          "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000\\ link/ether 00:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff\n" +
+          "3: eth0.10@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 00:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff\n" +
+          "4: macvlan0@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 00:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff\n" +
+          "5: eth1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 02:42:ac:11:00:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0\n", "");
+      });
+
+      // os.networkInterfaces() names these "eth0.10", "macvlan0" and "eth1", so a name that kept
+      // its "@<link>" part matched nothing and the interface was never advertised on
+      const names = await getLinuxNetworkInterfaces();
+      expect(names).toStrictEqual(["eth0", "eth0.10", "macvlan0", "eth1"]);
+    });
+
     it("should handle error caused by exec", () => {
       // @ts-expect-error
       execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {

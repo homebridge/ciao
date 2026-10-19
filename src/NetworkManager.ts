@@ -674,8 +674,10 @@ export class NetworkManager extends EventEmitter {
             continue;
           }
 
-          // parts[1] is "<name>:" — strip the trailing colon
-          const interfaceName = parts[1].replace(/:$/, "");
+          // parts[1] is "<name>:" — strip the trailing colon. A VLAN, macvlan or veth interface is
+          // listed as "<name>@<link>:" (e.g. "eth0.10@eth0:"), while os.networkInterfaces() knows
+          // it only as "<name>", so the "@<link>" part has to go as well
+          const interfaceName = parts[1].replace(/:$/, "").replace(/@.*$/, "");
           if (!interfaceName) {
             debug(`LINUX: Failed to read interface name from line ${i}: '${lines[i]}'`);
             continue;

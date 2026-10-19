@@ -10,6 +10,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - ci: update github actions to their latest versions
 - fix: don't list AAAA in the address NSEC record when IPv6 is disabled (#79) (@ESchouten)
 - fix: keep a connected Wi-Fi interface on macOS 15 and later (#78) (@ESchouten)
+- fix: close every socket when the responder is shut down before it has finished binding
 
 ## v1.3.12 (2026-08-15)
 

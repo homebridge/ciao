@@ -1,3 +1,4 @@
+import dgram from "dgram";
 import { MDNSServer, SendResultFailedRatio, TimedSendResult } from "./MDNSServer";
 import { NetworkUpdate } from "./NetworkManager";
 import { DNSPacket } from "./coder/DNSPacket";
@@ -405,6 +406,71 @@ describe(MDNSServer, () => {
         logSpy.mockRestore();
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  describe("bind racing shutdown (#27)", () => {
+    const networkInterface = { name: "en0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2" };
+
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    function makeServer(waitForInit: () => Promise<void>): MDNSServer {
+      const server = makeBareServer();
+      (server as any).advertiseFamilies = ["IPv4"];
+      (server as any).networkManager = {
+        shutdown: () => { /* no-op */ },
+        waitForInit,
+        getInterfaceMap: () => new Map([[networkInterface.name, networkInterface]]),
+      };
+      return server;
+    }
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("opens no socket when shut down while waiting for the network interfaces", async () => {
+      let finishInit!: () => void;
+      const server = makeServer(() => new Promise(resolve => {
+        finishInit = resolve;
+      }));
+      const createSocket = jest.spyOn(dgram, "createSocket");
+
+      const bound = server.bind();
+      server.shutdown();
+      finishInit();
+      await bound;
+
+      expect(createSocket).not.toHaveBeenCalled();
+    });
+
+    it("closes a socket whose bind completes after shutdown", async () => {
+      const server = makeServer(() => Promise.resolve());
+      let finishBind!: () => void;
+      const socket = {
+        on: () => socket,
+        once: () => socket,
+        removeListener: () => socket,
+        bind: (port: number, callback: () => void) => {
+          finishBind = callback;
+        },
+        close: jest.fn(),
+        setRecvBufferSize: jest.fn(),
+        addMembership: jest.fn(),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(dgram, "createSocket").mockReturnValue(socket as any);
+
+      const bound = server.bind();
+      // let bind() get past waitForInit() and start binding the socket
+      await new Promise(resolve => setImmediate(resolve));
+      server.shutdown();
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalled();
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
     });
   });
 });

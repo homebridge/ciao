@@ -254,6 +254,12 @@ export class MDNSServer {
     // wait for the first network interfaces to be discovered
     await this.networkManager.waitForInit();
 
+    // shutdown() may have run while we were waiting. It only closes the sockets it can see,
+    // so any socket opened from here on would stay open and keep the process alive (#27).
+    if (this.closed) {
+      return;
+    }
+
     const promises: Promise<void>[] = [];
 
     for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
@@ -590,8 +596,21 @@ export class MDNSServer {
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
-        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
+
+        if (this.closed) {
+          // shutdown() ran while this socket was binding, and it isn't in this.sockets yet,
+          // so nothing else would ever close it (#27)
+          try {
+            socket.close();
+          } catch (error) {
+            // Ignore
+          }
+          resolve();
+          return;
+        }
+
+        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
         const interfaceAddress = isIPv6 ? networkInterface.ipv6 : networkInterface.ipv4;

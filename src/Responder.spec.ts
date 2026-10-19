@@ -1,5 +1,7 @@
-import { ServiceState } from "./CiaoService";
+import { CiaoService, ServiceOptions, ServiceState } from "./CiaoService";
+import { NetworkManager } from "./NetworkManager";
 import { Responder } from "./Responder";
+import { Announcer } from "./responder/Announcer";
 
 // Build a Responder instance without running the constructor — it would otherwise
 // open sockets and start the MDNSServer. We only need a `server` field that lets
@@ -130,6 +132,41 @@ describe(Responder, () => {
       // And the callback should still be notified with an Error.
       expect(callbackErrors).toHaveLength(1);
       expect(callbackErrors[0]).toBeInstanceOf(Error);
+    });
+  });
+
+  describe("goodbye for a hostname shared with another service (#20)", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    function makeService(options: Partial<ServiceOptions>): CiaoService {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      return new CiaoService(networkManager, { name: "Living Room", type: "http", port: 4711, ...options });
+    }
+
+    /** Whether the goodbye for `leaving` withdraws its address records, while `remaining` is still announced. */
+    function goodbyeKeepsAddressRecords(leaving: CiaoService, remaining: CiaoService[]): boolean {
+      jest.spyOn(Announcer.prototype, "announce").mockReturnValue(new Promise(() => { /* never sent */ }));
+      const responder = Object.create(Responder.prototype) as Responder;
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (responder as any).server = {};
+      (responder as any).announcedServices = new Map(remaining.map(service => [service.getLowerCasedFQDN(), service]));
+      (responder as any).goodbye(leaving);
+      return (leaving.currentAnnouncer as any).keepAddressRecords;
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    }
+
+    it("keeps the address records while another service still uses the hostname", () => {
+      expect(goodbyeKeepsAddressRecords(makeService({ type: "http" }), [ makeService({ type: "ipp" }) ])).toBe(true);
+    });
+
+    it("withdraws the address records once the last service using the hostname leaves", () => {
+      expect(goodbyeKeepsAddressRecords(makeService({ type: "http" }), [])).toBe(false);
+    });
+
+    it("withdraws the address records when the other service has another hostname", () => {
+      expect(goodbyeKeepsAddressRecords(makeService({ type: "http" }), [ makeService({ type: "ipp", hostname: "Kitchen" }) ])).toBe(false);
     });
   });
 });

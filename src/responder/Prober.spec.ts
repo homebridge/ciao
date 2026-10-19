@@ -1,4 +1,5 @@
-import { ServiceState } from "../CiaoService";
+import { CiaoService, ServiceOptions, ServiceState } from "../CiaoService";
+import { NetworkManager } from "../NetworkManager";
 import { Prober } from "./Prober";
 
 /**
@@ -127,6 +128,36 @@ describe(Prober, () => {
       });
 
       expect(() => jest.advanceTimersByTime(250)).not.toThrow();
+    });
+  });
+
+  describe("conflicts with services of the same responder (#20)", () => {
+    function makeService(options: Partial<ServiceOptions>): CiaoService {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      return new CiaoService(networkManager, { name: "Living Room", type: "http", port: 4711, ...options });
+    }
+
+    function hasLocalConflict(announced: CiaoService, probing: CiaoService): boolean {
+      const responder = { getAnnouncedServices: () => [ announced ] };
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const prober = new Prober(responder as any, {} as any, probing);
+      const handleNameChange = jest.spyOn(prober as any, "handleNameChange").mockImplementation(() => { /* no-op */ });
+      (prober as any).checkLocalConflicts();
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      return handleNameChange.mock.calls.length > 0;
+    }
+
+    it("lets two services of different types keep the same name", () => {
+      // both derive the hostname "Living-Room.local." from the name
+      expect(hasLocalConflict(makeService({ type: "http" }), makeService({ type: "ipp" }))).toBe(false);
+    });
+
+    it("still renames a service whose name and type are taken", () => {
+      expect(hasLocalConflict(makeService({}), makeService({ port: 4712 }))).toBe(true);
+    });
+
+    it("still renames a service whose hostname is taken with other addresses", () => {
+      expect(hasLocalConflict(makeService({ type: "http" }), makeService({ type: "ipp", disabledIpv6: true }))).toBe(true);
     });
   });
 });

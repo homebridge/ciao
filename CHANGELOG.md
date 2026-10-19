@@ -7,6 +7,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changes
 
 - ci: rename the pr-labeler caller job from stale to label
+- ci: update github actions to their latest versions
 - fix: don't list AAAA in the address NSEC record when `disabledIpv6` is set, so a lookup no longer waits for an IPv6 answer
 
 ## v1.3.12 (2026-08-15)

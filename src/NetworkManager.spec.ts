@@ -7,8 +7,48 @@ const execMock = jest.spyOn(childProcess, "exec");
 
 // @ts-expect-error
 const getLinuxNetworkInterfaces = NetworkManager.getLinuxNetworkInterfaces;
+// @ts-expect-error
+const getDarwinNetworkInterfaces = NetworkManager.getDarwinNetworkInterfaces;
 
 describe(NetworkManager, () => {
+  describe(getDarwinNetworkInterfaces, () => {
+    it("should parse interfaces from arp without asking for their Wi-Fi state", async () => {
+      execMock.mockClear();
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        if (command !== "arp -a -n -l") {
+          console.warn("Command for getDarwinNetworkInterfaces differs from the expected input!");
+        }
+
+        callback(null,
+          "Neighbor                Linklayer Address Expire(O) Expire(I)          Netif Refs Prbs\n" +
+          "192.168.1.1             0:0:5e:0:53:1     1m20s     1m15s            en0    1\n" +
+          "192.168.1.66            0:0:5e:0:53:2     expired   expired          en0    2\n" +
+          "169.254.169.254         (incomplete)      (none)    (none)           en0\n" +
+          "192.168.2.1             0:0:5e:0:53:3     expired   expired          en5    1\n", "");
+      });
+
+      const names = await getDarwinNetworkInterfaces();
+      expect(names).toStrictEqual(["en0", "en5"]);
+      // Since macOS 15, "networksetup -getairportnetwork" reports a connected Wi-Fi interface as
+      // "not associated", so its answer must not decide which interfaces are used.
+      expect(execMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("should handle output without neighbors", () => {
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        callback(null, "Neighbor                Linklayer Address Expire(O) Expire(I)          Netif Refs Prbs\n", "");
+      });
+
+      return getDarwinNetworkInterfaces().then(() => {
+        fail("Should not parse names when no neighbors are listed!");
+      }, reason => {
+        expect(reason.message).toBe("no interfaces found");
+      });
+    });
+  });
+
   describe(getLinuxNetworkInterfaces, () => {
     it("should parse interfaces from ip link show", async () => {
       // @ts-expect-error

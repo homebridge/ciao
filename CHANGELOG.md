@@ -8,7 +8,8 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 
 - ci: rename the pr-labeler caller job from stale to label
 - ci: update github actions to their latest versions
-- fix: don't list AAAA in the address NSEC record when `disabledIpv6` is set, so a lookup no longer waits for an IPv6 answer
+- fix: don't list AAAA in the address NSEC record when IPv6 is disabled (#79) (@ESchouten)
+- fix: keep a connected Wi-Fi interface on macOS 15 and later (#78) (@ESchouten)
 
 ## v1.3.12 (2026-08-15)
 

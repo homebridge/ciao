@@ -1033,6 +1033,36 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
+   * @param other - Another service of the same responder.
+   * @private returns if both services publish exactly the same address records, which is what lets
+   *   them share a hostname. Two services restricted to different addresses would each keep
+   *   overwriting the other's address records for it.
+   */
+  sharesAddressRecordsWith(other: CiaoService): boolean {
+    if (!!this.disableIpv6 !== !!other.disableIpv6) {
+      return false;
+    }
+
+    if (!this.restrictedAddresses || !other.restrictedAddresses) {
+      return !this.restrictedAddresses && !other.restrictedAddresses;
+    }
+
+    if (this.restrictedAddresses.size !== other.restrictedAddresses.size) {
+      return false;
+    }
+
+    for (const [name, addresses] of this.restrictedAddresses) {
+      const otherAddresses = other.restrictedAddresses.get(name);
+      if (!otherAddresses || otherAddresses.length !== addresses.length
+        || !addresses.every(address => otherAddresses.includes(address))) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * @private used to get a copy of the address NSEC record
    */
   addressNSECRecord(): NSECRecord {

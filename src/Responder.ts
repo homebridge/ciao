@@ -584,9 +584,20 @@ export class Responder implements PacketHandler {
 
     service.serviceState = ServiceState.ANNOUNCING;
 
+    // if another service still publishes this hostname, its address records must outlive this service (#20).
+    // On shutdown the services are cleared one after another, so the last one still withdraws them.
+    let keepAddressRecords = false;
+    for (const other of this.announcedServices.values()) {
+      if (other.getLowerCasedHostname() === service.getLowerCasedHostname() && other.sharesAddressRecordsWith(service)) {
+        keepAddressRecords = true;
+        break;
+      }
+    }
+
     const announcer = new Announcer(this.server, service, {
       repetitions: 1,
       goodbye: true,
+      keepAddressRecords: keepAddressRecords,
     });
     service.currentAnnouncer = announcer;
 

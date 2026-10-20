@@ -1,5 +1,6 @@
 import { Announcer } from "./Announcer";
 import { DNSPacket } from "../coder/DNSPacket";
+import { AAAARecord } from "../coder/records/AAAARecord";
 import { InterfaceNotFoundError } from "../util/errors";
 
 describe(Announcer, () => {
@@ -87,6 +88,41 @@ describe(Announcer, () => {
       expect(() => (Announcer as any).sendResponseAddingAddressRecords(
         server, service, [], false,
       )).not.toThrow();
+    });
+  });
+
+  describe("sendResponseAddingAddressRecords - IPv6 socket", () => {
+    // The bound interface names include each interface's IPv6 socket, "<name>/6", while the
+    // service's address records are keyed by the interface's own name.
+    it("adds the interface's address records to an announcement on its IPv6 socket", async () => {
+      const packetSpy = jest
+        .spyOn(DNSPacket, "createDNSResponsePacketsFromRRSet")
+        .mockReturnValue({} as DNSPacket);
+      const aaaaRecord = new AAAARecord("host.local.", "fe80::1");
+      const server = {
+        getBoundInterfaceNames: () => ["eth0/6"],
+        send: jest.fn(() => Promise.resolve({ status: "fulfilled", interface: "eth0/6" })),
+      };
+      const nsec = { ttl: 120 };
+      const service = {
+        advertisesOnInterface: () => true,
+        aRecord: () => undefined,
+        aaaaRecord: (name: string) => name === "eth0" ? aaaaRecord : undefined,
+        aaaaRoutableRecord: () => undefined,
+        aaaaUniqueLocalRecord: () => undefined,
+        addressNSECRecord: () => nsec,
+        serviceNSECRecord: () => nsec,
+      };
+
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (Announcer as any).sendResponseAddingAddressRecords(server, service, [], false);
+
+        expect(packetSpy).toHaveBeenCalledTimes(1);
+        expect(packetSpy.mock.calls[0][0].answers).toContain(aaaaRecord);
+      } finally {
+        packetSpy.mockRestore();
+      }
     });
   });
 });

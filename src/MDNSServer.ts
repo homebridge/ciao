@@ -614,7 +614,9 @@ export class MDNSServer {
         }
 
         try {
-          socket.addMembership(multicastAddress, interfaceAddress!);
+          // an IPv6 membership is joined on the interface the zone names; the link-local address alone
+          // carries no scope, so the kernel would pick the default multicast interface, or refuse (EADDRNOTAVAIL)
+          socket.addMembership(multicastAddress, isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
           socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
@@ -830,12 +832,12 @@ export class MDNSServer {
         socket = this.sockets.get(change.name + "/6");
         if (socket && change.outdatedIpv6 && change.updatedIpv6) {
           try {
-            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6);
+            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
           }
           try {
-            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6);
+            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when adding new address membership: " + error.message);
           }

@@ -407,4 +407,91 @@ describe(MDNSServer, () => {
       }
     });
   });
+
+  describe("IPv6 multicast membership - joined on the socket's own interface", () => {
+    /**
+     * A link-local address carries no scope by itself, so a membership joined by it alone is joined
+     * at scope 0: the kernel picks the default multicast interface, which may be another one (a
+     * loopback socket ends up on the Wi-Fi interface), or refuses with EADDRNOTAVAIL where there is
+     * none. The zone names the interface, as setMulticastInterface already does.
+     */
+    function membershipSocket() {
+      const calls = {
+        addMembership: [] as string[][],
+        dropMembership: [] as string[][],
+      };
+      const socket = {
+        calls,
+        once: () => socket,
+        on: () => socket,
+        removeListener: () => socket,
+        setRecvBufferSize: () => { /* no-op */ },
+        setMulticastInterface: () => { /* no-op */ },
+        setMulticastTTL: () => { /* no-op */ },
+        setTTL: () => { /* no-op */ },
+        setMulticastLoopback: () => { /* no-op */ },
+        close: () => { /* no-op */ },
+        bind: (port: number, callback: () => void) => callback(),
+        addMembership: (...args: string[]) => {
+          calls.addMembership.push(args);
+        },
+        dropMembership: (...args: string[]) => {
+          calls.dropMembership.push(args);
+        },
+      };
+      return socket;
+    }
+
+    it("joins the IPv6 group on the interface the socket is bound for", async () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+
+      // "IPv6" is IPFamily.IPv6; the enum is `const`, so its value is inlined
+      // rather than importable at runtime from a spec.
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      await (server as any).bindSocket(
+        socket as any,
+        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" } as any,
+        "IPv6" as any,
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::1%eth0"]]);
+    });
+
+    it("keeps joining the IPv4 group by the interface's address", async () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      await (server as any).bindSocket(
+        socket as any,
+        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.0.2.1" } as any,
+        "IPv4" as any,
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV4, "192.0.2.1"]]);
+    });
+
+    it("drops and joins again on the interface when its link-local address changes", () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sockets.set("eth0/6", socket);
+      const update: NetworkUpdate = {
+        changes: [{
+          name: "eth0",
+          outdatedIpv6: "fe80::1",
+          updatedIpv6: "fe80::2",
+        }],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).handleUpdatedNetworkInterfaces(update);
+
+      expect(socket.calls.dropMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::1%eth0"]]);
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::2%eth0"]]);
+    });
+  });
 });

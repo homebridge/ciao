@@ -195,10 +195,12 @@ export class Announcer {
 
       const answer: ResourceRecord[] = records.concat([]);
 
-      const aRecord = service.aRecord(name);
-      const aaaaRecord = service.aaaaRecord(name);
-      const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
-      const aaaaUniqueLocalRecord = service.aaaaUniqueLocalRecord(name);
+      // the address records are keyed by the interface's own name, not its IPv6 socket's ("<name>/6")
+      const interfaceName = name.endsWith("/6") ? name.slice(0, -2) : name;
+      const aRecord = service.aRecord(interfaceName);
+      const aaaaRecord = service.aaaaRecord(interfaceName);
+      const aaaaRoutableRecord = service.aaaaRoutableRecord(interfaceName);
+      const aaaaUniqueLocalRecord = service.aaaaUniqueLocalRecord(interfaceName);
       //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       const nsecRecord = service.addressNSECRecord();
       const serviceNsecRecord = service.serviceNSECRecord();

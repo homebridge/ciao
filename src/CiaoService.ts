@@ -929,17 +929,20 @@ export class CiaoService extends EventEmitter {
   /**
    * Returns if the given service is advertising on the provided network interface.
    *
-   * @param name - The desired interface name.
+   * @param name - The desired interface name. The name of an interface's IPv6 socket ("en0/6") is accepted as well.
    * @param skipAddressCheck - If true it is not checked if the service actually has
    *   an address record for the given interface.
    * @private returns if the service should be advertised on the given service
    */
   advertisesOnInterface(name: InterfaceName, skipAddressCheck?: boolean): boolean {
-    return !this.restrictedAddresses || this.restrictedAddresses.has(name) && (
+    // the MDNSServer names an interface's IPv6 socket "<name>/6", while restrictedAddresses and the
+    // address records are keyed by the interface's own name
+    const interfaceName = name.endsWith("/6") ? name.slice(0, -2) : name;
+    return !this.restrictedAddresses || this.restrictedAddresses.has(interfaceName) && (
       skipAddressCheck ||
       // must have at least one address record on the given interface
-      !!this.serviceRecords?.a[name] || !!this.serviceRecords?.aaaa[name]
-      || !!this.serviceRecords?.aaaaR[name] || !!this.serviceRecords?.aaaaULA[name]
+      !!this.serviceRecords?.a[interfaceName] || !!this.serviceRecords?.aaaa[interfaceName]
+      || !!this.serviceRecords?.aaaaR[interfaceName] || !!this.serviceRecords?.aaaaULA[interfaceName]
     );
   }
 

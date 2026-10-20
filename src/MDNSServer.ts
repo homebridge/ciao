@@ -633,7 +633,9 @@ export class MDNSServer {
         }
 
         try {
-          socket.addMembership(multicastAddress, interfaceAddress!);
+          // an IPv6 membership is joined on the interface the zone names; the link-local address alone
+          // carries no scope, so the kernel would pick the default multicast interface, or refuse (EADDRNOTAVAIL)
+          socket.addMembership(multicastAddress, isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
           socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
@@ -667,7 +669,9 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
-    if (this.checkIfPacketWasPreviouslySentFromUs(networkInterface.name, buffer)) {
+    // a sent packet is kept under the name of the socket it went out on, "<name>/6" for an IPv6 one
+    const socketName = family === IPFamily.IPv6 ? networkInterface.name + "/6" : networkInterface.name;
+    if (this.checkIfPacketWasPreviouslySentFromUs(socketName, buffer)) {
       // multicastLoopback is enabled for every interface, meaning we would receive our own response
       // packets here. Thus, we silence them. We can't disable multicast loopback, as otherwise
       // queriers on the same host won't receive our packets
@@ -849,12 +853,12 @@ export class MDNSServer {
         socket = this.sockets.get(change.name + "/6");
         if (socket && change.outdatedIpv6 && change.updatedIpv6) {
           try {
-            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6);
+            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
           }
           try {
-            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6);
+            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when adding new address membership: " + error.message);
           }

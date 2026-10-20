@@ -1,6 +1,7 @@
 import { MDNSServer, SendResultFailedRatio, TimedSendResult } from "./MDNSServer";
 import { NetworkUpdate } from "./NetworkManager";
 import { DNSPacket } from "./coder/DNSPacket";
+import { AAAARecord } from "./coder/records/AAAARecord";
 
 // Build an MDNSServer with only the state needed for sent-packet bookkeeping.
 // The real constructor spins up a NetworkManager (enumerates OS interfaces) and
@@ -298,6 +299,36 @@ describe(MDNSServer, () => {
 
       check(server, "eth0", packet);
       expect(ifaceMap.size).toBe(0);
+    });
+
+    it("silences our own packet looped back to an interface's IPv6 socket", () => {
+      // A packet sent on the IPv6 socket is kept under "<name>/6", while the socket hands what it
+      // receives on with the interface's own name. Unsilenced, an announcement comes back as
+      // another host's, and a service with an empty TXT record takes its own TXT for a conflict.
+      const server = makeBareServer();
+      const handler = { handleQuery: jest.fn(), handleResponse: jest.fn() };
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (server as any).handler = handler;
+      (server as any).networkManager = {
+        getInterface: () => ({ name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" }),
+      };
+      const ours = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: [new AAAARecord("host.local.", "fe80::1")],
+      }).encode();
+      const theirs = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: [new AAAARecord("other.local.", "fe80::2")],
+      }).encode();
+      const receive = (packet: Buffer) => (server as any).handleMessage(
+        "eth0", packet, { address: "fe80::2%eth0", family: "IPv6", port: 5353, size: packet.length }, "IPv6",
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      maintain(server, "eth0/6", ours);
+      receive(ours);
+      expect(handler.handleResponse).not.toHaveBeenCalled();
+
+      receive(theirs);
+      expect(handler.handleResponse).toHaveBeenCalledTimes(1);
     });
   });
 

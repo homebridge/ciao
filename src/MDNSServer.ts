@@ -650,7 +650,9 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
-    if (this.checkIfPacketWasPreviouslySentFromUs(networkInterface.name, buffer)) {
+    // a sent packet is kept under the name of the socket it went out on, "<name>/6" for an IPv6 one
+    const socketName = family === IPFamily.IPv6 ? networkInterface.name + "/6" : networkInterface.name;
+    if (this.checkIfPacketWasPreviouslySentFromUs(socketName, buffer)) {
       // multicastLoopback is enabled for every interface, meaning we would receive our own response
       // packets here. Thus, we silence them. We can't disable multicast loopback, as otherwise
       // queriers on the same host won't receive our packets

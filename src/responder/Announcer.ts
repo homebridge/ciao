@@ -205,12 +205,14 @@ export class Announcer {
 
       const answer: ResourceRecord[] = records.concat([]);
 
+      // the address records are keyed by the interface's own name, not its IPv6 socket's ("<name>/6")
+      const interfaceName = name.endsWith("/6") ? name.slice(0, -2) : name;
       // a goodbye for the address records would make every querier forget the hostname,
       // while another service of this responder is still reachable under it
-      const aRecord = keepAddressRecords? undefined: service.aRecord(name);
-      const aaaaRecord = keepAddressRecords? undefined: service.aaaaRecord(name);
-      const aaaaRoutableRecord = keepAddressRecords? undefined: service.aaaaRoutableRecord(name);
-      const aaaaUniqueLocalRecord = keepAddressRecords? undefined: service.aaaaUniqueLocalRecord(name);
+      const aRecord = keepAddressRecords? undefined: service.aRecord(interfaceName);
+      const aaaaRecord = keepAddressRecords? undefined: service.aaaaRecord(interfaceName);
+      const aaaaRoutableRecord = keepAddressRecords? undefined: service.aaaaRoutableRecord(interfaceName);
+      const aaaaUniqueLocalRecord = keepAddressRecords? undefined: service.aaaaUniqueLocalRecord(interfaceName);
       //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       const nsecRecord = service.addressNSECRecord();
       const serviceNsecRecord = service.serviceNSECRecord();

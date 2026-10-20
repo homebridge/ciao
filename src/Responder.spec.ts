@@ -2,6 +2,7 @@ import { CiaoService, ServiceOptions, ServiceState } from "./CiaoService";
 import { NetworkManager } from "./NetworkManager";
 import { Responder } from "./Responder";
 import { Announcer } from "./responder/Announcer";
+import { TXTRecord } from "./coder/records/TXTRecord";
 
 // Build a Responder instance without running the constructor — it would otherwise
 // open sockets and start the MDNSServer. We only need a `server` field that lets
@@ -167,6 +168,28 @@ describe(Responder, () => {
 
     it("withdraws the address records when the other service has another hostname", () => {
       expect(goodbyeKeepsAddressRecords(makeService({ type: "http" }), [ makeService({ type: "ipp", hostname: "Kitchen" }) ])).toBe(false);
+    });
+  });
+
+  describe("TXT conflicts for a service without TXT data", () => {
+    function conflictType(txt: Buffer[]): number {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "No TXT", type: "http", port: 4711 });
+      service.rebuildServiceRecords();
+      const record = new TXTRecord(service.getFQDN(), txt);
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      return (Responder as any).checkRecordConflictType(service, record, { interface: "en0" } as any);
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    }
+
+    // 0 is ConflictType.NO_CONFLICT and 1 CONFLICTING_RDATA; the enum is `const`, so not importable here
+    it("does not take its own empty TXT record, as it comes back off the network, for a conflict", () => {
+      // an empty TXT record is sent as a single empty string (RFC 6763 6.1.) and decodes as one
+      expect(conflictType([Buffer.alloc(0)])).toBe(0);
+    });
+
+    it("still takes a TXT record with data for a conflict", () => {
+      expect(conflictType([Buffer.from("v=1")])).toBe(1);
     });
   });
 });

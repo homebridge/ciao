@@ -584,9 +584,20 @@ export class Responder implements PacketHandler {
 
     service.serviceState = ServiceState.ANNOUNCING;
 
+    // if another service still publishes this hostname, its address records must outlive this service (#20).
+    // On shutdown the services are cleared one after another, so the last one still withdraws them.
+    let keepAddressRecords = false;
+    for (const other of this.announcedServices.values()) {
+      if (other.getLowerCasedHostname() === service.getLowerCasedHostname() && other.sharesAddressRecordsWith(service)) {
+        keepAddressRecords = true;
+        break;
+      }
+    }
+
     const announcer = new Announcer(this.server, service, {
       repetitions: 1,
       goodbye: true,
+      keepAddressRecords: keepAddressRecords,
     });
     service.currentAnnouncer = announcer;
 
@@ -900,7 +911,10 @@ export class Responder implements PacketHandler {
         }
       } else if (record.type === RType.TXT) {
         const txtRecord = record as TXTRecord;
-        const txt = service.getTXT();
+        // a TXT record can't hold zero strings, so an empty one goes out as a single empty string
+        // (RFC 6763 6.1.) and that's how it comes back. Comparing it to the service's [] instead made
+        // a service without TXT data take its own record, echoed back by anything, for a conflict
+        const txt = service.getTXT().length === 0 ? [Buffer.alloc(0)] : service.getTXT();
 
         if (txt.length !== txtRecord.txt.length) { // length differs, can't be the same data
           debug("[%s] Noticed conflicting record on the network. TXT with differing data length", service.getFQDN());

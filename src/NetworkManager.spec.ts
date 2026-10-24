@@ -7,8 +7,48 @@ const execMock = jest.spyOn(childProcess, "exec");
 
 // @ts-expect-error
 const getLinuxNetworkInterfaces = NetworkManager.getLinuxNetworkInterfaces;
+// @ts-expect-error
+const getDarwinNetworkInterfaces = NetworkManager.getDarwinNetworkInterfaces;
 
 describe(NetworkManager, () => {
+  describe(getDarwinNetworkInterfaces, () => {
+    it("should parse interfaces from arp without asking for their Wi-Fi state", async () => {
+      execMock.mockClear();
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        if (command !== "arp -a -n -l") {
+          console.warn("Command for getDarwinNetworkInterfaces differs from the expected input!");
+        }
+
+        callback(null,
+          "Neighbor                Linklayer Address Expire(O) Expire(I)          Netif Refs Prbs\n" +
+          "192.168.1.1             0:0:5e:0:53:1     1m20s     1m15s            en0    1\n" +
+          "192.168.1.66            0:0:5e:0:53:2     expired   expired          en0    2\n" +
+          "169.254.169.254         (incomplete)      (none)    (none)           en0\n" +
+          "192.168.2.1             0:0:5e:0:53:3     expired   expired          en5    1\n", "");
+      });
+
+      const names = await getDarwinNetworkInterfaces();
+      expect(names).toStrictEqual(["en0", "en5"]);
+      // Since macOS 15, "networksetup -getairportnetwork" reports a connected Wi-Fi interface as
+      // "not associated", so its answer must not decide which interfaces are used.
+      expect(execMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("should handle output without neighbors", () => {
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        callback(null, "Neighbor                Linklayer Address Expire(O) Expire(I)          Netif Refs Prbs\n", "");
+      });
+
+      return getDarwinNetworkInterfaces().then(() => {
+        fail("Should not parse names when no neighbors are listed!");
+      }, reason => {
+        expect(reason.message).toBe("no interfaces found");
+      });
+    });
+  });
+
   describe(getLinuxNetworkInterfaces, () => {
     it("should parse interfaces from ip link show", async () => {
       // @ts-expect-error
@@ -28,6 +68,23 @@ describe(NetworkManager, () => {
 
       const names = await getLinuxNetworkInterfaces();
       expect(names).toStrictEqual(["eth0", "asdf", "eth1", "eth3", "eth6"]);
+    });
+
+    it("should drop the link suffix from VLAN, macvlan and veth interface names", async () => {
+      // @ts-expect-error
+      execMock.mockImplementationOnce((command: string, _options: unknown, callback: (error: ExecException | null, stdout: string, stderr: string) => void) => {
+        callback(null,
+          "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\ link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n" +
+          "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000\\ link/ether 00:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff\n" +
+          "3: eth0.10@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 00:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff\n" +
+          "4: macvlan0@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 00:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff\n" +
+          "5: eth1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT\\ link/ether 02:42:ac:11:00:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0\n", "");
+      });
+
+      // os.networkInterfaces() names these "eth0.10", "macvlan0" and "eth1", so a name that kept
+      // its "@<link>" part matched nothing and the interface was never advertised on
+      const names = await getLinuxNetworkInterfaces();
+      expect(names).toStrictEqual(["eth0", "eth0.10", "macvlan0", "eth1"]);
     });
 
     it("should handle error caused by exec", () => {

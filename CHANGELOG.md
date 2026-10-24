@@ -7,6 +7,15 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changes
 
 - ci: rename the pr-labeler caller job from stale to label
+- ci: update github actions to their latest versions
+- fix: don't list AAAA in the address NSEC record when IPv6 is disabled (#79) (@ESchouten)
+- fix: keep a connected Wi-Fi interface on macOS 15 and later (#78) (@ESchouten)
+- fix: close every socket when the responder is shut down before it has finished binding
+- fix: find VLAN, macvlan and veth interfaces on linux, which ip lists with an @ suffix
+- fix: let services of different types share a name instead of renaming one to (2) (#20)
+- chore(deps): dependency updates
+- fix: IPv6 advertising for restricted services, multicast joins and own packets (#81) (@roidayan1)
+- fix: don't take a service's own empty TXT record for a conflict
 
 ## v1.3.12 (2026-08-15)
 

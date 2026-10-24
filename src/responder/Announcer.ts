@@ -24,6 +24,11 @@ export interface AnnouncerOptions {
    * If set to true, goodbye packets will be sent (ttl will be set to zero on all records)
    */
   goodbye?: boolean;
+  /**
+   * If set to true, a goodbye leaves the address records of the service's hostname alone,
+   * as another service of the same responder still publishes them (#20).
+   */
+  keepAddressRecords?: boolean;
 }
 
 /**
@@ -46,6 +51,7 @@ export class Announcer {
   private readonly repetitions: number = 1;
   private readonly announceIntervalIncreaseFactor = 2; // RFC states a factor of AT LEAST two (could be higher as it seems)
   private readonly goodbye: boolean = false;
+  private readonly keepAddressRecords: boolean = false;
 
   private timer?: Timeout;
   private promise?: Promise<void>;
@@ -70,6 +76,9 @@ export class Announcer {
       }
       if (options.goodbye) {
         this.goodbye = true;
+      }
+      if (options.keepAddressRecords) {
+        this.keepAddressRecords = true;
       }
     }
 
@@ -151,7 +160,7 @@ export class Announcer {
       this.sentLastAnnouncement = true;
     }
 
-    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye).then(results => {
+    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye, this.keepAddressRecords).then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)
@@ -185,7 +194,8 @@ export class Announcer {
     });
   }
 
-  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean): Promise<TimedSendResult[]> {
+  private static sendResponseAddingAddressRecords(server: MDNSServer, service: CiaoService, records: ResourceRecord[], goodbye: boolean,
+    keepAddressRecords = false): Promise<TimedSendResult[]> {
     const promises: Promise<TimedSendResult>[] = [];
 
     for (const name of server.getBoundInterfaceNames()) {
@@ -195,10 +205,14 @@ export class Announcer {
 
       const answer: ResourceRecord[] = records.concat([]);
 
-      const aRecord = service.aRecord(name);
-      const aaaaRecord = service.aaaaRecord(name);
-      const aaaaRoutableRecord = service.aaaaRoutableRecord(name);
-      const aaaaUniqueLocalRecord = service.aaaaUniqueLocalRecord(name);
+      // the address records are keyed by the interface's own name, not its IPv6 socket's ("<name>/6")
+      const interfaceName = name.endsWith("/6") ? name.slice(0, -2) : name;
+      // a goodbye for the address records would make every querier forget the hostname,
+      // while another service of this responder is still reachable under it
+      const aRecord = keepAddressRecords? undefined: service.aRecord(interfaceName);
+      const aaaaRecord = keepAddressRecords? undefined: service.aaaaRecord(interfaceName);
+      const aaaaRoutableRecord = keepAddressRecords? undefined: service.aaaaRoutableRecord(interfaceName);
+      const aaaaUniqueLocalRecord = keepAddressRecords? undefined: service.aaaaUniqueLocalRecord(interfaceName);
       //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       const nsecRecord = service.addressNSECRecord();
       const serviceNsecRecord = service.serviceNSECRecord();
@@ -244,7 +258,10 @@ export class Announcer {
       }
 
       const additionals: ResourceRecord[] = [];
-      additionals.push(nsecRecord, serviceNsecRecord);
+      if (!keepAddressRecords) {
+        additionals.push(nsecRecord);
+      }
+      additionals.push(serviceNsecRecord);
 
       const packet = DNSPacket.createDNSResponsePacketsFromRRSet({
         answers: answer,

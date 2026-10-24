@@ -1,6 +1,8 @@
+import dgram from "dgram";
 import { MDNSServer, SendResultFailedRatio, TimedSendResult } from "./MDNSServer";
 import { NetworkUpdate } from "./NetworkManager";
 import { DNSPacket } from "./coder/DNSPacket";
+import { AAAARecord } from "./coder/records/AAAARecord";
 
 // Build an MDNSServer with only the state needed for sent-packet bookkeeping.
 // The real constructor spins up a NetworkManager (enumerates OS interfaces) and
@@ -299,6 +301,36 @@ describe(MDNSServer, () => {
       check(server, "eth0", packet);
       expect(ifaceMap.size).toBe(0);
     });
+
+    it("silences our own packet looped back to an interface's IPv6 socket", () => {
+      // A packet sent on the IPv6 socket is kept under "<name>/6", while the socket hands what it
+      // receives on with the interface's own name. Unsilenced, an announcement comes back as
+      // another host's, and a service with an empty TXT record takes its own TXT for a conflict.
+      const server = makeBareServer();
+      const handler = { handleQuery: jest.fn(), handleResponse: jest.fn() };
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (server as any).handler = handler;
+      (server as any).networkManager = {
+        getInterface: () => ({ name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" }),
+      };
+      const ours = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: [new AAAARecord("host.local.", "fe80::1")],
+      }).encode();
+      const theirs = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: [new AAAARecord("other.local.", "fe80::2")],
+      }).encode();
+      const receive = (packet: Buffer) => (server as any).handleMessage(
+        "eth0", packet, { address: "fe80::2%eth0", family: "IPv6", port: 5353, size: packet.length }, "IPv6",
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      maintain(server, "eth0/6", ours);
+      receive(ours);
+      expect(handler.handleResponse).not.toHaveBeenCalled();
+
+      receive(theirs);
+      expect(handler.handleResponse).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("sentPackets cleanup timer", () => {
@@ -405,6 +437,158 @@ describe(MDNSServer, () => {
         logSpy.mockRestore();
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  describe("bind racing shutdown (#27)", () => {
+    const networkInterface = { name: "en0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2" };
+
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    function makeServer(waitForInit: () => Promise<void>): MDNSServer {
+      const server = makeBareServer();
+      (server as any).advertiseFamilies = ["IPv4"];
+      (server as any).networkManager = {
+        shutdown: () => { /* no-op */ },
+        waitForInit,
+        getInterfaceMap: () => new Map([[networkInterface.name, networkInterface]]),
+      };
+      return server;
+    }
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("opens no socket when shut down while waiting for the network interfaces", async () => {
+      let finishInit!: () => void;
+      const server = makeServer(() => new Promise(resolve => {
+        finishInit = resolve;
+      }));
+      const createSocket = jest.spyOn(dgram, "createSocket");
+
+      const bound = server.bind();
+      server.shutdown();
+      finishInit();
+      await bound;
+
+      expect(createSocket).not.toHaveBeenCalled();
+    });
+
+    it("closes a socket whose bind completes after shutdown", async () => {
+      const server = makeServer(() => Promise.resolve());
+      let finishBind!: () => void;
+      const socket = {
+        on: () => socket,
+        once: () => socket,
+        removeListener: () => socket,
+        bind: (port: number, callback: () => void) => {
+          finishBind = callback;
+        },
+        close: jest.fn(),
+        setRecvBufferSize: jest.fn(),
+        addMembership: jest.fn(),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(dgram, "createSocket").mockReturnValue(socket as any);
+
+      const bound = server.bind();
+      // let bind() get past waitForInit() and start binding the socket
+      await new Promise(resolve => setImmediate(resolve));
+      server.shutdown();
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalled();
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+    });
+  });
+
+  describe("IPv6 multicast membership - joined on the socket's own interface", () => {
+    /**
+     * A link-local address carries no scope by itself, so a membership joined by it alone is joined
+     * at scope 0: the kernel picks the default multicast interface, which may be another one (a
+     * loopback socket ends up on the Wi-Fi interface), or refuses with EADDRNOTAVAIL where there is
+     * none. The zone names the interface, as setMulticastInterface already does.
+     */
+    function membershipSocket() {
+      const calls = {
+        addMembership: [] as string[][],
+        dropMembership: [] as string[][],
+      };
+      const socket = {
+        calls,
+        once: () => socket,
+        on: () => socket,
+        removeListener: () => socket,
+        setRecvBufferSize: () => { /* no-op */ },
+        setMulticastInterface: () => { /* no-op */ },
+        setMulticastTTL: () => { /* no-op */ },
+        setTTL: () => { /* no-op */ },
+        setMulticastLoopback: () => { /* no-op */ },
+        close: () => { /* no-op */ },
+        bind: (port: number, callback: () => void) => callback(),
+        addMembership: (...args: string[]) => {
+          calls.addMembership.push(args);
+        },
+        dropMembership: (...args: string[]) => {
+          calls.dropMembership.push(args);
+        },
+      };
+      return socket;
+    }
+
+    it("joins the IPv6 group on the interface the socket is bound for", async () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+
+      // "IPv6" is IPFamily.IPv6; the enum is `const`, so its value is inlined
+      // rather than importable at runtime from a spec.
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      await (server as any).bindSocket(
+        socket as any,
+        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" } as any,
+        "IPv6" as any,
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::1%eth0"]]);
+    });
+
+    it("keeps joining the IPv4 group by the interface's address", async () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      await (server as any).bindSocket(
+        socket as any,
+        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.0.2.1" } as any,
+        "IPv4" as any,
+      );
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV4, "192.0.2.1"]]);
+    });
+
+    it("drops and joins again on the interface when its link-local address changes", () => {
+      const server = makeBareServer();
+      const socket = membershipSocket();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sockets.set("eth0/6", socket);
+      const update: NetworkUpdate = {
+        changes: [{
+          name: "eth0",
+          outdatedIpv6: "fe80::1",
+          updatedIpv6: "fe80::2",
+        }],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).handleUpdatedNetworkInterfaces(update);
+
+      expect(socket.calls.dropMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::1%eth0"]]);
+      expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::2%eth0"]]);
     });
   });
 });

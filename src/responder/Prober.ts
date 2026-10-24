@@ -226,7 +226,9 @@ export class Prober {
   private checkLocalConflicts() {
     let containsAnswer = false;
     for (const service of this.responder.getAnnouncedServices()) {
-      if (service.getLowerCasedFQDN() === this.service.getLowerCasedFQDN() || service.getLowerCasedHostname() === this.service.getLowerCasedHostname()) {
+      // services of this responder may share a hostname, as long as they publish the same addresses for it (#20)
+      if (service.getLowerCasedFQDN() === this.service.getLowerCasedFQDN()
+        || service.getLowerCasedHostname() === this.service.getLowerCasedHostname() && !service.sharesAddressRecordsWith(this.service)) {
         containsAnswer = true;
         break;
       }

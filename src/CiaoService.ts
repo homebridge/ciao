@@ -921,24 +921,28 @@ export class CiaoService extends EventEmitter {
       aaaaR: aaaaRoutableRecordMap,
       aaaaULA: aaaaUniqueLocalRecordMap,
       reverseAddressPTRs: reverseAddressMap,
-      addressNSEC: new NSECRecord(this.hostname, this.hostname, [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
+      // without AAAA records the bitmap must not list them, or a querier keeps waiting for one (RFC 6762 6.1.)
+      addressNSEC: new NSECRecord(this.hostname, this.hostname, this.disableIpv6? [RType.A]: [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
     };
   }
 
   /**
    * Returns if the given service is advertising on the provided network interface.
    *
-   * @param name - The desired interface name.
+   * @param name - The desired interface name. The name of an interface's IPv6 socket ("en0/6") is accepted as well.
    * @param skipAddressCheck - If true it is not checked if the service actually has
    *   an address record for the given interface.
    * @private returns if the service should be advertised on the given service
    */
   advertisesOnInterface(name: InterfaceName, skipAddressCheck?: boolean): boolean {
-    return !this.restrictedAddresses || this.restrictedAddresses.has(name) && (
+    // the MDNSServer names an interface's IPv6 socket "<name>/6", while restrictedAddresses and the
+    // address records are keyed by the interface's own name
+    const interfaceName = name.endsWith("/6") ? name.slice(0, -2) : name;
+    return !this.restrictedAddresses || this.restrictedAddresses.has(interfaceName) && (
       skipAddressCheck ||
       // must have at least one address record on the given interface
-      !!this.serviceRecords?.a[name] || !!this.serviceRecords?.aaaa[name]
-      || !!this.serviceRecords?.aaaaR[name] || !!this.serviceRecords?.aaaaULA[name]
+      !!this.serviceRecords?.a[interfaceName] || !!this.serviceRecords?.aaaa[interfaceName]
+      || !!this.serviceRecords?.aaaaR[interfaceName] || !!this.serviceRecords?.aaaaULA[interfaceName]
     );
   }
 
@@ -1029,6 +1033,36 @@ export class CiaoService extends EventEmitter {
     });
 
     return records;
+  }
+
+  /**
+   * @param other - Another service of the same responder.
+   * @private returns if both services publish exactly the same address records, which is what lets
+   *   them share a hostname. Two services restricted to different addresses would each keep
+   *   overwriting the other's address records for it.
+   */
+  sharesAddressRecordsWith(other: CiaoService): boolean {
+    if (!!this.disableIpv6 !== !!other.disableIpv6) {
+      return false;
+    }
+
+    if (!this.restrictedAddresses || !other.restrictedAddresses) {
+      return !this.restrictedAddresses && !other.restrictedAddresses;
+    }
+
+    if (this.restrictedAddresses.size !== other.restrictedAddresses.size) {
+      return false;
+    }
+
+    for (const [name, addresses] of this.restrictedAddresses) {
+      const otherAddresses = other.restrictedAddresses.get(name);
+      if (!otherAddresses || otherAddresses.length !== addresses.length
+        || !addresses.every(address => otherAddresses.includes(address))) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

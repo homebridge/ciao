@@ -254,6 +254,12 @@ export class MDNSServer {
     // wait for the first network interfaces to be discovered
     await this.networkManager.waitForInit();
 
+    // shutdown() may have run while we were waiting. It only closes the sockets it can see,
+    // so any socket opened from here on would stay open and keep the process alive (#27).
+    if (this.closed) {
+      return;
+    }
+
     const promises: Promise<void>[] = [];
 
     for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
@@ -590,8 +596,21 @@ export class MDNSServer {
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
-        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
         socket.removeListener("error", errorHandler);
+
+        if (this.closed) {
+          // shutdown() ran while this socket was binding, and it isn't in this.sockets yet,
+          // so nothing else would ever close it (#27)
+          try {
+            socket.close();
+          } catch (error) {
+            // Ignore
+          }
+          resolve();
+          return;
+        }
+
+        socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
         const interfaceAddress = isIPv6 ? networkInterface.ipv6 : networkInterface.ipv4;
@@ -614,7 +633,9 @@ export class MDNSServer {
         }
 
         try {
-          socket.addMembership(multicastAddress, interfaceAddress!);
+          // an IPv6 membership is joined on the interface the zone names; the link-local address alone
+          // carries no scope, so the kernel would pick the default multicast interface, or refuse (EADDRNOTAVAIL)
+          socket.addMembership(multicastAddress, isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
           socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
@@ -648,7 +669,9 @@ export class MDNSServer {
       debug("Received packet on non existing network interface: %s!", name);
       return;
     }
-    if (this.checkIfPacketWasPreviouslySentFromUs(networkInterface.name, buffer)) {
+    // a sent packet is kept under the name of the socket it went out on, "<name>/6" for an IPv6 one
+    const socketName = family === IPFamily.IPv6 ? networkInterface.name + "/6" : networkInterface.name;
+    if (this.checkIfPacketWasPreviouslySentFromUs(socketName, buffer)) {
       // multicastLoopback is enabled for every interface, meaning we would receive our own response
       // packets here. Thus, we silence them. We can't disable multicast loopback, as otherwise
       // queriers on the same host won't receive our packets
@@ -830,12 +853,12 @@ export class MDNSServer {
         socket = this.sockets.get(change.name + "/6");
         if (socket && change.outdatedIpv6 && change.updatedIpv6) {
           try {
-            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6);
+            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
           }
           try {
-            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6);
+            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6 + "%" + change.name);
           } catch (error) {
             debug("Thrown unexpected error when adding new address membership: " + error.message);
           }

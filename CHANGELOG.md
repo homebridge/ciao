@@ -17,6 +17,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: IPv6 advertising for restricted services, multicast joins and own packets (#81) (@roidayan1)
 - fix: don't take a service's own empty TXT record for a conflict
 - fix: enforce DNS name limits when decoding received names (#83)
+- ci: fail pull requests that target latest instead of the beta branch
 
 ## v1.3.12 (2026-08-15)
 

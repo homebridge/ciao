@@ -163,4 +163,79 @@ describe(DNSLabelCoder, () => {
       expect(decodedRoot.readBytes).toBe(1);
     });
   });
+
+  describe("name decoding limits", () => {
+    // literal labels of the given lengths, ending with the root label
+    function labels(...lengths: number[]): number[] {
+      const bytes: number[] = [];
+      for (const length of lengths) {
+        bytes.push(length, ...Buffer.alloc(length, "a"));
+      }
+      bytes.push(0);
+      return bytes;
+    }
+
+    function coderFor(bytes: number[]): DNSLabelCoder {
+      const coder = new DNSLabelCoder();
+      coder.initBuf(Buffer.from(bytes));
+      return coder;
+    }
+
+    it("decodes a name of exactly 255 bytes", () => {
+      const coder = coderFor(labels(63, 63, 63, 61)); // 64 * 3 + 62 + 1 = 255
+
+      const decoded = coder.decodeName(0);
+      expect(decoded.data.length).toBe(254); // 63 * 3 + 61 characters, 4 dots
+      expect(decoded.readBytes).toBe(255);
+    });
+
+    it("rejects a name longer than 255 bytes", () => {
+      const coder = coderFor(labels(63, 63, 63, 62)); // 256 bytes
+
+      expect(() => coder.decodeName(0)).toThrow(/maximum length/);
+    });
+
+    it("rejects a name which only gets too long through a pointer", () => {
+      const coder = coderFor([
+        ...labels(63, 63, 63), // 193 bytes at 0
+        0xC0, 0, // bare pointer to it at 193, fine
+        60, ...Buffer.alloc(60, "b"), 0xC0, 0, // 61 + 193 = 254 bytes at 195, fine
+        61, ...Buffer.alloc(61, "c"), 0xC0, 0, // 62 + 193 = 255 bytes at 258, fine
+        62, ...Buffer.alloc(62, "d"), 0xC0, 0, // 63 + 193 = 256 bytes at 322, too long
+      ]);
+
+      expect(coder.decodeName(193).readBytes).toBe(2);
+      expect(coder.decodeName(195).data).toBe("b".repeat(60) + "." + coder.decodeName(0).data);
+      expect(coder.decodeName(258).readBytes).toBe(64);
+      // the name at 0 was read and remembered through the pointers above, the limit must still hold
+      expect(() => coder.decodeName(322)).toThrow(/maximum length/);
+    });
+
+    it("rejects too long chains of compression pointers", () => {
+      // the root label at 0, followed by pointers each pointing to the one before
+      const bytes = [ 0 ];
+      for (let i = 0; i < 200; i++) {
+        const target = i === 0? 0: 1 + (i - 1) * 2;
+        bytes.push(0xC0 | (target >> 8), target & 0xFF);
+      }
+      const coder = coderFor(bytes);
+
+      expect(coder.decodeName(1 + 127 * 2).data).toBe("."); // 128 pointers
+      expect(() => coder.decodeName(1 + 128 * 2)).toThrow(/compression pointers/); // 129 pointers
+      expect(() => coder.decodeName(1 + 199 * 2)).toThrow(/compression pointers/);
+    });
+
+    it("decodes the same name pointed to from different names", () => {
+      const coder = coderFor([
+        1, "a".charCodeAt(0), 5, ..."local".split("").map(char => char.charCodeAt(0)), 0, // "a.local." at 0
+        1, "b".charCodeAt(0), 0xC0, 0, // "b.a.local." at 9
+        1, "c".charCodeAt(0), 0xC0, 0, // "c.a.local." at 13
+        1, "d".charCodeAt(0), 0xC0, 9, // "d.b.a.local." at 17
+        0xC0, 2, // "local." at 21
+      ]);
+
+      expect([ 9, 13, 17, 21, 0 ].map(offset => coder.decodeName(offset).data))
+        .toEqual([ "b.a.local.", "c.a.local.", "d.b.a.local.", "local.", "a.local." ]);
+    });
+  });
 });

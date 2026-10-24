@@ -85,4 +85,22 @@ describe(DNSPacket, () => {
     packets.slice(0, -1).forEach(packet => expect(packet.flags.truncation).toBe(true));
     expect(packets[packets.length - 1].flags.truncation).toBeFalsy();
   });
+
+  // a name over the limits makes the whole packet invalid. Dropping just the record it is in would let
+  // every further record in the packet go through the same work again
+  it("drops the whole packet when a record holds a name over the length limit", () => {
+    const context = { address: "192.168.1.2", family: "IPv4", port: 5353 };
+    const ptrRecord = (name: number[], rData: number[]) => [ ...name, 0, RType.PTR, 0, QClass.IN, 0, 0, 0, 120, 0, rData.length, ...rData ];
+
+    // a response with two PTR records. The first one is named with a 193 byte name, which the second one
+    // points to from its rdata with a label of the given length put in front of it
+    const packet = (labelLength: number) => Buffer.from([
+      0, 0, 0x84, 0, 0, 0, 0, 2, 0, 0, 0, 0,
+      ...ptrRecord([ 63, ...Buffer.alloc(63, "a"), 63, ...Buffer.alloc(63, "b"), 63, ...Buffer.alloc(63, "c"), 0 ], [ 0xC0, 12 ]),
+      ...ptrRecord([ 0xC0, 12 ], [ labelLength, ...Buffer.alloc(labelLength, "x"), 0xC0, 12 ]),
+    ]);
+
+    expect(DNSPacket.decode(context, packet(61)).answers.size).toBe(2); // 62 + 193 = 255 bytes
+    expect(() => DNSPacket.decode(context, packet(62))).toThrow(/maximum length/); // 256 bytes
+  });
 });

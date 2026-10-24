@@ -2,6 +2,7 @@ import assert from "assert";
 import createDebug from "debug";
 import { AddressInfo } from "net";
 import { dnsLowerCase } from "../util/dns-equal";
+import { NameLimitExceededError } from "../util/errors";
 import { dnsTypeToString } from "./dns-string-utils";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, OptionalDecodedData, RClass, RType } from "./DNSPacket";
@@ -187,6 +188,10 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       // we slice the buffer (below), so out of bounds error are instantly detected
       decodedRecord = rrDecoder(coder, header, rdata, offset);
     } catch (error) {
+      if (error instanceof NameLimitExceededError) {
+        throw error; // the packet as a whole is invalid, no point in reading the remaining records
+      }
+
       debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} \
 from ${context.address}:${context.port} with data '${rdata.subarray(offset).toString("hex")}': ${error.stack}`);
 

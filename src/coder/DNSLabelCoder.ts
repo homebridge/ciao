@@ -1,9 +1,18 @@
 import assert from "assert";
+import { NameLimitExceededError } from "../util/errors";
 import { DecodedData } from "./DNSPacket";
 
 interface WrittenName {
   name: string;
   writtenLabels: number[]; // array of indices where the corresponding labels are written in the buffer
+}
+
+interface DecodedName {
+  name: string;
+  readBytes: number;
+  length: number; // length in bytes the name takes on the wire once expanded, including the root label
+  pointerHops: number; // how many compression pointers had to be followed to read the whole name
+  cacheable: boolean; // false if the name went through a local compression pointer, which depends on the current record
 }
 
 interface NameLength {
@@ -38,6 +47,11 @@ export class DNSLabelCoder {
   private static readonly NOT_POINTER_MASK = 0x3FFF;
   private static readonly NOT_POINTER_MASK_ONE_BYTE = 0x3F;
 
+  // RFC 1035 2.3.4. names are limited to 255 octets, counting the length bytes and the root label
+  private static readonly MAX_NAME_LENGTH = 255;
+  // a name of 255 octets has at most 127 labels, so it never needs more pointers than that to be put together
+  private static readonly MAX_POINTER_HOPS = 128;
+
   private buffer?: Buffer;
   readonly legacyUnicastEncoding: boolean;
   private startOfRR?: number;
@@ -46,6 +60,7 @@ export class DNSLabelCoder {
 
   private readonly trackedLengths: NameLength[] = [];
   private readonly writtenNames: WrittenName[] = [];
+  private readonly decodedNames: Map<number, DecodedName> = new Map(); // names read from the current buffer, by offset
 
   constructor(legacyUnicastEncoding?: boolean) {
     this.legacyUnicastEncoding = legacyUnicastEncoding || false;
@@ -53,6 +68,7 @@ export class DNSLabelCoder {
 
   public initBuf(buffer?: Buffer): void {
     this.buffer = buffer;
+    this.decodedNames.clear();
   }
 
   public initRRLocation(recordOffset: number, rDataOffset: number, rDataLength: number): void {
@@ -257,6 +273,23 @@ export class DNSLabelCoder {
   }
 
   public decodeName(offset: number, resolvePointers = true): DecodedData<string> {
+    const decoded = this.decodeNameAt(offset, resolvePointers, 0, 0);
+
+    return {
+      data: decoded.name,
+      readBytes: decoded.readBytes,
+    };
+  }
+
+  /**
+   * Reads the name at the given offset.
+   *
+   * @param offset - Offset the name starts at.
+   * @param resolvePointers - If false, a pointer is put into the name as "~" instead of being followed.
+   * @param prefixLength - Wire length of the labels which came before this name, if it is reached through a pointer.
+   * @param pointerHops - How many pointers were followed to get here.
+   */
+  private decodeNameAt(offset: number, resolvePointers: boolean, prefixLength: number, pointerHops: number): DecodedName {
     if (!this.buffer) {
       assert.fail("Illegal state. Buffer not initialized!");
     }
@@ -264,15 +297,18 @@ export class DNSLabelCoder {
     const oldOffset = offset;
 
     let name = "";
+    let length = 0; // wire length of the labels read so far
+    let suffix: DecodedName | undefined;
 
     for (;;) {
-      const length: number = this.buffer.readUInt8(offset++);
-      if (length === 0) { // zero byte to terminate the name
+      const labelLength: number = this.buffer.readUInt8(offset++);
+      if (labelLength === 0) { // zero byte to terminate the name
         name += ".";
+        length++;
         break; // root label marks end of name
       }
 
-      const labelTypePattern: number = length & DNSLabelCoder.POINTER_MASK_ONE_BYTE;
+      const labelTypePattern: number = labelLength & DNSLabelCoder.POINTER_MASK_ONE_BYTE;
       if (labelTypePattern) {
         if (labelTypePattern === DNSLabelCoder.POINTER_MASK_ONE_BYTE) {
           // we got a pointer here
@@ -287,7 +323,8 @@ export class DNSLabelCoder {
           // if we would allow pointers to a later location, we MUST ensure that we don't end up in an endless loop
           assert(pointer < oldOffset, "Pointer at " + (offset - 2) + " MUST point to a prior location!");
 
-          name += (name? ".": "") + this.decodeName(pointer).data; // recursively decode the rest of the name
+          suffix = this.decodePointedName(pointer, prefixLength + length, pointerHops + 1, true);
+          name += (name? ".": "") + suffix.name; // add the rest of the name
           break; // pointer marks end of name
         }  else if (labelTypePattern === DNSLabelCoder.LOCAL_COMPRESSION_ONE_BYTE) {
           let localPointer = this.buffer.readUInt16BE(offset - 1) & DNSLabelCoder.NOT_POINTER_MASK;
@@ -303,8 +340,6 @@ export class DNSLabelCoder {
             localPointer += this.startOfRR!;
 
             assert(localPointer < oldOffset, "LocalPointer <255 at " + (offset - 2) + " MUST point to a prior location!");
-
-            name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
           } else if (localPointer >= 256) {
             assert(this.startOfRData !== undefined && this.rDataLength !== undefined, "Cannot decompress locally compressed name as record is not initialized!");
             localPointer -= 256; // subtract the offset 256
@@ -312,33 +347,69 @@ export class DNSLabelCoder {
             localPointer += this.startOfRData!;
 
             assert(localPointer < oldOffset, "LocalPointer >=256 at " + (offset - 2) + " MUST point to a prior location!");
-
-            name += (name? ".": "") + this.decodeName(localPointer).data; // recursively decode the rest of the name
           } else {
             assert.fail("Encountered unknown pointer range " + localPointer);
           }
 
+          suffix = this.decodePointedName(localPointer, prefixLength + length, pointerHops + 1, false);
+          name += (name? ".": "") + suffix.name; // add the rest of the name
           break; // pointer marks end of name
         } else if (labelTypePattern === DNSLabelCoder.EXTENDED_LABEL_TYPE_ONE_BYTE) {
-          const extendedLabelType = length & DNSLabelCoder.NOT_POINTER_MASK_ONE_BYTE;
+          const extendedLabelType = labelLength & DNSLabelCoder.NOT_POINTER_MASK_ONE_BYTE;
 
           assert.fail("Received extended label type " + extendedLabelType + " at " + (offset - 1));
         } else {
           assert.fail("Encountered unknown pointer type: " + Buffer.from([labelTypePattern >> 6]).toString("hex") + " (with original byte " +
-            Buffer.from([length]).toString("hex") + ")");
+            Buffer.from([labelLength]).toString("hex") + ")");
         }
       }
 
-      const label = this.buffer.toString("utf-8", offset, offset + length);
-      offset += length;
+      length += 1 + labelLength;
+      // + 1 for the root label, which every name still needs to end with
+      if (prefixLength + length + 1 > DNSLabelCoder.MAX_NAME_LENGTH) {
+        throw new NameLimitExceededError("Name at " + oldOffset + " exceeds the maximum length of " + DNSLabelCoder.MAX_NAME_LENGTH + " bytes");
+      }
+
+      const label = this.buffer.toString("utf-8", offset, offset + labelLength);
+      offset += labelLength;
 
       name += (name? ".": "") + label;
     }
 
     return {
-      data: name,
+      name: name,
       readBytes: offset - oldOffset,
+      length: length + (suffix? suffix.length: 0),
+      pointerHops: suffix? suffix.pointerHops + 1: 0,
+      cacheable: suffix? suffix.cacheable: true,
     };
+  }
+
+  private decodePointedName(pointer: number, prefixLength: number, pointerHops: number, cacheable: boolean): DecodedName {
+    if (pointerHops > DNSLabelCoder.MAX_POINTER_HOPS) {
+      throw new NameLimitExceededError("Name exceeds the maximum of " + DNSLabelCoder.MAX_POINTER_HOPS + " compression pointers");
+    }
+
+    // many names in a packet usually point at the same few names, so we only read each one once
+    let decoded = cacheable? this.decodedNames.get(pointer): undefined;
+    if (!decoded) {
+      decoded = this.decodeNameAt(pointer, true, prefixLength, pointerHops);
+      decoded.cacheable = decoded.cacheable && cacheable;
+
+      if (decoded.cacheable) {
+        this.decodedNames.set(pointer, decoded);
+      }
+    }
+
+    // a name read before might have been reached with a shorter prefix or fewer pointers than we have now
+    if (prefixLength + decoded.length > DNSLabelCoder.MAX_NAME_LENGTH) {
+      throw new NameLimitExceededError("Name at " + pointer + " exceeds the maximum length of " + DNSLabelCoder.MAX_NAME_LENGTH + " bytes");
+    }
+    if (pointerHops + decoded.pointerHops > DNSLabelCoder.MAX_POINTER_HOPS) {
+      throw new NameLimitExceededError("Name exceeds the maximum of " + DNSLabelCoder.MAX_POINTER_HOPS + " compression pointers");
+    }
+
+    return decoded;
   }
 
   private static getLabelLength(label: string): number {

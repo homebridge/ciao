@@ -11,7 +11,8 @@ import { PTRRecord } from "./coder/records/PTRRecord";
 import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
-import { Protocol, Responder } from "./index";
+import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
+import { Protocol } from "./index";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";
@@ -910,7 +911,7 @@ export class CiaoService extends EventEmitter {
     this.serviceRecords = {
       ptr: new PTRRecord(this.typePTR, this.fqdn),
       subtypePTRs: subtypePTRs, // possibly undefined
-      metaQueryPtr: new PTRRecord(Responder.SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
+      metaQueryPtr: new PTRRecord(SERVICE_TYPE_ENUMERATION_NAME, this.typePTR),
 
       srv: new SRVRecord(this.fqdn, this.hostname, this.port!, true),
       txt: new TXTRecord(this.fqdn, this.txt, true),

@@ -23,6 +23,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: recognise the loopback interface present at start-up, not only one added later
 - refactor: return the interface list with the loopback added, not the platform helper's promise
 - fix: log a delayed response that fails to send, instead of throwing out of its timer
+- refactor: break the load-time import cycle between CiaoService and the Responder
 
 ## v1.3.12 (2026-08-15)
 

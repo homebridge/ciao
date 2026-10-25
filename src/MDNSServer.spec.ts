@@ -333,6 +333,31 @@ describe(MDNSServer, () => {
     });
   });
 
+  describe("an interface that has lost its IPv4 address", () => {
+    it("drops IPv4 packets instead of throwing out of the socket's message handler", () => {
+      // The socket outlives the address (so it can be picked up again) and keeps receiving.
+      // Checking the sender's subnet against an undefined netmask threw an AssertionError
+      // from the 'message' event, which nothing catches - the process went down with it
+      const server = makeBareServer();
+      const handler = { handleQuery: jest.fn(), handleResponse: jest.fn() };
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (server as any).handler = handler;
+      (server as any).networkManager = {
+        getInterface: () => ({ name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" }),
+        isLoopbackNetaddressV4: () => false,
+      };
+      const packet = DNSPacket.createDNSResponsePacketsFromRRSet({
+        answers: [new AAAARecord("other.local.", "fe80::2")],
+      }).encode();
+
+      expect(() => (server as any).handleMessage(
+        "eth0", packet, { address: "192.168.1.20", family: "IPv4", port: 5353, size: packet.length }, "IPv4",
+      )).not.toThrow();
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      expect(handler.handleResponse).not.toHaveBeenCalled();
+    });
+  });
+
   describe("sentPackets cleanup timer", () => {
     beforeEach(() => {
       jest.useFakeTimers();

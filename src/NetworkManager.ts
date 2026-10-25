@@ -511,22 +511,19 @@ export class NetworkManager extends EventEmitter {
         return Promise.reject(new Error("unsupported platform!"));
     }
 
-    let names: InterfaceName[];
-    try {
-      names = await promise;
-    } catch (error) {
-      if (error.message !== NetworkManager.NOTHING_FOUND_MESSAGE) {
-        throw error;
-      }
-      names = [];
-    }
+    // A failure here - "nothing found" included, as on a host whose arp cache is still empty -
+    // falls back to assumeNetworkInterfaceNames() in the caller
+    const names = await promise;
     const loopback = NetworkManager.getLoopbackInterface();
 
     if (!names.includes(loopback)) {
       names.unshift(loopback);
     }
 
-    return promise;
+    // Return the list itself. This used to return the platform helper's promise, which only included the
+    // loopback because unshift() above mutated the very array it resolved to - and the "nothing found"
+    // handling above it was dead code, as the promise rejected regardless
+    return names;
   }
 
   private static assumeNetworkInterfaceNames(): InterfaceName[] {

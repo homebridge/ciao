@@ -138,6 +138,34 @@ describe(NetworkManager, () => {
     });
   });
 
+  describe("getNetworkInterfaceNames - the loopback interface", () => {
+    // None of the platform helpers list the loopback interface, so it is added here. It used to
+    // reach the caller only because the list was mutated in place - this keeps it there
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    function onLinuxWith(listed: Promise<string[]>) {
+      jest.spyOn(os, "platform").mockReturnValue("linux");
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        lo: [{ address: "127.0.0.1", netmask: "255.0.0.0", family: "IPv4", mac: "00:00:00:00:00:00", internal: true, cidr: "127.0.0.1/8" }],
+        eth0: [{ address: "192.168.1.5", netmask: "255.255.255.0", family: "IPv4", mac: "00:00:00:00:00:01", internal: false, cidr: "192.168.1.5/24" }],
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(NetworkManager as any, "getLinuxNetworkInterfaces").mockReturnValue(listed);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (NetworkManager as any).getNetworkInterfaceNames() as Promise<string[]>;
+    }
+
+    it("adds the loopback interface to what the platform lists", async () => {
+      await expect(onLinuxWith(Promise.resolve(["eth0"]))).resolves.toEqual(["lo", "eth0"]);
+    });
+
+    it("still fails when the platform finds nothing, so the caller falls back to assuming interfaces", async () => {
+      await expect(onLinuxWith(Promise.reject(new Error("no interfaces found")))).rejects.toThrow("no interfaces found");
+    });
+  });
+
   describe("checkForNewInterfaces - loopback tracking", () => {
     // Build a NetworkManager without invoking the constructor so we don't open
     // sockets or enumerate the host's real interfaces.

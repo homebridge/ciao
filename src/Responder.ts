@@ -36,6 +36,7 @@ import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
 import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
 import Timeout = NodeJS.Timeout;
+import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
 
 const debug = createDebug("ciao:Responder");
 
@@ -71,7 +72,7 @@ export class Responder implements PacketHandler {
   /**
    * @private
    */
-  public static readonly SERVICE_TYPE_ENUMERATION_NAME = "_services._dns-sd._udp.local.";
+  public static readonly SERVICE_TYPE_ENUMERATION_NAME = SERVICE_TYPE_ENUMERATION_NAME;
 
   private static readonly INSTANCES: Map<string, Responder> = new Map();
 

@@ -57,6 +57,10 @@ describe(MDNSServer, () => {
         }],
       };
 
+      // This server never ran its network detection; a real change event only comes after it has.
+      // With no socket for the interface, the handler now asks for the interface to bind a new one
+      jest.spyOn(server.getNetworkManager(), "getInterface").mockReturnValue(undefined);
+
       // Should not throw - before fix this hit assert.fail()
       expect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,6 +98,72 @@ describe(MDNSServer, () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (server as any).handleUpdatedNetworkInterfaces(update);
       }).not.toThrow();
+    });
+  });
+
+  describe("an address that appears after the interface was bound", () => {
+    // At boot the IPv6 link-local address is up long before DHCP has handed out an IPv4 one, so the
+    // interface is bound with no IPv4 address and its IPv4 socket is closed again. When the address
+    // then arrived, the change handler only re-joined the multicast group on an existing socket -
+    // and there was none, so the interface never answered or announced over IPv4 until a restart
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    function serverWith(families: string[], sockets: string[] = []) {
+      const server = makeBareServer();
+      (server as any).advertiseFamilies = families;
+      for (const name of sockets) {
+        (server as any).sockets.set(name, { addMembership: jest.fn(), setMulticastInterface: jest.fn(), dropMembership: jest.fn() });
+      }
+      (server as any).networkManager = {
+        getInterface: (name: string) => ({ name, loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.100", ip4Netmask: "255.255.255.0", ipv6: "fe80::1" }),
+      };
+      const created: string[] = [];
+      jest.spyOn(server as any, "createDgramSocket").mockImplementation((name: unknown, reuse: unknown, type: unknown) => {
+        created.push(name + ":" + type);
+        return {};
+      });
+      const bindSocket = jest.spyOn(server as any, "bindSocket").mockResolvedValue(undefined);
+      return { server, created, bindSocket };
+    }
+    const change = (server: MDNSServer, update: NetworkUpdate) => (server as any).handleUpdatedNetworkInterfaces(update);
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    it("binds an IPv4 socket for an IPv4 address that arrives later", () => {
+      const { server, created, bindSocket } = serverWith(["IPv4"]);
+      change(server, { changes: [{ name: "eth0", updatedIpv4: "192.168.1.100" }] });
+
+      expect(created).toEqual(["eth0:udp4"]);
+      expect(bindSocket).toHaveBeenCalledTimes(1);
+    });
+
+    it("binds an IPv6 socket for an IPv6 address that arrives later, when IPv6 is advertised", () => {
+      const { server, created } = serverWith(["IPv4", "IPv6"], ["eth0"]);
+      change(server, { changes: [{ name: "eth0", updatedIpv6: "fe80::1" }] });
+
+      expect(created).toEqual(["eth0:udp6"]);
+    });
+
+    it("binds nothing for a family that isn't advertised", () => {
+      const { server, created } = serverWith(["IPv4"], ["eth0"]);
+      change(server, { changes: [{ name: "eth0", updatedIpv6: "fe80::1" }] });
+
+      expect(created).toEqual([]);
+    });
+
+    it("re-joins on the existing socket rather than opening a second one", () => {
+      const { server, created } = serverWith(["IPv4"], ["eth0"]);
+      change(server, { changes: [{ name: "eth0", updatedIpv4: "192.168.1.100" }] });
+
+      expect(created).toEqual([]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).sockets.get("eth0").addMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.100");
+    });
+
+    it("drops the IPv6 membership when the IPv6 address goes away", () => {
+      const { server } = serverWith(["IPv4", "IPv6"], ["eth0/6"]);
+      change(server, { changes: [{ name: "eth0", outdatedIpv6: "fe80::1" }] });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).sockets.get("eth0/6").dropMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV6, "fe80::1%eth0");
     });
   });
 

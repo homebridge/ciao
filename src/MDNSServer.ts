@@ -829,6 +829,11 @@ export class MDNSServer {
             } catch (error) {
               debug("Error adding membership for newly appeared IPv4 on %s: %s", change.name, error.message);
             }
+          } else {
+            // The interface had no IPv4 address when its sockets were bound - typically at boot, before DHCP
+            // finished, while the IPv6 link-local address was already up - so its IPv4 socket was closed again.
+            // Without a new one the interface stayed dark on IPv4 until a restart
+            this.bindInterface(change.name, IPFamily.IPv4);
           }
         } else if (change.outdatedIpv4 && !change.updatedIpv4) {
           // On dynamic networks, an interface may lose its IPv4 address temporarily
@@ -859,7 +864,16 @@ export class MDNSServer {
 
         // Handle IPv6
         socket = this.sockets.get(change.name + "/6");
-        if (socket && change.outdatedIpv6 && change.updatedIpv6) {
+        if (!socket && change.updatedIpv6) {
+          // as for IPv4: no IPv6 socket was kept, as the interface had no IPv6 address when it was bound
+          this.bindInterface(change.name, IPFamily.IPv6);
+        } else if (socket && change.outdatedIpv6 && !change.updatedIpv6) {
+          try {
+            socket.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
+          } catch (error) {
+            debug("Error dropping membership for disappeared IPv6 on %s: %s", change.name, error.message);
+          }
+        } else if (socket && change.outdatedIpv6 && change.updatedIpv6) {
           try {
             socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
           } catch (error) {
@@ -876,15 +890,29 @@ export class MDNSServer {
 
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
-        this.advertiseFamilies.forEach((family: IPFamily) => {
-          const socket = this.createDgramSocket(networkInterface.name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
-          this.bindSocket(socket, networkInterface, family).catch(reason => {
-            // TODO if bind errors we probably will never bind again
-            console.log("Could not bind detected network interface: " + reason.stack);
-          });
-        });
+        this.advertiseFamilies.forEach((family: IPFamily) => this.bindInterface(networkInterface.name, family));
       }
     }
+  }
+
+  /**
+   * Opens and binds the socket for one address family of an interface the server is not yet bound on.
+   * Does nothing when that family is not advertised, or the interface is no longer known.
+   */
+  private bindInterface(name: InterfaceName, family: IPFamily): void {
+    if (this.closed || !this.advertiseFamilies.includes(family)) {
+      return;
+    }
+    const networkInterface = this.networkManager.getInterface(name);
+    if (!networkInterface) {
+      return;
+    }
+
+    const socket = this.createDgramSocket(networkInterface.name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
+    this.bindSocket(socket, networkInterface, family).catch(reason => {
+      // TODO if bind errors we probably will never bind again
+      console.log("Could not bind detected network interface: " + reason.stack);
+    });
   }
 
 }

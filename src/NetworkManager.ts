@@ -159,6 +159,15 @@ export class NetworkManager extends EventEmitter {
     this.initPromise = new Promise(resolve => {
       this.getCurrentNetworkInterfaces().then(map => {
         this.currentInterfaces = map;
+        // only checkForNewInterfaces filled this, so a loopback present from the start - the normal case -
+        // was never in it, and isLoopbackNetaddressV4 never matched until the network changed. On linux,
+        // where every socket receives every interface's packets, that let loopback traffic through on the
+        // other interfaces' sockets
+        for (const [name, networkInterface] of map) {
+          if (networkInterface.loopback) {
+            this.loopbackInterfaces.set(name, networkInterface);
+          }
+        }
 
         const otherInterfaces: InterfaceName[] = Object.keys(os.networkInterfaces());
 

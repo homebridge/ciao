@@ -167,6 +167,20 @@ describe(NetworkManager, () => {
     // loopbackInterfaces. isLoopbackNetaddressV4 then never matched the
     // runtime-added loopback, so the cross-interface packet filter on Linux
     // failed for these interfaces.
+    it("knows the loopback present from the start", async () => {
+      const lo: NetworkInterface = { name: "lo", loopback: true, mac: "00:00:00:00:00:00", ipv4: "127.0.0.1", ipv4Netaddress: "127.0.0.0" };
+      const eth0: NetworkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:01", ipv4: "192.168.1.5", ipv4Netaddress: "192.168.1.0" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(NetworkManager.prototype as any, "getCurrentNetworkInterfaces").mockResolvedValue(new Map([["lo", lo], ["eth0", eth0]]));
+
+      const manager = new NetworkManager();
+      await manager.waitForInit();
+      manager.shutdown();
+
+      expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
+      expect(manager.isLoopbackNetaddressV4("192.168.1.0")).toBe(false);
+    });
+
     it("places a runtime-added loopback into loopbackInterfaces", async () => {
       const manager = makeBareManager();
       const lo: NetworkInterface = {

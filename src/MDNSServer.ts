@@ -706,7 +706,15 @@ export class MDNSServer {
         // return;
       }
     } else {
-      const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
+      if (!networkInterface.ip4Netmask) {
+        // The interface has lost its IPv4 address (a lapsed DHCP lease, a network flap). Its socket is kept
+        // to pick the address up again, and still receives packets - on linux even from other interfaces - but
+        // there is no subnet left to check them against: getNetAddress asserted, and as this runs from the
+        // socket's 'message' event, that took the whole process down
+        debug("Dropping packet on interface '%s', which currently has no IPv4 address", name);
+        return;
+      }
+      const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask);
       if (networkInterface.loopback) {
         if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
           return;

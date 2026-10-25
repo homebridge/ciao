@@ -1036,7 +1036,9 @@ export class Responder implements PacketHandler {
             debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
               Math.round(response.getTimeSinceCreation()), interfaceName);
           } else {
-            throw error;
+            // This runs from a timer, where a throw is an uncaught exception that ends the process.
+            // Losing one delayed response is not worth that - the querier simply asks again
+            console.warn(`CIAO: Failed to send a delayed response on ${interfaceName}: ${error?.message ?? error}`);
           }
         }
       });

@@ -136,6 +136,35 @@ describe(Responder, () => {
     });
   });
 
+  describe("delayed multicast responses", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    it("logs a failed send instead of throwing out of the timer", () => {
+      // The delayed send runs from a timer, so anything other than a missing interface used to be
+      // re-thrown there - an uncaught exception, and the end of the host process
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+      const responder = Object.create(Responder.prototype) as Responder;
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (responder as any).delayedMulticastResponses = [];
+      (responder as any).server = {
+        sendResponse: () => {
+          throw new Error("Cannot send packets before server is not bound!");
+        },
+      };
+      const packet = { asLoggingString: () => "", canBeCombinedWith: () => false } as any;
+
+      (responder as any).enqueueDelayedMulticastResponse(packet, "en0", 0);
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+
+      expect(() => jest.advanceTimersByTime(200)).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to send a delayed response on en0"));
+    });
+  });
+
   describe("goodbye for a hostname shared with another service (#20)", () => {
     afterEach(() => {
       jest.restoreAllMocks();

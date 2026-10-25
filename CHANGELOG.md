@@ -19,6 +19,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: enforce DNS name limits when decoding received names (#83)
 - ci: fail pull requests that target latest instead of the beta branch
 - fix: drop packets on an interface that has lost its IPv4 address, instead of crashing
+- fix: bind a socket for an address that arrives after start-up, so the interface isn't left dark
 
 ## v1.3.12 (2026-08-15)
 

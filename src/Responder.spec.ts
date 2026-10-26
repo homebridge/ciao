@@ -7,6 +7,7 @@ import { Responder } from "./Responder";
 import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
 import { QueryResponse } from "./responder/QueryResponse";
+import { NSECRecord } from "./coder/records/NSECRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 
@@ -145,9 +146,10 @@ async function advance(milliseconds: number): Promise<void> {
 }
 
 /* A service announced on a Responder built without its constructor, as the answer rows read it: its records are built from an interface map holding en0
- * with the addresses given, and the Responder's pointers name the service and its subtype as announcing it records them. A question is asked on en0.
+ * with the addresses given, and the Responder's pointers name the service and its subtype as announcing it records them. A question is asked on the
+ * interface given, en0 unless a row names another, such as en0's IPv6 socket "en0/6".
  */
-function makeAnsweringResponder(addresses: Partial<NetworkInterface>): { answer: (name: string, type: QType) => DNSPacket[]; service: CiaoService } {
+function makeAnsweringResponder(addresses: Partial<NetworkInterface>, askedOn = "en0"): { answer: (name: string, type: QType) => DNSPacket[]; service: CiaoService } {
   const en0: NetworkInterface = { name: "en0", loopback: false, mac: "00:00:5e:00:53:01", ...addresses };
   const manager = { getInterfaceMap: () => new Map([[ en0.name, en0 ]]) } as unknown as NetworkManager;
   const service = new CiaoService(manager, { name: "Kitchen", port: 4711, subtypes: ["primary"], type: "hap" });
@@ -162,7 +164,7 @@ function makeAnsweringResponder(addresses: Partial<NetworkInterface>): { answer:
     internals.servicePointer.set(subtypePTR, [service.getLowerCasedFQDN()]);
   }
 
-  const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+  const endpoint: EndpointInfo = { address: "192.0.2.9", interface: askedOn, port: MDNSServer.MDNS_PORT };
   const answer = (name: string, type: QType): DNSPacket[] => internals.answerQuestion(new Question(name, type, false), endpoint)
     .map(response => response.asPacket());
 
@@ -172,6 +174,13 @@ function makeAnsweringResponder(addresses: Partial<NetworkInterface>): { answer:
 // The types of a section's records, in the order the response holds them.
 function typesOf(records: Map<string, ResourceRecord>): RType[] {
   return [...records.values()].map(record => record.type);
+}
+
+// The types the bitmap of a section's NSEC record for the name lists, or undefined when the section holds no NSEC record for it.
+function nsecTypesOf(records: Map<string, ResourceRecord>, name: string): RType[] | undefined {
+  const record = [...records.values()].find(candidate => candidate.type === RType.NSEC && candidate.name === name) as NSECRecord | undefined;
+
+  return record?.rrTypeWindows.flatMap(window => window.rrtypes);
 }
 
 // Advertises a service and runs the clock past its probing and its last announcement, so it ends ANNOUNCED.
@@ -958,6 +967,72 @@ describe(Responder, () => {
         .toEqual([{ additionals: [ RType.A, RType.AAAA, RType.NSEC, RType.NSEC ], answers: [ RType.TXT, RType.SRV ] }]);
       expect(sections(answer(service.getTypePTR(), QType.PTR)))
         .toEqual([{ additionals: [ RType.TXT, RType.SRV, RType.A, RType.AAAA, RType.NSEC, RType.NSEC ], answers: [RType.PTR] }]);
+    });
+
+    /* RFC 6762 6.1: a name the service owns uniquely answers a question for a type it holds no record of with an NSEC record, its bitmap the types that
+     * exist, while the shared type and subtype PTR names answer no such question. MX (15) is a type ciao publishes nothing of.
+     */
+    const MX = 15 as QType;
+
+    it.each<[string, Partial<NetworkInterface>, QType, RType[]]>([
+      ["an AAAA question on an IPv4-only interface", { ipv4: "192.0.2.1" }, QType.AAAA, [RType.A]],
+      ["an A question on an IPv6-only interface", { ipv6: "fe80::1" }, QType.A, [RType.AAAA]],
+    ])("%s gets one answer, the address NSEC listing the address type the interface carries", (_, addresses, type, listed) => {
+      const { answer, service } = makeAnsweringResponder(addresses);
+      const packets = answer(service.getHostname(), type);
+
+      expect(packets.map(packet => typesOf(packet.answers))).toEqual([[RType.NSEC]]);
+      expect(nsecTypesOf(packets[0].answers, service.getHostname())).toEqual(listed);
+    });
+
+    it.each<[string, Partial<NetworkInterface>, RType[]]>([
+      ["an interface carrying both address types", { ipv4: "192.0.2.1", ipv6: "fe80::1" }, [ RType.A, RType.AAAA ]],
+      ["an IPv4-only interface", { ipv4: "192.0.2.1" }, [RType.A]],
+    ])("an MX and a CNAME question on the hostname get the address NSEC as the answer on %s, listing its address types", (_, addresses, listed) => {
+      const { answer, service } = makeAnsweringResponder(addresses);
+
+      for (const type of [ MX, QType.CNAME ]) {
+        const packets = answer(service.getHostname(), type);
+
+        expect(packets.map(packet => typesOf(packet.answers))).toEqual([[RType.NSEC]]);
+        expect(nsecTypesOf(packets[0].answers, service.getHostname())).toEqual(listed);
+      }
+    });
+
+    it("an MX question on the instance name gets the service NSEC as the answer, listing TXT and SRV", () => {
+      const { answer, service } = makeAnsweringResponder({ ipv4: "192.0.2.1", ipv6: "fe80::1" });
+      const packets = answer(service.getFQDN(), MX);
+
+      expect(packets.map(packet => typesOf(packet.answers))).toEqual([[RType.NSEC]]);
+      expect(nsecTypesOf(packets[0].answers, service.getFQDN())).toEqual([ RType.TXT, RType.SRV ]);
+    });
+
+    it("the address NSEC in the additionals of A, AAAA, SRV and PTR answers lists the address types of the asking interface alone", () => {
+      const ipv4Only = makeAnsweringResponder({ ipv4: "192.0.2.1" });
+      const ipv6Only = makeAnsweringResponder({ ipv6: "fe80::1" });
+      const additionalNSEC = (responder: ReturnType<typeof makeAnsweringResponder>, name: string, type: QType) =>
+        nsecTypesOf(responder.answer(name, type)[0].additionals, responder.service.getHostname());
+
+      expect(additionalNSEC(ipv4Only, ipv4Only.service.getHostname(), QType.A)).toEqual([RType.A]);
+      expect(additionalNSEC(ipv6Only, ipv6Only.service.getHostname(), QType.AAAA)).toEqual([RType.AAAA]);
+      expect(additionalNSEC(ipv4Only, ipv4Only.service.getFQDN(), QType.SRV)).toEqual([RType.A]);
+      expect(additionalNSEC(ipv6Only, ipv6Only.service.getTypePTR(), QType.PTR)).toEqual([RType.AAAA]);
+    });
+
+    // The MDNSServer names an interface's IPv6 socket "<name>/6", and a question asked there is answered from the records of the interface it belongs to.
+    it("an ANY question on the hostname asked on en0's IPv6 socket gets the A and AAAA records and an address NSEC listing both", () => {
+      const { answer, service } = makeAnsweringResponder({ ipv4: "192.0.2.1", ipv6: "fe80::1" }, "en0/6");
+      const packets = answer(service.getHostname(), QType.ANY);
+
+      expect(packets.map(packet => typesOf(packet.answers))).toEqual([[ RType.A, RType.AAAA ]]);
+      expect(nsecTypesOf(packets[0].additionals, service.getHostname())).toEqual([ RType.A, RType.AAAA ]);
+    });
+
+    it("an MX question on the type PTR name or a subtype PTR name gets no answer", () => {
+      const { answer, service } = makeAnsweringResponder({ ipv4: "192.0.2.1", ipv6: "fe80::1" });
+
+      expect(answer(service.getTypePTR(), MX)).toEqual([]);
+      expect(answer(service.getLowerCasedSubtypePTRs()![0], MX)).toEqual([]);
     });
   });
 });

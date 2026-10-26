@@ -47,13 +47,27 @@ describe("domain-formatter", () => {
     });
 
     it("should parse instance domain with dotted name", () => {
-      const parsed = parseFQDN("My.Great.Device._hap._tcp.local");
+      const parsed = parseFQDN("My\\.Great\\.Device._hap._tcp.local");
       expect(parsed).toStrictEqual({
         domain: "local",
         protocol: Protocol.TCP,
         type: ServiceType.HAP,
         name: "My.Great.Device",
       });
+    });
+
+    it("should keep an escaped dot in a domain label", () => {
+      const parsed = parseFQDN("Test._hap._tcp.foo\\.bar");
+      expect(parsed).toStrictEqual({
+        domain: "foo\\.bar",
+        protocol: Protocol.TCP,
+        type: ServiceType.HAP,
+        name: "Test",
+      });
+    });
+
+    it("should round-trip a domain holding an escaped dot through stringify", () => {
+      expect(stringify(parseFQDN("Test._hap._tcp.foo\\.bar"))).toStrictEqual("Test._hap._tcp.foo\\.bar.");
     });
 
     it("should parse service type enumeration query", () => {
@@ -117,6 +131,15 @@ describe("domain-formatter", () => {
       expect(stringify({
         type: ServiceType.HAP,
       })).toStrictEqual("_hap._tcp.local.");
+    });
+
+    it("should escape a dot and a backslash in an instance name into one label", () => {
+      expect(stringify({ name: "Mr. Coffee", type: ServiceType.HAP })).toStrictEqual("Mr\\. Coffee._hap._tcp.local.");
+      expect(stringify({ name: "Foo\\Bar", type: ServiceType.HAP })).toStrictEqual("Foo\\\\Bar._hap._tcp.local.");
+    });
+
+    it("should escape a dot in a subtype into one label", () => {
+      expect(stringify({ subtype: "v1.2", type: ServiceType.HTTP })).toStrictEqual("_v1\\.2._sub._http._tcp.local.");
     });
   });
 

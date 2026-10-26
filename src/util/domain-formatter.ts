@@ -2,6 +2,7 @@ import assert from "assert";
 import net from "net";
 import { ServiceType } from "../CiaoService";
 import { Protocol } from "../index";
+import { escapeLabel, splitLabels } from "./dns-labels";
 import { getIPFromV4Mapped, isIPv4Mapped } from "./v4mapped";
 
 function isProtocol(part: string): boolean {
@@ -55,15 +56,17 @@ function isSubTypePTRParts(parts: FQDNParts | SubTypePTRParts): parts is SubType
 }
 
 export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | SubTypedNameDomain {
-  const parts = fqdn.split(".");
+  const parts = splitLabels(fqdn);
 
   assert(parts.length >= 3, "Received illegal fqdn: " + fqdn);
 
   let i = parts.length - 1;
 
+  // The domain is rebuilt in presentation form, the form stringify writes it in, so each of its labels is escaped, while the name, the type and the subtype
+  // are single labels and are returned raw.
   let domain = "";
   while (!isProtocol(parts[i])) {
-    domain = removePrefixedUnderscore(parts[i]) + (domain? "." + domain: "");
+    domain = escapeLabel(removePrefixedUnderscore(parts[i])) + (domain? "." + domain: "");
     i--;
   }
 
@@ -91,8 +94,9 @@ export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | S
       subtype: subtype,
     };
   } else {
-    // the name can contain dots as of RFC 6763 4.1.1.
-    const name = removePrefixedUnderscore(parts.slice(0, i + 1).join("."));
+    assert(i === 0, "Received illegal formatted instance fqdn: " + fqdn);
+
+    const name = removePrefixedUnderscore(parts[i]);
 
     return {
       domain: domain,
@@ -107,11 +111,13 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
   assert(parts.type, "type cannot be undefined");
   assert(parts.type.length <= 15, "type must not be longer than 15 characters");
 
+  // An instance name and a subtype may hold any text (RFC 6763 4.1.1 and 7.1), so each is escaped into one label, while RFC 6763 7 holds a service type to
+  // letters, digits and hyphens, so the type is left as given.
   let prefix;
   if (isSubTypePTRParts(parts)) {
-    prefix = `_${parts.subtype}._sub.`;
+    prefix = "_" + escapeLabel(parts.subtype) + "._sub.";
   } else {
-    prefix = parts.name? `${parts.name}.`: "";
+    prefix = parts.name? escapeLabel(parts.name) + ".": "";
   }
 
   return `${prefix}_${parts.type}._${parts.protocol || Protocol.TCP}.${parts.domain || "local"}.`;

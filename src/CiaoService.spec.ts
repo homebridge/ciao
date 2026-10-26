@@ -5,6 +5,7 @@ import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
 import { dnsLowerCase } from "./util/dns-equal";
+import { escapeLabel, splitLabels, wireLength } from "./util/dns-labels";
 
 // The types the address NSEC of en0 lists, for a service whose records are built from an interface map holding en0 with the addresses given, or undefined
 // when the service holds no NSEC there.
@@ -260,6 +261,14 @@ describe(CiaoService, () => {
       expect(serviceNamed("Mr. Coffee", { hostname: "foo.bar" }).getHostname()).toBe("foo.bar.local.");
     });
 
+    // A backslash before a character other than a dot or a backslash quotes nothing, so the label carries the character alone, as the decoder spells it.
+    it("should hold an explicit hostname in the spelling the label coder decodes it to", () => {
+      const hostname = serviceNamed("Test", { hostname: "foo\\bar.b\\.c" }).getHostname();
+
+      expect(hostname).toBe("foobar.b\\.c.local.");
+      expect(encoded(hostname)).toEqual({ decoded: hostname, labels: [ "foobar", "b.c", "local" ] });
+    });
+
     it("should answer to the lowercased name a packet carries for its dotted instance label", () => {
       const service = serviceNamed("Mr. Coffee");
       const buffer = Buffer.from([ 10, ...Buffer.from("Mr. Coffee"), 4, ...Buffer.from("_hap"), 4, ...Buffer.from("_tcp"), 5, ...Buffer.from("local"), 0 ]);
@@ -271,10 +280,147 @@ describe(CiaoService, () => {
 
     it.each([
       ["an instance label over 63 octets, dotted into shorter pieces", "a".repeat(32) + "." + "b".repeat(32), {}, /takes 65 octets as an instance label/],
-      ["a derived hostname label over 63 octets", "Living Room " + "x".repeat(52), {}, /takes 64 octets/],
+      ["a 64-octet name, whose derived hostname label the instance check bounds too", "Living Room " + "x".repeat(52), {}, /takes 64 octets/],
       ["an FQDN over 255 octets in fewer than 255 characters", "Test", { domain: Array(4).fill("é".repeat(31)).join(".") }, /takes 268 octets on the wire/],
     ])("should reject %s with a sentence naming the octets", (_, name, options, message) => {
       expect(() => serviceNamed(name, options)).toThrow(message);
+    });
+  });
+
+  /* A conflict rename, as the Prober asks for it, numbers the name and the hostname's last own label, and cuts either one first when the number would carry
+   * it past the octets its DNS label or its DNS name may take (RFC 1035 2.3.4).
+   */
+  describe("a conflict rename", () => {
+    // A service renamed once, with the name and hostname its change events report.
+    function renamed(name: string, options: Partial<ServiceOptions> = {}): { hostname: string; name: string; service: CiaoService } {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: name, type: "hap", port: 4711, ...options });
+      const reported = { hostname: "", name: "" };
+
+      service.on("name-change", changed => {
+        reported.name = changed;
+      });
+      service.on("hostname-change", changed => {
+        reported.hostname = changed;
+      });
+      service.incrementName();
+      service.informAboutNameUpdates();
+
+      return { ...reported, service };
+    }
+
+    // Each name's octets, and the raw label of the hostname derived from it, are cut to leave room for the number within 63 octets, on a grapheme cluster,
+    // so no character a reader sees is split.
+    it.each([
+      ["a 62-octet name", "a".repeat(62), "a".repeat(59) + " (2)", "a".repeat(59) + "-(2)"],
+      ["a name ending in a two-byte character", "a".repeat(58) + "éé", "a".repeat(58) + " (2)", "a".repeat(58) + "-(2)"],
+      ["a name ending in a four-byte character", "a".repeat(56) + "😀", "a".repeat(56) + " (2)", "a".repeat(56) + "-(2)"],
+      ["a 62-octet dotted name", "a.".repeat(31), "a.".repeat(31).slice(0, 59) + " (2)", "a-".repeat(31).slice(0, 59) + "-(2)"],
+      ["a name with a backslash at the cut", "a".repeat(58) + "\\bbb", "a".repeat(58) + "\\ (2)", "a".repeat(58) + "\\-(2)"],
+      ["a name ending in a flag of two regional indicators", "a".repeat(55) + "\u{1F1E9}\u{1F1EA}", "a".repeat(55) + " (2)", "a".repeat(55) + "-(2)"],
+      ["a name ending in a letter with a combining accent", "a".repeat(58) + "e\u0301x", "a".repeat(58) + " (2)", "a".repeat(58) + "-(2)"],
+    ])("should shorten %s and its hostname label to fit the number in 63 octets", (_, name, expectedName, expectedLabel) => {
+      const result = renamed(name);
+      const labels = splitLabels(result.service.getHostname());
+
+      expect(result.name).toBe(expectedName);
+      expect(Buffer.byteLength(result.name)).toBeLessThanOrEqual(63);
+      expect(labels).toEqual([ expectedLabel, "local", "" ]);
+      expect(Buffer.byteLength(labels[0])).toBeLessThanOrEqual(63);
+      expect(result.hostname).toBe(escapeLabel(expectedLabel));
+      expect(result.service.getFQDN()).toBe(escapeLabel(expectedName) + "._hap._tcp.local.");
+    });
+
+    // A runtime without Intl.Segmenter cuts on a code point, which keeps a surrogate pair whole but can split a flag into its regional indicators.
+    it("should cut on a code point where the runtime has no Intl.Segmenter", () => {
+      const intl = Intl as unknown as { Segmenter?: typeof Intl.Segmenter };
+      const segmenter = intl.Segmenter;
+
+      intl.Segmenter = undefined;
+
+      try {
+        const result = renamed("a".repeat(55) + "\u{1F1E9}\u{1F1EA}");
+
+        expect(result.name).toBe("a".repeat(55) + "\u{1F1E9} (2)");
+        expect(result.hostname).toBe("a".repeat(55) + "\u{1F1E9}-(2)");
+      } finally {
+        intl.Segmenter = segmenter;
+      }
+    });
+
+    // A runtime with no Intl global at all, such as a Node built without Intl, cuts on a code point too, so the guard reads the global before its Segmenter.
+    it("should cut on a code point where the runtime has no Intl global", () => {
+      const runtime = globalThis as { Intl?: unknown };
+      const intl = runtime.Intl;
+
+      delete runtime.Intl;
+
+      try {
+        expect(renamed("a".repeat(55) + "\u{1F1E9}\u{1F1EA}").service.getFQDN()).toBe("a".repeat(55) + "\u{1F1E9} (2)._hap._tcp.local.");
+      } finally {
+        runtime.Intl = intl;
+      }
+    });
+
+    it("should number the last label of an explicit hostname", () => {
+      const result = renamed("Test", { hostname: "host.sub" });
+
+      expect(result.service.getHostname()).toBe("host.sub-(2).local.");
+      expect(result.hostname).toBe("host.sub-(2)");
+    });
+
+    // The hostname's other labels and its domain take 196 octets on the wire, so the 255 of the hostname bounds its last own label to 58, fewer than 63.
+    it("should shorten an explicit hostname's last label to the octets its other labels and its domain leave the hostname", () => {
+      const result = renamed("Test", { hostname: [ ...Array(3).fill("h".repeat(60)), "h".repeat(5), "x".repeat(56) ].join(".") });
+
+      expect(splitLabels(result.service.getHostname())).toEqual([ ...Array(3).fill("h".repeat(60)), "h".repeat(5), "x".repeat(54) + "-(2)", "local", "" ]);
+      expect(wireLength(splitLabels(result.service.getHostname()))).toBe(255);
+    });
+
+    it("should number an explicit hostname's own label under a domain holding a backslash, cutting the domain off whole", () => {
+      const result = renamed("Test", { domain: "my\\x", hostname: "foo" });
+
+      expect(result.service.getHostname()).toBe("foo-(2).my\\x.");
+      expect(result.hostname).toBe("foo-(2)");
+    });
+
+    it("should number the hostname's own label under a multi-label domain and report the hostname without the domain", () => {
+      const result = renamed("Foo", { domain: "my.domain" });
+
+      expect(result.service.getHostname()).toBe("Foo-(2).my.domain.");
+      expect(result.hostname).toBe("Foo-(2)");
+      expect(result.service.getFQDN()).toBe("Foo (2)._hap._tcp.my.domain.");
+    });
+
+    // A domain of three 60-octet labels leaves an instance label 60 octets within the 255 of the FQDN, fewer than the 63 a label may hold.
+    it("should shorten the name to the octets a long custom domain leaves the FQDN", () => {
+      const result = renamed("a".repeat(58), { domain: Array(3).fill("d".repeat(60)).join(".") });
+
+      expect(result.name).toBe("a".repeat(56) + " (2)");
+      expect(wireLength(splitLabels(result.service.getFQDN()))).toBe(255);
+      expect(splitLabels(result.service.getHostname())[0]).toBe("a".repeat(58) + "-(2)");
+    });
+
+    it("should refuse a rename no prefix of the name fits, leaving the service unchanged", () => {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { domain: Array(4).fill("d".repeat(59)).join("."), name: "a", port: 4711, type: "http" });
+      const before = [ service.getFQDN(), service.getHostname() ];
+
+      expect(() => service.incrementName()).toThrow("The service name 'a' has no prefix that fits with the number ' (2)'");
+      expect([ service.getFQDN(), service.getHostname() ]).toEqual(before);
+    });
+
+    it("should refuse at construction a persisted name the hostname's number carries past 63 octets, emitting no name-change", () => {
+      const emit = jest.spyOn(CiaoService.prototype, "emit");
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+      try {
+        expect(() => new CiaoService(networkManager, { hostname: "h-(10)", name: "x".repeat(59) + " (9)", port: 4711, type: "hap" }))
+          .toThrow(/takes 64 octets as an instance label/);
+        expect(emit.mock.calls.map(call => String(call[0]))).not.toContain("name-change");
+      } finally {
+        emit.mockRestore();
+      }
     });
   });
 });

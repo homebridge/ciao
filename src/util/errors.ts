@@ -1,10 +1,11 @@
 export const ERR_INTERFACE_NOT_FOUND = "ERR_INTERFACE_NOT_FOUND";
+export const ERR_NAME_LIMIT_EXCEEDED = "ERR_NAME_LIMIT_EXCEEDED";
 
 export class InterfaceNotFoundError extends Error {
 
   constructor(message: string) {
     super(message);
-    this.name = "ERR_INTERFACE_NOT_FOUND";
+    this.name = ERR_INTERFACE_NOT_FOUND;
   }
 
 }
@@ -17,7 +18,7 @@ export class NameLimitExceededError extends Error {
 
   constructor(message: string) {
     super(message);
-    this.name = "ERR_NAME_LIMIT_EXCEEDED";
+    this.name = ERR_NAME_LIMIT_EXCEEDED;
   }
 
 }

@@ -4,22 +4,30 @@ import { NameLimitExceededError } from "../util/errors";
 import { DecodedData } from "./DNSPacket";
 
 interface WrittenName {
-  labels: string[]; // the raw labels of the name, ending with the empty root label
-  writtenLabels: number[]; // array of indices where the corresponding labels are written in the buffer
+  // The raw labels of the name, ending with the empty root label.
+  labels: string[];
+  // The offset in the buffer at which each label is written, in the order of the labels, and -1 where that offset is unknown.
+  writtenLabels: number[];
 }
 
 interface DecodedName {
   name: string;
   readBytes: number;
-  length: number; // length in bytes the name takes on the wire once expanded, including the root label
-  pointerHops: number; // how many compression pointers had to be followed to read the whole name
-  cacheable: boolean; // false if the name went through a local compression pointer, which depends on the current record
+  // The bytes the name takes on the wire once expanded, the root label included.
+  length: number;
+  // How many compression pointers were followed to read the whole name.
+  pointerHops: number;
+  // Whether the name may be cached by its offset, which it may not when it went through a local compression pointer, as that depends on the current record.
+  cacheable: boolean;
 }
 
 interface NameLength {
-  labels: string[]; // the raw labels of the name, ending with the empty root label
-  length: number; // full length in bytes needed to encode this name
-  labelLengths: number[]; // array of byte lengths for every individual label. will always end with root label with length of 1
+  // The raw labels of the name, ending with the empty root label.
+  labels: string[];
+  // The bytes the name takes when encoded, a compression pointer standing in for the suffix it shares with a name measured before it.
+  length: number;
+  // The bytes each label takes, its length byte included, ending with the root label's single byte.
+  labelLengths: number[];
 }
 
 export class DNSLabelCoder {

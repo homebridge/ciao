@@ -5,6 +5,11 @@ import { Protocol } from "../index";
 import { escapeLabel, splitLabels } from "./dns-labels";
 import { getIPFromV4Mapped, isIPv4Mapped } from "./v4mapped";
 
+/**
+ * The most characters a service type may hold (RFC 6763 7.2), the limit every check of a type's length reads.
+ */
+export const MAX_SERVICE_TYPE_LENGTH = 15;
+
 function isProtocol(part: string): boolean {
   return part === "_" + Protocol.TCP || part === "_" + Protocol.UDP;
 }
@@ -109,7 +114,7 @@ export function parseFQDN(fqdn: string): PTRQueryDomain | InstanceNameDomain | S
 
 export function stringify(parts: FQDNParts | SubTypePTRParts): string {
   assert(parts.type, "type cannot be undefined");
-  assert(parts.type.length <= 15, "type must not be longer than 15 characters");
+  assert(parts.type.length <= MAX_SERVICE_TYPE_LENGTH, "type must not be longer than " + MAX_SERVICE_TYPE_LENGTH + " characters");
 
   // An instance name and a subtype may hold any text (RFC 6763 4.1.1 and 7.1), so each is escaped into one label, while RFC 6763 7 holds a service type to
   // letters, digits and hyphens, so the type is left as given.
@@ -129,12 +134,20 @@ export function formatHostname(hostname: string, domain = "local"): string {
   return (!hostname.endsWith(tld)? hostname + tld: hostname) + ".";
 }
 
-export function removeTLD(hostname: string): string {
+/**
+ * The hostname without its domain and the root label: the last label when no domain is named, and otherwise the domain `formatHostname` appended,
+ * however many labels that holds, so "Foo.my.domain." with the domain "my.domain" gives "Foo".
+ *
+ * @param hostname - The hostname, with or without the root label.
+ * @param domain - The domain `formatHostname` appended to the hostname.
+ */
+export function removeTLD(hostname: string, domain?: string): string {
   if (hostname.endsWith(".")) { // check for the DNS root label
     hostname = hostname.substring(0, hostname.length - 1);
   }
-  const lastDot = hostname.lastIndexOf(".");
-  return hostname.slice(0, lastDot);
+
+  // formatHostname appends a dot and the domain, so the hostname's own labels end that many characters before its end.
+  return hostname.slice(0, domain === undefined? hostname.lastIndexOf("."): hostname.length - domain.length - 1);
 }
 
 export function formatMappedIPv4Address(address: string): string {

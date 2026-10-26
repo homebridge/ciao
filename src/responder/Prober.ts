@@ -283,7 +283,19 @@ export class Prober {
   private handleNameChange() {
     this.endProbing(false); // reset the prober
     this.service.serviceState = ServiceState.UNANNOUNCED;
-    this.service.incrementName();
+
+    try {
+      this.service.incrementName();
+    } catch (error) {
+      /* A rename no prefix of the name fits throws with the service unchanged. The probe is rejected with it, as the catch around the query build rejects
+       * a probe, so the Responder retries the advertisement and the ones queued behind it move on, where a throw escaping here would leave the probe
+       * pending and the queue waiting on it. The service stays UNANNOUNCED, as the Responder holds a service whose probe rejected.
+       */
+      debug("Failed to rename '%s' after a conflict: %s", this.service.getFQDN(), error instanceof Error? error.message: String(error));
+      this.promiseReject!(error instanceof Error? error: new Error(String(error)));
+      return;
+    }
+
     this.service.serviceState = ServiceState.PROBING;
 
     this.serviceEncounteredNameChange = true;

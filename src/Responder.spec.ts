@@ -97,8 +97,8 @@ function makeChainResponder(): { internals: ChainResponder; server: ChainServer 
 /* Creates a service wired to the fake Responder through the internal events Responder.createService binds, every callback a publish or a republish hands
  * the Responder wrapped in a spy first, so a row can count how often each advertisement settled and with what.
  */
-function makeChainService(internals: ChainResponder, name: string): { callbacks: jest.Mock[]; service: CiaoService } {
-  const service = new CiaoService(networkManager, { name, port: 4711, type: "http" });
+function makeChainService(internals: ChainResponder, name: string, options: Partial<ServiceOptions> = {}): { callbacks: jest.Mock[]; service: CiaoService } {
+  const service = new CiaoService(networkManager, { name, port: 4711, type: "http", ...options });
   const callbacks: jest.Mock[] = [];
   const recorded = (callback: PublishCallback): PublishCallback => {
     const spy = jest.fn(callback);
@@ -964,6 +964,60 @@ describe(Responder, () => {
       expect(service.currentAnnouncer).toBe(announcer);
       expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(6);
       expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
+    });
+
+    /* A conflict with an announced service of the same name renames the probing one. Its Prober checks for that conflict once its first query is out, and
+     * probes again one second after the rename, so a rename that fits is probed and announced well inside two seconds.
+     */
+    describe("a conflict rename", () => {
+      it("of a name the number would carry past 63 octets shortens the name, and advertise() resolves under it", async () => {
+        const { internals } = makeChainResponder();
+        const { service } = makeChainService(internals, "a".repeat(61));
+        const twin = new CiaoService(networkManager, { name: "a".repeat(61), port: 4712, type: "http" });
+        const nameChanges = jest.fn();
+
+        service.on(ServiceEvent.NAME_CHANGED, nameChanges);
+        internals.announcedServices.set(twin.getLowerCasedFQDN(), twin);
+
+        const advertised = track(service.advertise());
+
+        await advance(2000);
+
+        expect(advertised.state).toBe("resolved");
+        expect(nameChanges.mock.calls).toEqual([["a".repeat(59) + " (2)"]]);
+        expect(service.getFQDN()).toBe("a".repeat(59) + " (2)._http._tcp.local.");
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
+      });
+
+      // A domain of four 59-octet labels leaves an instance label two octets within the 255 of the FQDN, room for "a" and none for " (2)".
+      it("no prefix fits rejects the probe with the service unchanged, and the service queued behind it advertises", async () => {
+        const { internals } = makeChainResponder();
+        const domain = Array(4).fill("d".repeat(59)).join(".");
+        const stuck = makeChainService(internals, "a", { domain }).service;
+        const twin = new CiaoService(networkManager, { domain, name: "a", port: 4712, type: "http" });
+        const queued = makeChainService(internals, "Queued").service;
+        const probe = jest.spyOn(internals, "probe");
+        const before = [ stuck.getFQDN(), stuck.getHostname() ];
+
+        internals.announcedServices.set(twin.getLowerCasedFQDN(), twin);
+
+        const advertiseStuck = track(stuck.advertise());
+        const advertiseQueued = track(queued.advertise());
+
+        await advance(0);
+
+        const stuckProbe = track(probe.mock.results[0].value);
+
+        await advance(1000);
+
+        expect(stuckProbe.state).toBe("rejected");
+        expect(String(stuckProbe.reason)).toContain("The service name 'a' has no prefix that fits with the number ' (2)'");
+        expect([ stuck.getFQDN(), stuck.getHostname() ]).toEqual(before);
+        expect(stuck.serviceState).toBe(ServiceState.UNANNOUNCED);
+        expect(advertiseStuck.state).toBe("pending");
+        expect(advertiseQueued.state).toBe("resolved");
+        expect(queued.serviceState).toBe(ServiceState.ANNOUNCING);
+      });
     });
 
     /* Node reports an unhandled rejection only after a real turn of the event loop, so this row runs on real timers and ends on one. The listener that

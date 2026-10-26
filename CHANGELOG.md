@@ -43,6 +43,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore: target ES2024 and require Node 22 or later (@hjdhjd)
 - fix: keep a dot inside a service name as part of one label (@hjdhjd)
 - fix: replace dots like spaces when deriving a hostname from a service name (@hjdhjd)
+- fix: shorten renamed service names and hostnames on whole characters to fit DNS limits (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

@@ -23,8 +23,46 @@ import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:CiaoService");
 
-const numberedServiceNamePattern = /^(.*) \((\d+)\)$/; // matches a name lik "My Service (2)"
-const numberedHostnamePattern = /^(.*)-\((\d+)\)(\.\w{2,}.)$/; // matches a hostname like "My-Computer-(2).local."
+// A service name numbered like "My Service (2)", and a hostname's last own label, raw, numbered like "My-Computer-(2)".
+const numberedServiceNamePattern = /^(.*) \((\d+)\)$/;
+const numberedHostnameLabelPattern = /^(.*)-\((\d+)\)$/;
+
+/* The label a rename numbers: the raw base cut to its longest prefix that leaves room for the suffix within the octets the label may take, and the suffix
+ * after it, the base read raw because a label in presentation form would be measured by its escapes too. The cut steps by grapheme cluster, the character
+ * a reader sees, so a flag, a letter with its combining accent or an emoji sequence is kept or dropped whole. A runtime without Intl.Segmenter, such as a
+ * Node built without Intl, steps by code point instead, as for...of iterates, which never splits a surrogate pair. When the first cluster alone is wider
+ * than the room, no part of the base fits and the label is the suffix alone. When the suffix alone passes the octets no prefix fits, and the rename is
+ * refused with the sentence naming what it renames.
+ */
+function numberedLabel(base: string, suffix: string, octets: number, renamed: string): string {
+  let room = octets - Buffer.byteLength(suffix);
+
+  if (room < 0) {
+    throw new Error(renamed + " has no prefix that fits with the number '" + suffix + "' in the " + octets + " octets its label may take, within the 63 " +
+      "a DNS label and the 255 a DNS name may hold.");
+  }
+
+  if (Buffer.byteLength(base) <= room) {
+    return base + suffix;
+  }
+
+  // A segmenter is built on each call, as a cut runs only on a conflict rename, so no module state holds one and the guard reads the runtime as it stands.
+  const characters: Iterable<string> = (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function")?
+    Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(base), segment => segment.segment): base;
+  let prefix = "";
+
+  for (const character of characters) {
+    room -= Buffer.byteLength(character);
+
+    if (room < 0) {
+      break;
+    }
+
+    prefix += character;
+  }
+
+  return prefix + suffix;
+}
 
 /**
  * This enum defines some commonly used service types.
@@ -80,8 +118,8 @@ export interface ServiceOptions {
   protocol?: Protocol;
   /**
    * Defines a hostname under which the service can be reached.
-   * The specified hostname must not include the TLD. It is a domain name in DNS presentation form and is used as given, so a dot separates labels and a
-   * backslash escapes the character after it.
+   * The specified hostname must not include the TLD. It is a domain name in DNS presentation form, so a dot separates labels and a backslash escapes the
+   * character after it, and each space in it becomes a dash.
    * If undefined, the hostname is derived from the service name as one label, in which each space and each dot becomes a dash.
    */
   hostname?: string;
@@ -162,14 +200,18 @@ export interface ServiceRecords {
 export const enum ServiceEvent {
   /**
    * Event is called when the Prober identifies that the name for the service is already used
-   * and thus resolve the name conflict by adjusting the name (e.g. adding '(2)' to the name).
+   * and thus resolve the name conflict by adjusting the name (e.g. adding ' (2)' to the name).
+   * A name the number would carry past the 63 octets of a DNS label, or past the 255 of a DNS name with
+   * the rest of the service's name, is shortened first, on a character boundary, so the new name can be shorter than the old one.
    * This change must be persisted and thus a listener must hook up to this event
    * in order for the name to be persisted.
    */
   NAME_CHANGED = "name-change",
   /**
    * Event is called when the Prober identifies that the hostname for the service is already used
-   * and thus resolve the name conflict by adjusting the hostname (e.g. adding '(2)' to the hostname).
+   * and thus resolve the name conflict by adjusting the hostname (e.g. adding '-(2)' to its last label, ahead of the domain).
+   * That label is shortened first, as the name is, when the number would carry it past the 63 octets of a DNS label or the
+   * hostname past the 255 of a DNS name. The event reports the hostname without the domain.
    * The name change must be persisted. As the hostname is an optional parameter, it is derived
    * from the service name if not supplied.
    * If you supply a custom hostname (not automatically derived from the service name) you must
@@ -327,7 +369,8 @@ export class CiaoService extends EventEmitter {
     assert(options, "parameters options is required");
     assert(options.name, "service options parameter 'name' is required");
     assert(options.type, "service options parameter 'type' is required");
-    assert(options.type.length <= 15, "service options parameter 'type' must not be longer than 15 characters");
+    assert(options.type.length <= domainFormatter.MAX_SERVICE_TYPE_LENGTH,
+      "service options parameter 'type' must not be longer than " + domainFormatter.MAX_SERVICE_TYPE_LENGTH + " characters");
 
     this.networkManager = networkManager;
 
@@ -356,19 +399,13 @@ export class CiaoService extends EventEmitter {
       })).map(dnsLowerCase);
     }
 
-    // A derived hostname is one DNS label, so a dot in the service name becomes a dash one for one, as a space does, and the label escape keeps a backslash
-    // literal through the escape-aware split. An explicit hostname is a domain name in presentation form and is taken as given.
-    this.hostname = domainFormatter.formatHostname(options.hostname || escapeLabel(this.name.replace(/\./g, "-")), this.serviceDomain)
+    /* A derived hostname is one DNS label, so a dot in the service name becomes a dash one for one, as a space does, and the label escape keeps a backslash
+     * literal through the escape-aware split.
+     */
+    const hostname = domainFormatter.formatHostname(options.hostname || escapeLabel(this.name.replace(/\./g, "-")), this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
+    this.hostname = hostname;
     this.loweredHostname = dnsLowerCase(this.hostname);
-
-    if (!options.hostname) {
-      const hostnameLabel = splitLabels(this.hostname)[0];
-      const hostnameOctets = Buffer.byteLength(hostnameLabel);
-
-      assert(hostnameOctets <= 63, "The hostname label '" + hostnameLabel + "' derived from the service name '" + this.name + "' takes " + hostnameOctets +
-        " octets, more than the 63 a DNS label may hold.");
-    }
 
     this.port = options.port;
 
@@ -409,7 +446,10 @@ export class CiaoService extends EventEmitter {
 
     this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
 
-    // checks if hostname or name are already numbered and adjusts the numbers if necessary
+    /* The call aligns the numbers a persisted name and hostname carry, and it rebuilds the hostname's own labels, each split and escaped again. That rebuild
+     * is where an explicit hostname, a domain name in presentation form, is spelled once the way the label coder decodes it, so a backslash before any other
+     * character is dropped as the wire drops it, and the hostname the service holds is the one a received packet carries.
+     */
     this.incrementName(true);
   }
 
@@ -730,7 +770,12 @@ export class CiaoService extends EventEmitter {
   /**
    * This method is called by the Prober when encountering a conflict on the network.
    * It advises the service to change its name, like incrementing a number appended to the name.
-   * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)"
+   * So "My Service" will become "My Service (2)", and "My Service (2)" would become "My Service (3)", while the hostname's last label
+   * ahead of the domain takes "-(2)", so "My-Service.local." becomes "My-Service-(2).local.". A name or hostname label the number would
+   * carry past the 63 octets of a DNS label, or a name past the 255 octets of a DNS name, is cut first, on a character boundary, so a rename
+   * can shorten the name. When no prefix fits, the call throws with the service unchanged.
+   * The constructor calls it with `nameCheckOnly`, which only aligns the numbers a persisted name and hostname carry and never shortens,
+   * so an oversized name is refused there as any other is.
    * @private must only be called by the {@link Prober}
    */
   incrementName(nameCheckOnly?: boolean): void {
@@ -745,7 +790,6 @@ export class CiaoService extends EventEmitter {
     let nameNumber;
 
     let hostnameBase;
-    let hostnameTLD;
     let hostnameNumber;
 
     const nameMatcher = this.name.match(numberedServiceNamePattern);
@@ -759,19 +803,20 @@ export class CiaoService extends EventEmitter {
       nameNumber = 1;
     }
 
-    const hostnameMatcher = this.hostname.match(numberedHostnamePattern);
+    // The number goes on the hostname's last own label, ahead of the service domain however many labels that holds, read raw so its octets are its own. The
+    // own part is split as the end of a name, so a last own label ending in an escaped dot stays one label.
+    const ownPart = domainFormatter.removeTLD(this.hostname, this.serviceDomain);
+    const ownLabels = splitLabels(ownPart);
+    const lastLabel = ownLabels[ownLabels.length - 1];
+
+    const hostnameMatcher = lastLabel.match(numberedHostnameLabelPattern);
     if (hostnameMatcher) { // if it matched. Extract the current nameNumber
       hostnameBase = hostnameMatcher[1];
-      hostnameTLD = hostnameMatcher[3];
       hostnameNumber = parseInt(hostnameMatcher[2]);
 
       assert(hostnameNumber, `Failed to extract hostname number from ${this.hostname}. Resulted in ${hostnameNumber}`);
     } else {
-      // we need to substring, to not match the root label "."
-      const lastDot = this.hostname.substring(0, this.hostname.length - 1).lastIndexOf(".");
-
-      hostnameBase = this.hostname.slice(0, lastDot);
-      hostnameTLD = this.hostname.slice(lastDot);
+      hostnameBase = lastLabel;
       hostnameNumber = 1;
     }
 
@@ -782,13 +827,31 @@ export class CiaoService extends EventEmitter {
     }
 
     const newNumber = Math.max(nameNumber, hostnameNumber);
+    const nameSuffix = newNumber === 1? "": " (" + newNumber + ")";
+    const hostnameSuffix = newNumber === 1? "": "-(" + newNumber + ")";
 
-    // reassemble the name
-    this.name = newNumber === 1? nameBase: `${nameBase} (${newNumber})`;
-    this.hostname = newNumber === 1? `${hostnameBase}${hostnameTLD}`: `${hostnameBase}-(${newNumber})${hostnameTLD}`;
+    /* Only a conflict rename shortens. A label takes at most 63 octets, and the octets the rest of its name takes on the wire, the type, protocol and domain
+     * labels after the instance and the hostname's other labels with its domain, bound it further to keep the whole name within 255.
+     */
+    let name = nameBase + nameSuffix;
+    let hostnameLabel = hostnameBase + hostnameSuffix;
+
+    if (!nameCheckOnly) {
+      const otherHostnameOctets = wireLength(splitLabels(this.hostname)) - (1 + Buffer.byteLength(lastLabel));
+
+      name = numberedLabel(nameBase, nameSuffix, Math.min(63, 254 - wireLength(splitLabels(this.typePTR))), "The service name '" + this.name + "'");
+      hostnameLabel = numberedLabel(hostnameBase, hostnameSuffix, Math.min(63, 254 - otherHostnameOctets), "The hostname '" + this.hostname + "'");
+    }
+
+    // Every field is built and checked before any is assigned, so a rename that throws leaves the service as it was.
+    const hostname = [ ...ownLabels.slice(0, -1), hostnameLabel ].map(escapeLabel).join(".") + this.hostname.slice(ownPart.length);
+    const fqdn = this.formatFQDN(name);
+
+    this.name = name;
+    this.hostname = hostname;
     this.loweredHostname = dnsLowerCase(this.hostname);
 
-    this.fqdn = this.formatFQDN(); // update the fqdn
+    this.fqdn = fqdn;
     this.loweredFqdn = dnsLowerCase(this.fqdn);
 
     // we must inform the user that the names changed, so the new names can be persisted
@@ -812,7 +875,7 @@ export class CiaoService extends EventEmitter {
     // we trust the prober that this function is only called when the name was actually changed
 
     const nameCalled = this.emit(ServiceEvent.NAME_CHANGED, this.name);
-    const hostnameCalled = this.emit(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname));
+    const hostnameCalled = this.emit(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname, this.serviceDomain));
 
     // at least one event should be listened to. We can figure out the number from one or another
     if (!nameCalled && !hostnameCalled) {
@@ -820,24 +883,26 @@ export class CiaoService extends EventEmitter {
     }
   }
 
-  private formatFQDN(): string {
+  private formatFQDN(name = this.name): string {
     if (this.serviceState !== ServiceState.UNANNOUNCED) {
       throw new Error("Name can't be changed after service was already announced!");
     }
 
     const fqdn = domainFormatter.stringify({
-      name: this.name,
+      name: name,
       type: this.type,
       protocol: this.protocol,
       domain: this.serviceDomain,
     });
 
-    // The limits are in octets on the wire, so an escape counts nothing and a multi-byte character counts each of its bytes.
+    /* The limits are in octets on the wire, so an escape counts nothing and a multi-byte character counts each of its bytes. The hostname derived from the
+     * name swaps a dot or a space, each one octet, for a dash, also one octet, one for one, so the instance check bounds the derived hostname label too.
+     */
     const labels = splitLabels(fqdn);
     const instanceOctets = Buffer.byteLength(labels[0]);
     const fqdnOctets = wireLength(labels);
 
-    assert(instanceOctets <= 63, "The service name '" + this.name + "' takes " + instanceOctets + " octets as an instance label, more than the 63 a DNS label " +
+    assert(instanceOctets <= 63, "The service name '" + name + "' takes " + instanceOctets + " octets as an instance label, more than the 63 a DNS label " +
       "may hold.");
     assert(fqdnOctets <= 255, "The name '" + fqdn + "' takes " + fqdnOctets + " octets on the wire, more than the 255 a DNS name may hold.");
     return fqdn;

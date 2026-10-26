@@ -8,6 +8,7 @@ import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
 import { QueryResponse } from "./responder/QueryResponse";
 import { NSECRecord } from "./coder/records/NSECRecord";
+import { PTRRecord } from "./coder/records/PTRRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 
@@ -333,6 +334,59 @@ describe(Responder, () => {
 
       expect(() => jest.advanceTimersByTime(200)).not.toThrow();
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to send a delayed response on en0"));
+    });
+  });
+
+  describe("periodic broadcasts", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    // A responder whose server holds the named sockets of one dual-stack interface and answers each question with a fresh PTR response. A send
+    // naming a socket the server does not hold throws, as the server's own send does.
+    function broadcastOn(bound: string[]) {
+      const networkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2", ipv4Netaddress: "192.168.1.0", ipv6: "fe80::1" };
+      const sendResponse = jest.fn((packet: unknown, name: string) => {
+        if (!bound.includes(name)) {
+          throw new Error("Could not find socket for given network interface '" + name + "'");
+        }
+      });
+      const responder = Object.create(Responder.prototype) as Responder;
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (responder as any).server = {
+        getNetworkManager: () => ({ getInterfaceMap: () => new Map([[networkInterface.name, networkInterface]]) }),
+        getBoundInterfaceNames: () => bound.values(),
+        sendResponse,
+      };
+      (responder as any).answerQuestion = () => {
+        const response = new QueryResponse();
+        response.addAnswer(new PTRRecord("_hap._tcp.local.", "Test._hap._tcp.local."));
+        return [response];
+      };
+      const broadcast = () => (responder as any).handlePeriodicBroadcasts();
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      return { broadcast, sendResponse };
+    }
+
+    it("sends on the IPv6 socket of an interface whose IPv4 socket is not bound", () => {
+      const { broadcast, sendResponse } = broadcastOn(["eth0/6"]);
+
+      expect(broadcast).not.toThrow();
+      expect(sendResponse).toHaveBeenCalled();
+      expect(sendResponse.mock.calls.map(call => call[1])).toStrictEqual(sendResponse.mock.calls.map(() => "eth0/6"));
+    });
+
+    it("sends on the IPv4 socket of an interface whose IPv4 and IPv6 sockets are bound", () => {
+      const { broadcast, sendResponse } = broadcastOn(["eth0", "eth0/6"]);
+
+      expect(broadcast).not.toThrow();
+      expect(sendResponse).toHaveBeenCalled();
+      expect(sendResponse.mock.calls.map(call => call[1])).toStrictEqual(sendResponse.mock.calls.map(() => "eth0"));
     });
   });
 

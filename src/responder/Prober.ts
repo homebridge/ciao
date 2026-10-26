@@ -42,10 +42,12 @@ export class Prober {
   private sentQueriesForCurrentTry = 0;
   private sentQueries = 0;
   /**
-   * Set by {@link cancel} and never reset, as a cancelled Prober is never reused. A probe query in flight when the Prober is cancelled reads it once its
-   * send resolves, because the service can be probing again by then under a new Prober, which the service state alone cannot tell apart.
+   * Numbers the current probing attempt. An attempt ends when it succeeds or fails, and early by a cancel, a lost tiebreak or a rename, and every ending
+   * goes through {@link clear}, which moves the number on. Each probe query captures the number before it is sent, and a query whose send resolves
+   * after its attempt has ended must not re-arm the timer: whatever ended the attempt owns the Prober by then, and the service state alone cannot tell, as
+   * the service is still probing after a lost tiebreak or a rename, and can be probing again under a new Prober after a cancel.
    */
-  private cancelled = false;
+  private attempt = 0;
 
   constructor(responder: Responder, server: MDNSServer, service: CiaoService) {
     assert(responder, "responder must be defined");
@@ -89,7 +91,6 @@ export class Prober {
   }
 
   public cancel(): void {
-    this.cancelled = true;
     this.clear();
 
     this.promiseReject!(Prober.CANCEL_REASON);
@@ -100,6 +101,9 @@ export class Prober {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
+
+    // Every attempt ends here, so a probe query still in flight finds the number moved on once its send resolves.
+    this.attempt++;
 
     // reset all values to default (so the Prober can be reused if it wasn't successful)
     this.sentFirstProbeQuery = false;
@@ -168,6 +172,8 @@ export class Prober {
       new Question(this.service.getHostname(), QType.ANY, true),
     ];
 
+    const attempt = this.attempt;
+
     // sendQueryBroadcast builds and encodes the packet synchronously, so a probe
     // query too big to fit an MTU-sized packet (a long TXT record plus subtype PTRs
     // plus one address record per interface adds up) throws right here rather than
@@ -191,6 +197,13 @@ export class Prober {
     }
 
     broadcast.then(results => {
+      // A query whose attempt has ended belongs to nothing still running, so it stops before its results are read: re-arming here would start a second
+      // timer beside the one the ending path armed, and a failure it met would reject the attempt running in its place.
+      if (attempt !== this.attempt || this.service.serviceState !== ServiceState.PROBING) {
+        debug("The probing attempt for '%s' this query belonged to has ended, or the service is no longer probing. Stopping.", this.service.getFQDN());
+        return;
+      }
+
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)
@@ -206,11 +219,6 @@ export class Prober {
 
         debug(SendResultFormatError(results, `Some of the probe queries for '${this.service.getFQDN()}' encountered an error`));
         // SEE no return here
-      }
-
-      if (this.cancelled || this.service.serviceState !== ServiceState.PROBING) {
-        debug("Probing for '%s' was cancelled or the service is no longer in probing state. Stopping.", this.service.getFQDN());
-        return;
       }
 
       this.sentFirstProbeQuery = true;

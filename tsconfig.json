@@ -1,14 +1,10 @@
 {
     "compilerOptions": {
-        "target": "ES2018",
+        "target": "ES2024",
+        "useDefineForClassFields": false,
         "module": "commonjs",
         "importHelpers": true,
-        "lib": [
-            "es2015",
-            "es2016",
-            "es2017",
-            "es2018"
-        ],
+        "lib": ["es2024"],
         "declaration": true,
         "declarationMap": true,
         "sourceMap": true,

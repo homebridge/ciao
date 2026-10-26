@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 process.env.BCT = "yes"; // set bonjour conformance testing env (used to enable debug output)
 
 import http from "http";

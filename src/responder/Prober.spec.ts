@@ -166,9 +166,10 @@ describe(Prober, () => {
     });
   });
 
-  /* A tiebreak lost or a rename taken while a probe query is in flight ends the attempt that query belongs to, and probing starts over one second later
-   * (RFC 6762 section 8.2), with the renamed records after a rename (section 8.1). Each row holds the second query open, because the Prober answers no
-   * traffic until its first query has gone out, ends the attempt while that query is held, and reads what the query does once its send resolves.
+  /* A tiebreak lost or a rename taken while a probe query is in flight ends the attempt that query belongs to, and probing starts over one second later:
+   * after a lost tiebreak as RFC 6762 section 8.2 sets, and after a rename by the Prober's own back-off, with the renamed records (section 8.1). Each row
+   * holds the second query open, because the Prober answers no traffic until its first query has gone out, ends the attempt while that query is held, and
+   * reads what the query does once its send resolves.
    */
   describe("an attempt that ends while a probe query is in flight", () => {
     const endpoint: EndpointInfo = { address: "192.168.1.2", interface: "en0", port: 5353 };

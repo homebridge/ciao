@@ -1,3 +1,5 @@
+import { ResourceRecord } from "../coder/ResourceRecord";
+
 /**
  * Comparator for two ResourceRecords according to RFC 6762 8.2. "Simultaneous ProbeTiebreaking":
  *    The determination of "lexicographically later" is performed by first
@@ -9,15 +11,15 @@
  * @param recordB - record b
  * @returns -1 if record a < record b, 0 if record a == record b, 1 if record a > record b
  */
-import { ResourceRecord } from "../coder/ResourceRecord";
-
 export function rrComparator(recordA: ResourceRecord, recordB: ResourceRecord): number {
+  // We return the sign of a difference, not the difference itself...runTiebreaking hands this result back as a TiebreakingResult, and a raw difference need
+  // not be one of its members.
   if (recordA.class !== recordB.class) {
-    return recordA.class - recordB.class;
+    return Math.sign(recordA.class - recordB.class);
   }
 
   if (recordA.type !== recordB.type) {
-    return recordA.type - recordB.type;
+    return Math.sign(recordA.type - recordB.type);
   }
 
   // now follows a raw comparison of the binary data

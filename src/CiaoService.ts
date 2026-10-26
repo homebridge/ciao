@@ -186,7 +186,6 @@ export const enum InternalServiceEvent {
   UNPUBLISH = "unpublish",
   REPUBLISH = "republish",
   RECORD_UPDATE = "records-update",
-  RECORD_UPDATE_ON_INTERFACE = "records-update-interface",
 }
 
 /**
@@ -223,10 +222,6 @@ export declare interface CiaoService {
    * @private
    */
   on(event: InternalServiceEvent.RECORD_UPDATE, listener: (response: DNSResponseDefinition, callback?: (error?: Error | null) => void) => void): this;
-  /**
-   * @private
-   */
-  on(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, listener: (name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback) => void): this;
 
   /**
    * @private
@@ -253,10 +248,6 @@ export declare interface CiaoService {
    * @private
    */
   emit(event: InternalServiceEvent.RECORD_UPDATE, response: DNSResponseDefinition, callback?: (error?: Error | null) => void): boolean;
-  /**
-   * @private
-   */
-  emit(event: InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): boolean;
 
 }
 
@@ -703,61 +694,6 @@ export class CiaoService extends EventEmitter {
     this.rebuildServiceRecords();
     // records for a removed interface are now no longer present after the call above
     // records for a new interface got now built by the call above
-
-    /* logic disabled for now
-    if (networkUpdate.changes) {
-      // we could optimize this and don't send the announcement of records if we have also added a new interface
-      // Though probing will take at least 750 ms and thus sending it out immediately will get the information out faster.
-
-      for (const change of networkUpdate.changes) {
-        if (!this.advertisesOnInterface(change.name, true)) {
-          continue;
-        }
-
-        let restrictedAddresses: IPAddress[] | undefined = this.restrictedAddresses? this.restrictedAddresses.get(change.name): undefined;
-        if (restrictedAddresses && restrictedAddresses.length === 0) {
-          restrictedAddresses = undefined;
-        }
-        const records: ResourceRecord[] = [];
-
-        if (change.outdatedIpv4 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedIpv4))) {
-          records.push(new ARecord(this.hostname, change.outdatedIpv4, true, 0));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv4), this.hostname, false, 0));
-        }
-        if (change.outdatedIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.outdatedIpv6, true, 0));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedIpv6), this.hostname, false, 0));
-        }
-        if (change.outdatedGloballyRoutableIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedGloballyRoutableIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.outdatedGloballyRoutableIpv6, true, 0));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedGloballyRoutableIpv6), this.hostname, false, 0));
-        }
-        if (change.outdatedUniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.outdatedUniqueLocalIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.outdatedUniqueLocalIpv6, true, 0));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.outdatedUniqueLocalIpv6), this.hostname, false, 0));
-        }
-
-        if (change.updatedIpv4 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedIpv4))) {
-          records.push(new ARecord(this.hostname, change.updatedIpv4, true));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv4), this.hostname));
-        }
-        if (change.updatedIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.updatedIpv6, true));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedIpv6), this.hostname));
-        }
-        if (change.updatedGloballyRoutableIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedGloballyRoutableIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.updatedGloballyRoutableIpv6, true));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedGloballyRoutableIpv6), this.hostname));
-        }
-        if (change.updatedUniqueLocalIpv6 && !this.disableIpv6 && (!restrictedAddresses || restrictedAddresses.includes(change.updatedUniqueLocalIpv6))) {
-          records.push(new AAAARecord(this.hostname, change.updatedUniqueLocalIpv6, true));
-          // records.push(new PTRRecord(formatReverseAddressPTRName(change.updatedUniqueLocalIpv6), this.hostname));
-        }
-
-        this.emit(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, change.name, records);
-      }
-    }
-    */
 
     if (networkUpdate.added || networkUpdate.changes) {
       // a new network interface got added. We must return into probing state,

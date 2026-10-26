@@ -205,7 +205,6 @@ export class Responder implements PacketHandler {
     service.on(InternalServiceEvent.UNPUBLISH, this.unpublishService.bind(this, service));
     service.on(InternalServiceEvent.REPUBLISH, this.republishService.bind(this, service));
     service.on(InternalServiceEvent.RECORD_UPDATE, this.handleServiceRecordUpdate.bind(this, service));
-    service.on(InternalServiceEvent.RECORD_UPDATE_ON_INTERFACE, this.handleServiceRecordUpdateOnInterface.bind(this, service));
 
     return service;
   }
@@ -634,18 +633,6 @@ export class Responder implements PacketHandler {
         callback(reason instanceof Error ? reason : new Error(String(reason)));
       }
     });
-  }
-
-  private handleServiceRecordUpdateOnInterface(service: CiaoService, name: InterfaceName, records: ResourceRecord[], callback?: RecordsUpdateCallback): void {
-    // when updating we just repeat the 'announce' step
-    if (service.serviceState !== ServiceState.ANNOUNCED) { // different states are already handled in CiaoService where this event handler is fired
-      throw new Error("Cannot update txt of service which is not announced yet. Received " + service.serviceState + " for service " + service.getFQDN());
-    }
-
-    debug("[%s] Updating %d record(s) for given service on interface %s!", service.getFQDN(), records.length, name);
-
-    const packet = DNSPacket.createDNSResponsePacketsFromRRSet({ answers: records });
-    this.server.sendResponse(packet, name, callback);
   }
 
   private goodbye(service: CiaoService): Promise<void> {

@@ -128,8 +128,9 @@ export class NetworkManager extends EventEmitter {
 
       for (const iface of interfaces) {
         if (net.isIP(iface)) {
-          // A consumer's IPv6 address is canonicalized before it is resolved, since resolveInterface compares canonical text, so any spelling selects its interface.
-          const interfaceName = NetworkManager.resolveInterface(net.isIPv6(iface)? canonicalizeIPv6(iface): iface);
+          // A consumer's address is resolved in the spelling it gives, since resolveInterface reads its zone and compares canonical text, so any spelling
+          // selects its interface.
+          const interfaceName = NetworkManager.resolveInterface(iface);
           if (interfaceName) {
             restrictedInterfaces.push(interfaceName);
           } else {
@@ -457,25 +458,52 @@ export class NetworkManager extends EventEmitter {
   }
 
   /**
-   * The name of the interface the operating system reports an address on. An IPv6 address arrives in its canonical text and is compared against the
-   * canonical text of each IPv6 address reported, so the operating system's spelling does not decide the match; an IPv4 address is compared as given.
+   * The name of the interface the operating system reports an address on, for an address in the spelling a consumer gives. An IPv6 address is compared
+   * by its canonical text against the canonical text of each IPv6 address reported, so neither spelling decides the match; an IPv4 address is compared as
+   * given. A zone (RFC 4007 section 11) names the interface the address must be on: the interface of that name when one exists, and otherwise, for a
+   * decimal zone, the interface whose link-local address reports that scope id. The zone 0, RFC 4007's default zone, leaves the address unconstrained as
+   * no zone does, on whichever interface reports it first, and a zone naming no interface resolves the address to none. The zone is read here alone, so
+   * every intake that resolves an address shares the one parse.
    */
   public static resolveInterface(address: IPAddress): InterfaceName | undefined {
+    const networkInterfaces = os.networkInterfaces();
     const ipv6 = net.isIPv6(address);
-    let interfaceName: InterfaceName | undefined;
+    const zoneStart = ipv6? address.indexOf("%"): -1;
+    const wanted = ipv6? canonicalizeIPv6(address): address;
+    const names = zoneStart === -1? Object.keys(networkInterfaces): NetworkManager.zoneInterfaces(address.slice(zoneStart + 1), networkInterfaces);
 
-    outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
-      for (const info of infoArray ?? []) {
+    for (const name of names) {
+      for (const info of networkInterfaces[name] ?? []) {
         const reported = (ipv6 && net.isIPv6(info.address))? canonicalizeIPv6(info.address): info.address;
 
-        if (reported === address) {
-          interfaceName = name;
-          break outer; // exit out of both loops
+        if (reported === wanted) {
+          return name;
         }
       }
     }
 
-    return interfaceName;
+    return undefined;
+  }
+
+  /* The interfaces an address with the given zone may resolve to: the one the zone names, every interface for the default zone 0, and none for a zone that
+   * names no interface. Node reports a nonzero scope id only on a link-local address, so a decimal zone is matched against the scope ids reported.
+   */
+  private static zoneInterfaces(zone: string, networkInterfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): InterfaceName[] {
+    if (networkInterfaces[zone]) {
+      return [zone];
+    }
+
+    if (!/^\d+$/.test(zone)) {
+      return [];
+    }
+
+    const scopeId = Number(zone);
+    if (scopeId === 0) {
+      return Object.keys(networkInterfaces);
+    }
+
+    const scoped = Object.entries(networkInterfaces).find(([, infos]) => (infos ?? []).some(info => info.scopeid === scopeId));
+    return scoped? [scoped[0]]: [];
   }
 
   private static async getNetworkInterfaceNames(): Promise<InterfaceName[]> {

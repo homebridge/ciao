@@ -208,6 +208,64 @@ describe(CiaoService, () => {
     });
   });
 
+  describe("a zone in a restricted address (RFC 4007 section 11)", () => {
+    // An operating system reporting en0's addresses after lo0 carrying en0's link-local address and utun0 carrying its global one, so a resolution that
+    // ignores the zone selects another interface. en0's link-local address reports scope id 4 and its global address 0, as Node reports them.
+    beforeEach(() => {
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        lo0: [
+          { address: "fe80::1", cidr: "fe80::1/64", family: "IPv6", internal: true, mac: "00:00:00:00:00:00", netmask: "ffff:ffff:ffff:ffff::", scopeid: 1 },
+        ],
+        utun0: [
+          { address: "2001:db8::5", cidr: "2001:db8::5/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:02", netmask: "ffff:ffff:ffff:ffff::", scopeid: 0 },
+        ],
+        en0: [
+          { address: "fe80::1", cidr: "fe80::1/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:01", netmask: "ffff:ffff:ffff:ffff::", scopeid: 4 },
+          { address: "2001:db8::5", cidr: "2001:db8::5/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:01", netmask: "ffff:ffff:ffff:ffff::", scopeid: 0 },
+        ],
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // A service restricted to the address, its records built from an interface map holding en0's addresses.
+    function restrictedTo(address: string): CiaoService {
+      const en0: NetworkInterface = { name: "en0", loopback: false, mac: "00:00:5e:00:53:01", ipv6: "fe80::1", globallyRoutableIpv6: "2001:db8::5" };
+      const networkManager = { getInterfaceMap: () => new Map([[en0.name, en0]]) } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", type: "http", port: 4711, restrictedAddresses: [address] });
+
+      service.rebuildServiceRecords();
+      return service;
+    }
+
+    it("should select the interface a named zone names, in any spelling of the address", () => {
+      const service = restrictedTo("FE80::1%en0");
+
+      expect(service.advertisesOnInterface("en0", true)).toBe(true);
+      expect(service.advertisesOnInterface("lo0", true)).toBe(false);
+      expect(service.aaaaRecord("en0")?.ipAddress).toBe("fe80::1");
+    });
+
+    it("should select the interface whose link-local address reports a decimal zone's scope id, for its global address", () => {
+      const service = restrictedTo("2001:db8::5%4");
+
+      expect(service.advertisesOnInterface("en0", true)).toBe(true);
+      expect(service.advertisesOnInterface("utun0", true)).toBe(false);
+      expect(service.aaaaRoutableRecord("en0")?.ipAddress).toBe("2001:db8::5");
+    });
+
+    it("should leave an address with the zone 0 unconstrained, on the first interface reporting it", () => {
+      expect(restrictedTo("fe80::1%0").advertisesOnInterface("lo0", true)).toBe(true);
+      expect(restrictedTo("fe80::1").advertisesOnInterface("lo0", true)).toBe(true);
+    });
+
+    it("should refuse an address whose zone names an interface not carrying it", () => {
+      expect(() => restrictedTo("fe80::1%utun0")).toThrow("Could not restrict service to address fe80::1%utun0 as we could not resolve it to an interface name!");
+    });
+  });
+
   describe("service names holding a dot or a backslash", () => {
     function serviceNamed(name: string, options: Partial<ServiceOptions> = {}): CiaoService {
       const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;

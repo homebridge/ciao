@@ -1,5 +1,8 @@
 import { SocketAddress } from "net";
 import { ServiceType } from "../CiaoService";
+import { DNSLabelCoder } from "../coder/DNSLabelCoder";
+import { RClass, RType } from "../coder/DNSPacket";
+import { AAAARecord } from "../coder/records/AAAARecord";
 import { Protocol } from "../index";
 import {
   canonicalizeIPv6,
@@ -13,6 +16,40 @@ import {
   shortenIPv6,
   stringify,
 } from "./domain-formatter";
+
+// Node's own spelling (net.SocketAddress) follows RFC 5952, so it is the oracle for a lone zero at either end and in the middle, two equal runs, a shorter
+// run or a lone zero ahead of a longer run, no zeros at all, the loopback and unspecified addresses, and hextets carrying leading zeros. Each is spelled
+// with all eight hextets, so its 16 bytes are its hextets read in order.
+const nodeSpelledAddresses = [
+  "0:1:2:3:4:5:6:7", "1:0:2:3:4:5:6:7", "1:2:3:4:5:6:7:0", "2001:db8:1234:0:abcd:ef01:2345:6789",
+  "ffff:0:0:ffff:ffff:0:0:ffff", "ffff:0:0:ffff:0:0:0:ffff", "ffff:0:ffff:0:0:ffff:ffff:ffff",
+  "1:2:3:4:5:6:7:8", "0:0:0:0:0:0:0:1", "0:0:0:0:0:0:0:0", "2001:0db8:0000:0000:0000:ff00:0042:8329", "fe80:0:0:0:1:2:3:4",
+];
+
+/* The addresses around RFC 5952 section 5's mixed notation, each with its 16 bytes as hex: the IPv4-mapped and IPv4-compatible forms Node writes with a
+ * dotted tail, in dotted, hex and zero-padded spellings, the addresses beside them Node keeps hex (the unspecified address, ::1, ::2, ::ffff and the RFC
+ * 2765 form ::ffff:0:c000:201), and a zoned spelling, whose zone Node leaves out of the text. Then every address above, its bytes read from its hextets.
+ */
+const addressBytes: [string, string][] = [
+  ["::ffff:192.0.2.1", "00000000000000000000ffffc0000201"],
+  ["::ffff:c000:201", "00000000000000000000ffffc0000201"],
+  ["0:0:0:0:0:ffff:0.1.2.3", "00000000000000000000ffff00010203"],
+  ["::0.1.0.2", "00000000000000000000000000010002"],
+  ["::", "00000000000000000000000000000000"],
+  ["::1", "00000000000000000000000000000001"],
+  ["::2", "00000000000000000000000000000002"],
+  ["::ffff", "0000000000000000000000000000ffff"],
+  ["::ffff:0:0", "00000000000000000000ffff00000000"],
+  ["::ffff:0:c000:201", "0000000000000000ffff0000c0000201"],
+  ["fe80::1%en0", "fe800000000000000000000000000001"],
+  ...nodeSpelledAddresses.map((address): [string, string] => [ address, address.split(":").map(hextet => hextet.padStart(4, "0")).join("") ]),
+];
+
+// The address text of the AAAA record decoded from an address's 16 bytes, given as hex, as a record received from the network carries it.
+function decodedAddress(hex: string): string {
+  const header = { name: "host.local.", type: RType.AAAA, class: RClass.IN, ttl: 120, flushFlag: true };
+  return AAAARecord.decodeData(new DNSLabelCoder(), header, Buffer.from(hex, "hex"), 0).data.ipAddress;
+}
 
 describe("domain-formatter", () => {
   describe(parseFQDN, () => {
@@ -192,13 +229,7 @@ describe("domain-formatter", () => {
       expect(shortenIPv6("2001:0db8:aaaa:0a4c:0305:00ff:fe00:0000")).toBe("2001:db8:aaaa:a4c:305:ff:fe00:0");
     });
 
-    // Node's own spelling (net.SocketAddress) follows RFC 5952, so it is the oracle for a lone zero at either end and in the middle, two equal runs,
-    // a shorter run or a lone zero ahead of a longer run, no zeros at all, the loopback and unspecified addresses, and hextets carrying leading zeros.
-    it.each([
-      "0:1:2:3:4:5:6:7", "1:0:2:3:4:5:6:7", "1:2:3:4:5:6:7:0", "2001:db8:1234:0:abcd:ef01:2345:6789",
-      "ffff:0:0:ffff:ffff:0:0:ffff", "ffff:0:0:ffff:0:0:0:ffff", "ffff:0:ffff:0:0:ffff:ffff:ffff",
-      "1:2:3:4:5:6:7:8", "0:0:0:0:0:0:0:1", "0:0:0:0:0:0:0:0", "2001:0db8:0000:0000:0000:ff00:0042:8329", "fe80:0:0:0:1:2:3:4",
-    ])("should shorten %s the way Node spells it", address => {
+    it.each(nodeSpelledAddresses)("should shorten %s the way Node spells it", address => {
       expect(shortenIPv6(address)).toBe(new SocketAddress({ address: address, family: "ipv6" }).address);
     });
 
@@ -226,6 +257,15 @@ describe("domain-formatter", () => {
       expect(canonicalizeIPv6("FE80:0:0:0:0:0:0:1")).toBe(new SocketAddress({ address: "FE80:0:0:0:0:0:0:1", family: "ipv6" }).address);
       expect(canonicalizeIPv6("::")).toBe("::");
     });
+
+    // The canonicalizer and the decoder each write the text Node writes for the same address, and a record built from the spelling encodes its bytes.
+    it.each(addressBytes)("should spell %s, and the record decoded from its bytes, the way Node does, encoding the same bytes", (spelling, hex) => {
+      const oracle = new SocketAddress({ address: spelling, family: "ipv6" }).address;
+
+      expect(canonicalizeIPv6(spelling)).toBe(oracle);
+      expect(decodedAddress(hex)).toBe(oracle);
+      expect(new AAAARecord("host.local.", spelling).getRawData().toString("hex")).toBe(hex);
+    });
   });
 
   describe(formatReverseAddressPTRName, () => {
@@ -244,6 +284,17 @@ describe("domain-formatter", () => {
 
     it("should catch illegal ip address format", () => {
       expect(() => formatReverseAddressPTRName("192.168.1")).toThrow(Error);
+    });
+
+    // Every canonical text names a reverse address, read from the address's bytes: an IPv4-mapped address the in-addr.arpa name of the IPv4 address it
+    // carries, and any other the ip6.arpa name of its 32 nibbles.
+    it.each(addressBytes)("should name the reverse address of the canonical text of %s", (spelling, hex) => {
+      const bytes = Buffer.from(hex, "hex");
+      const expected = hex.startsWith("00000000000000000000ffff")
+        ? [...bytes.subarray(12)].reverse().join(".") + ".in-addr.arpa"
+        : hex.toUpperCase().split("").reverse().join(".") + ".ip6.arpa";
+
+      expect(formatReverseAddressPTRName(canonicalizeIPv6(spelling))).toBe(expected);
     });
   });
 

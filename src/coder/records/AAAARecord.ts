@@ -66,8 +66,8 @@ export class AAAARecord extends ResourceRecord {
       ipBytes[i] = number.toString(16);
     }
 
-    // Each hextet comes from toString(16), lowercase and without leading zeros, so compressing the zero runs is all the address needs to reach its
-    // canonical text, the text the representation constructor takes as given.
+    // Each hextet comes from toString(16), lowercase and without leading zeros, so the shortener alone reaches the canonical text, compressing the zero run
+    // and writing the dotted tail of the mixed notation where it applies, the text the representation constructor takes as given.
     const ipAddress = shortenIPv6(ipBytes);
 
     return {

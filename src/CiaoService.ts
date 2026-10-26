@@ -434,15 +434,16 @@ export class CiaoService extends EventEmitter {
 
       for (const entry of options.restrictedAddresses) {
         if (net.isIP(entry)) {
-          // An IPv6 entry is canonicalized, and that text is what the unspecified-address check, the interface resolution and the stored list use, so a
-          // consumer's spelling selects the interface it names and matches the interface map's canonical text; an error message keeps the consumer's spelling.
+          // An IPv6 entry is canonicalized, which cuts its zone, and that text is what the unspecified-address check and the stored list use, so it matches
+          // the interface map's canonical text. The interface resolution takes the consumer's spelling, whose zone names the interface it selects, and an
+          // error message keeps that spelling too.
           const address = net.isIPv6(entry)? domainFormatter.canonicalizeIPv6(entry): entry;
 
           if (address === "0.0.0.0" || address === "::") {
             throw new Error(`[${this.fqdn}] Unspecified ip address (${entry}) cannot be used to restrict on to!`);
           }
 
-          const interfaceName = NetworkManager.resolveInterface(address);
+          const interfaceName = NetworkManager.resolveInterface(entry);
           if (!interfaceName) {
             throw new Error(`[${this.fqdn}] Could not restrict service to address ${entry} as we could not resolve it to an interface name!`);
           }

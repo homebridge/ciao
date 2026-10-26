@@ -304,6 +304,16 @@ describe(CiaoService, () => {
       expect(names.map(name => encoded(name).decoded)).toEqual(names);
     });
 
+    // A domain written absolute ends with the root label every name built from it appends anyway, so it gives the names its relative form gives.
+    it.each([
+      ["local.", "local"],
+      ["my.domain.", "my.domain"],
+    ])("should give the absolute domain %s the FQDN, the type PTR and the hostname of the domain %s", (absolute, relative) => {
+      const names = (service: CiaoService): string[] => [ service.getFQDN(), service.getTypePTR(), service.getHostname() ];
+
+      expect(names(serviceNamed("Test", { domain: absolute }))).toEqual(names(serviceNamed("Test", { domain: relative })));
+    });
+
     it("should answer to the lowercased name a packet carries for its dotted instance label", () => {
       const service = serviceNamed("Mr. Coffee");
       const buffer = Buffer.from([ 10, ...Buffer.from("Mr. Coffee"), 4, ...Buffer.from("_hap"), 4, ...Buffer.from("_tcp"), 5, ...Buffer.from("local"), 0 ]);
@@ -317,8 +327,25 @@ describe(CiaoService, () => {
       ["an instance label over 63 octets, dotted into shorter pieces", "a".repeat(32) + "." + "b".repeat(32), {}, /takes 65 octets as an instance label/],
       ["a 64-octet name, whose derived hostname label the instance check bounds too", "Living Room " + "x".repeat(52), {}, /takes 64 octets/],
       ["an FQDN over 255 octets in fewer than 255 characters", "Test", { domain: Array(4).fill("é".repeat(31)).join(".") }, /takes 268 octets on the wire/],
+      ["a hostname label the name's number grows past 63 octets", "Test (2)", { hostname: "h".repeat(62) }, /The hostname '.*' holds a label of 66 octets/],
+      ["a hostname label of 32 two-byte characters", "Test", { hostname: "é".repeat(32) }, /The hostname '.*' holds a label of 64 octets/],
+      ["a hostname over 255 octets whose labels each fit", "Test", { hostname: [ ...Array(3).fill("h".repeat(63)), "h".repeat(56) ].join(".") },
+        /The hostname '.*' takes 256 octets on the wire/],
+      ["a hostname with an empty label", "Test", { hostname: "a..b" }, /The hostname 'a\.\.b\.local\.' holds a label of 0 octets/],
+      ["a domain with an empty label ahead of the root", "Test", { domain: "local.." }, /The hostname 'Test\.local\.\.\.' holds a label of 0 octets/],
+      ["a domain of a dot alone, one empty label", "Test", { domain: "." }, /The hostname 'Test\.\.\.' holds a label of 0 octets/],
+      ["a domain with an empty label", "Test", { domain: "a..b" }, /The hostname 'Test\.a\.\.b\.' holds a label of 0 octets/],
+      ["a domain label over 63 octets", "Test", { domain: "d".repeat(64) }, /The hostname '.*' holds a label of 64 octets/],
     ])("should reject %s with a sentence naming the octets", (_, name, options, message) => {
       expect(() => serviceNamed(name, options)).toThrow(message);
+    });
+
+    // A label is measured in octets on the wire, so an escape counts nothing, and a label of 63 octets, the most a DNS label may hold, constructs.
+    it.each([
+      ["a hostname label of 63 octets", "h".repeat(63)],
+      ["a hostname label of 61 octets written in 91 characters", "a\\.".repeat(30) + "a"],
+    ])("should construct %s", (_, hostname) => {
+      expect(serviceNamed("Test", { hostname: hostname }).getHostname()).toBe(hostname + ".local.");
     });
   });
 

@@ -105,10 +105,6 @@ export class NetworkManager extends EventEmitter {
   private readonly excludeIpv6Only: boolean;
 
   private currentInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
-  /**
-   * A subset of our network interfaces, holding only loopback interfaces (or what node considers "internal").
-   */
-  private loopbackInterfaces: Map<InterfaceName, NetworkInterface> = new Map();
   private initPromise?: Promise<void>;
 
   private currentTimer?: Timeout;
@@ -160,15 +156,6 @@ export class NetworkManager extends EventEmitter {
     this.initPromise = new Promise(resolve => {
       this.getCurrentNetworkInterfaces().then(map => {
         this.currentInterfaces = map;
-        // only checkForNewInterfaces filled this, so a loopback present from the start - the normal case -
-        // was never in it, and isLoopbackNetaddressV4 never matched until the network changed. On linux,
-        // where every socket receives every interface's packets, that let loopback traffic through on the
-        // other interfaces' sockets
-        for (const [name, networkInterface] of map) {
-          if (networkInterface.loopback) {
-            this.loopbackInterfaces.set(name, networkInterface);
-          }
-        }
 
         const otherInterfaces: InterfaceName[] = Object.keys(os.networkInterfaces());
 
@@ -220,9 +207,13 @@ export class NetworkManager extends EventEmitter {
     return this.currentInterfaces.get(name);
   }
 
+  /**
+   * Whether the IPv4 network address belongs to a loopback interface, read from the loopback flag of the current interfaces, so no second map can drift
+   * from them.
+   */
   public isLoopbackNetaddressV4(netaddress: IPv4Address): boolean {
-    for (const networkInterface of this.loopbackInterfaces.values()) {
-      if (networkInterface.ipv4Netaddress === netaddress) {
+    for (const networkInterface of this.currentInterfaces.values()) {
+      if (networkInterface.loopback && networkInterface.ipv4Netaddress === netaddress) {
         return true;
       }
     }
@@ -292,17 +283,11 @@ export class NetworkManager extends EventEmitter {
           }
 
           this.currentInterfaces.set(name, networkInterface);
-          if (networkInterface.loopback) {
-            this.loopbackInterfaces.set(name, networkInterface);
-          }
 
           (changes ??= []).push(change);
         }
       } else { // new interface was added/started
         this.currentInterfaces.set(name, networkInterface);
-        if (networkInterface.loopback) {
-          this.loopbackInterfaces.set(name, networkInterface);
-        }
 
         (added ??= []).push(networkInterface);
       }
@@ -315,7 +300,6 @@ export class NetworkManager extends EventEmitter {
       for (const [name, networkInterface] of this.currentInterfaces) {
         if (!latestInterfaces.has(name)) { // interface was removed
           this.currentInterfaces.delete(name);
-          this.loopbackInterfaces.delete(name);
 
           (removed ??= []).push(networkInterface);
 

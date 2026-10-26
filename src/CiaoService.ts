@@ -121,6 +121,8 @@ export interface ServiceOptions {
    * The specified hostname must not include the TLD. It is a domain name in DNS presentation form, so a dot separates labels and a backslash escapes the
    * character after it, and each space in it becomes a dash.
    * If undefined, the hostname is derived from the service name as one label, in which each space and each dot becomes a dash.
+   * Creating the service throws when a label of the hostname, the domain's among them, is empty or takes more than 63 octets, or when the hostname with
+   * its domain takes more than 255 octets on the wire.
    */
   hostname?: string;
   /**
@@ -791,7 +793,7 @@ export class CiaoService extends EventEmitter {
    * carry past the 63 octets of a DNS label, or a name past the 255 octets of a DNS name, is cut first, on a character boundary, so a rename
    * can shorten the name. When no prefix fits, the call throws with the service unchanged.
    * The constructor calls it with `nameCheckOnly`, which only aligns the numbers a persisted name and hostname carry and never shortens,
-   * so an oversized name is refused there as any other is.
+   * so an oversized name or hostname is refused there as any other is.
    * @private must only be called by the {@link Prober}
    */
   incrementName(nameCheckOnly?: boolean): void {
@@ -861,6 +863,24 @@ export class CiaoService extends EventEmitter {
 
     // Every field is built and checked before any is assigned, so a rename that throws leaves the service as it was.
     const hostname = [ ...ownLabels.slice(0, -1), hostnameLabel ].map(escapeLabel).join(".") + this.hostname.slice(ownPart.length);
+
+    /* The hostname is held to the limits in octets on the wire, as formatFQDN holds the FQDN: every label, the domain's among them, takes 1 to 63 octets and
+     * the whole hostname at most 255. The construction's number alignment runs here and can grow an explicit hostname's last label, so construction and
+     * every rename read this one check.
+     */
+    const hostnameLabels = splitLabels(hostname);
+
+    for (const label of hostnameLabels.slice(0, -1)) {
+      const labelOctets = Buffer.byteLength(label);
+
+      assert(labelOctets >= 1 && labelOctets <= 63, "The hostname '" + hostname + "' holds a label of " + labelOctets + " octets, where a DNS label " +
+        "takes 1 to 63.");
+    }
+
+    const hostnameOctets = wireLength(hostnameLabels);
+
+    assert(hostnameOctets <= 255, "The hostname '" + hostname + "' takes " + hostnameOctets + " octets on the wire, more than the 255 a DNS name may hold.");
+
     const fqdn = this.formatFQDN(name);
 
     this.name = name;

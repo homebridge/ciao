@@ -4,6 +4,7 @@ import { DNSLabelCoder } from "./coder/DNSLabelCoder";
 import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
+import { dnsLowerCase } from "./util/dns-equal";
 
 // The types the address NSEC of en0 lists, for a service whose records are built from an interface map holding en0 with the addresses given, or undefined
 // when the service holds no NSEC there.
@@ -203,6 +204,77 @@ describe(CiaoService, () => {
 
       expect(service.advertisesOnInterface("eth0")).toBe(true);
       expect(service.aaaaRoutableRecord("eth0")?.ipAddress).toBe(routableAddress);
+    });
+  });
+
+  describe("service names holding a dot or a backslash", () => {
+    function serviceNamed(name: string, options: Partial<ServiceOptions> = {}): CiaoService {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      return new CiaoService(networkManager, { name: name, type: "hap", port: 4711, ...options });
+    }
+
+    // The name a buffer holding one name decodes to, and the raw labels it carries, read by their length bytes up to the root label.
+    function encoded(name: string): { decoded: string, labels: string[] } {
+      const coder = new DNSLabelCoder();
+      const buffer = Buffer.alloc(coder.getNameLength(name));
+      coder.initBuf(buffer);
+      coder.encodeName(name, 0);
+
+      const labels: string[] = [];
+      for (let offset = 0; buffer[offset] !== 0; offset += 1 + buffer[offset]) {
+        labels.push(buffer.toString("utf-8", offset + 1, offset + 1 + buffer[offset]));
+      }
+
+      const decoder = new DNSLabelCoder();
+      decoder.initBuf(buffer);
+      return { decoded: decoder.decodeName(0).data, labels: labels };
+    }
+
+    it("should escape the dot in its FQDN while the name and its change event stay raw", () => {
+      const service = serviceNamed("Mr. Coffee");
+      const names: string[] = [];
+      service.on("name-change", name => names.push(name));
+
+      expect(service.getFQDN()).toBe("Mr\\. Coffee._hap._tcp.local.");
+
+      service.incrementName();
+      service.informAboutNameUpdates();
+
+      expect(names).toEqual(["Mr. Coffee (2)"]);
+      expect(service.getFQDN()).toBe("Mr\\. Coffee (2)._hap._tcp.local.");
+    });
+
+    it.each([
+      ["Mr. Coffee", "Mr--Coffee.local.", ["Mr--Coffee", "local"]],
+      ["Foo\\Bar", "Foo\\\\Bar.local.", ["Foo\\Bar", "local"]],
+      ["Coffee\\", "Coffee\\\\.local.", ["Coffee\\", "local"]],
+      ["My Service", "My-Service.local.", ["My-Service", "local"]],
+    ])("should derive one hostname label from %s, the hostname %s round tripping through the coder", (name, hostname, labels) => {
+      const service = serviceNamed(name);
+
+      expect(service.getHostname()).toBe(hostname);
+      expect(encoded(hostname)).toEqual({ decoded: hostname, labels: labels });
+    });
+
+    it("should take an explicit hostname as a domain name", () => {
+      expect(serviceNamed("Mr. Coffee", { hostname: "foo.bar" }).getHostname()).toBe("foo.bar.local.");
+    });
+
+    it("should answer to the lowercased name a packet carries for its dotted instance label", () => {
+      const service = serviceNamed("Mr. Coffee");
+      const buffer = Buffer.from([ 10, ...Buffer.from("Mr. Coffee"), 4, ...Buffer.from("_hap"), 4, ...Buffer.from("_tcp"), 5, ...Buffer.from("local"), 0 ]);
+      const decoder = new DNSLabelCoder();
+      decoder.initBuf(buffer);
+
+      expect(service.getLowerCasedFQDN()).toBe(dnsLowerCase(decoder.decodeName(0).data));
+    });
+
+    it.each([
+      ["an instance label over 63 octets, dotted into shorter pieces", "a".repeat(32) + "." + "b".repeat(32), {}, /takes 65 octets as an instance label/],
+      ["a derived hostname label over 63 octets", "Living Room " + "x".repeat(52), {}, /takes 64 octets/],
+      ["an FQDN over 255 octets in fewer than 255 characters", "Test", { domain: Array(4).fill("é".repeat(31)).join(".") }, /takes 268 octets on the wire/],
+    ])("should reject %s with a sentence naming the octets", (_, name, options, message) => {
+      expect(() => serviceNamed(name, options)).toThrow(message);
     });
   });
 });

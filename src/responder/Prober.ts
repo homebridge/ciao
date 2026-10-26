@@ -41,6 +41,11 @@ export class Prober {
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent
   private sentQueriesForCurrentTry = 0;
   private sentQueries = 0;
+  /**
+   * Set by {@link cancel} and never reset, as a cancelled Prober is never reused. A probe query in flight when the Prober is cancelled reads it once its
+   * send resolves, because the service can be probing again by then under a new Prober, which the service state alone cannot tell apart.
+   */
+  private cancelled = false;
 
   constructor(responder: Responder, server: MDNSServer, service: CiaoService) {
     assert(responder, "responder must be defined");
@@ -84,6 +89,7 @@ export class Prober {
   }
 
   public cancel(): void {
+    this.cancelled = true;
     this.clear();
 
     this.promiseReject!(Prober.CANCEL_REASON);
@@ -202,8 +208,8 @@ export class Prober {
         // SEE no return here
       }
 
-      if (this.service.serviceState !== ServiceState.PROBING) {
-        debug("Service '%s' is no longer in probing state. Stopping.", this.service.getFQDN());
+      if (this.cancelled || this.service.serviceState !== ServiceState.PROBING) {
+        debug("Probing for '%s' was cancelled or the service is no longer in probing state. Stopping.", this.service.getFQDN());
         return;
       }
 

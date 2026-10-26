@@ -340,4 +340,42 @@ describe(NetworkManager, () => {
     });
   });
 
+  describe("interface option", () => {
+    let manager: NetworkManager | undefined;
+
+    afterEach(() => {
+      manager?.shutdown();
+      manager = undefined;
+      jest.restoreAllMocks();
+    });
+
+    // The operating system reports the address in Node's own spelling, and in a spelling Node does not produce, which stands in for any operating system
+    // spelling that differs from ciao's; the consumer gives it uppercase with every hextet padded.
+    it.each([
+      "2001:db8:1234:0:abcd:ef01:2345:6789",
+      "2001:db8:1234::abcd:ef01:2345:6789",
+    ])("resolves an IPv6 address given in another spelling to the interface reporting it as %s", async reported => {
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        eth0: [
+          { address: "192.0.2.1", cidr: "192.0.2.1/24", family: "IPv4", internal: false, mac: "00:00:5e:00:53:01", netmask: "255.255.255.0" },
+          { address: reported, cidr: reported + "/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:01", netmask: "ffff:ffff:ffff:ffff::", scopeid: 0 },
+        ],
+        eth1: [
+          { address: "198.51.100.1", cidr: "198.51.100.1/24", family: "IPv4", internal: false, mac: "00:00:5e:00:53:02", netmask: "255.255.255.0" },
+        ],
+        lo: [
+          { address: "127.0.0.1", cidr: "127.0.0.1/8", family: "IPv4", internal: true, mac: "00:00:00:00:00:00", netmask: "255.0.0.0" },
+        ],
+      });
+      // An address that resolves to no interface falls back to every interface, and this keeps that fallback off the platform's own commands.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(NetworkManager as any, "getNetworkInterfaceNames").mockResolvedValue(["eth0", "eth1", "lo"] as never);
+
+      manager = new NetworkManager({ interface: "2001:0DB8:1234:0000:ABCD:EF01:2345:6789" });
+      await manager.waitForInit();
+
+      expect([...manager.getInterfaceMap().keys()]).toStrictEqual(["eth0", "lo"]);
+    });
+  });
+
 });

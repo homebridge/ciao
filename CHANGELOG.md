@@ -28,6 +28,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: complete the responder shutdown, pending announcements included, when a goodbye fails (@hjdhjd)
 - fix: ignore probe sends that complete after their attempt ends (@hjdhjd)
 - fix: stop announcement retries once a newer advertisement takes over (@hjdhjd)
+- fix: format IPv6 addresses per RFC 5952 (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

@@ -33,7 +33,6 @@ import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
 import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
-import { PromiseTimeout } from "./util/promise-utils";
 import { sortedInsert } from "./util/sorted-array";
 import Timeout = NodeJS.Timeout;
 import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
@@ -77,11 +76,19 @@ export class Responder implements PacketHandler {
   private static readonly INSTANCES: Map<string, Responder> = new Map();
 
   private readonly server: MDNSServer;
+  /**
+   * The tail of the advertisement queue. It orders the probe steps so that one Prober runs at a time, and it is fulfilled whatever a step did,
+   * so the outcome of one advertisement never reaches the next.
+   */
   private promiseChain: Promise<void>;
+  /**
+   * Aborted once the last reference shuts the Responder down. A queued advertisement reads it at its turn and is cancelled, and every delay
+   * the Responder waits on settles early when it aborts.
+   */
+  private readonly shutdownController = new AbortController();
 
   private refCount = 1;
   private optionsString = "";
-  private bound = false;
 
   /**
    * Announced services is indexed by the {@link dnsLowerCase} if the fqdn (as of RFC 1035 3.1).
@@ -215,6 +222,8 @@ export class Responder implements PacketHandler {
       return Promise.resolve();
     }
 
+    this.shutdownController.abort();
+
     if (this.currentProber) {
       // Services which are in Probing step aren't included in announcedServices Map
       // thus we need to cancel them as well
@@ -241,7 +250,6 @@ export class Responder implements PacketHandler {
 
     return Promise.all(promises).then(() => {
       this.server.shutdown();
-      this.bound = false;
     });
   }
 
@@ -250,27 +258,47 @@ export class Responder implements PacketHandler {
   }
 
   private start(): Promise<void> {
-    if (this.bound) {
-      throw new Error("Server is already bound!");
-    }
-
-    this.bound = true;
     return this.server.bind();
+  }
+
+  /* A delay bound to the lifetime of this Responder. Its timer is unref'd, so a pending retry never holds the process open, and shutdown settles it
+   * early, so whatever waits on it runs at once and meets the step guard in advertiseService rather than outliving the Responder. A delay asked for
+   * after shutdown settles at once for the same reason. It uses the global setTimeout rather than timers/promises, because jest's fake timers drive
+   * only the global one.
+   */
+  private delay(milliseconds: number): Promise<void> {
+    const signal = this.shutdownController.signal;
+
+    return new Promise(resolve => {
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+
+      // The timer and the abort listener each end the delay, and whichever runs first removes the other, so no listener outlives its delay.
+      let timer: Timeout | undefined = undefined;
+      const settle = (): void => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", settle);
+        resolve();
+      };
+
+      timer = setTimeout(settle, milliseconds).unref();
+      signal.addEventListener("abort", settle);
+    });
   }
 
   private advertiseService(service: CiaoService, callback: PublishCallback): Promise<void> {
     if (service.serviceState === ServiceState.ANNOUNCED) {
       throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.getFQDN());
     } else if (service.serviceState === ServiceState.PROBING) {
-      return this.promiseChain.then(() => {
-        if (service.currentAnnouncer) {
-          return service.currentAnnouncer.awaitAnnouncement();
-        }
-      });
+      // A second advertisement of a probing service joins the one in flight rather than probing again. The tail settles once every step queued so far has
+      // settled, the one probing this service among them, whatever their outcome, while the retry of a failed attempt stays with the caller that started it.
+      return this.promiseChain.then(() => callback());
     } else if (service.serviceState === ServiceState.ANNOUNCING) {
       assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
       if (service.currentAnnouncer!.isSendingGoodbye()) {
-        return service.currentAnnouncer!.awaitAnnouncement().then(() => this.advertiseService(service, callback));
+        return Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement()).then(() => this.advertiseService(service, callback));
       } else {
         return service.currentAnnouncer!.cancel().then(() => this.advertiseService(service, callback));
       }
@@ -284,16 +312,33 @@ export class Responder implements PacketHandler {
     //  - Prober will call the Responder to generate responses to its queries to
     //      resolve name conflicts the same way as with other services on the network
 
-    this.promiseChain = this.promiseChain.then(() => {
-      if (service.isDestroyed()) {
+    /* The probe step reports this advertisement's outcome to the continuation below, while the tail stored as promiseChain only orders the steps and is
+     * fulfilled whatever the step did, so a cancelled, destroyed or failed advertisement never skips or fails the ones queued after it. The step resolves
+     * to whether it probed.
+     */
+    const step = this.promiseChain.then((): boolean | Promise<boolean> => {
+      // Shutdown, or an end() or destroy() that withdrew the advertisement while it waited, cancels it at its turn.
+      if (this.shutdownController.signal.aborted || !service.hasAdvertisementIntent()) {
         throw Prober.CANCEL_REASON;
       }
 
+      // A service that left UNANNOUNCED while this step waited is covered by the advertisement that moved it on, so this one settles without probing.
+      if (service.serviceState !== ServiceState.UNANNOUNCED) {
+        return false;
+      }
+
       service.rebuildServiceRecords();
-      return this.probe(service); // probe errors are catch below
+      return this.probe(service).then(() => true);
     });
 
-    return this.promiseChain.then(() => {
+    this.promiseChain = step.then(() => undefined, () => undefined);
+
+    return step.then(probed => {
+      if (!probed) {
+        callback();
+        return;
+      }
+
       if (service.isDestroyed()) {
         service.serviceState = ServiceState.UNANNOUNCED;
         callback();
@@ -308,7 +353,7 @@ export class Responder implements PacketHandler {
         // error - is still reported loudly by MDNSServer, which owns it. Logging every retry
         // here as well put a line on the console every 2 seconds forever (homebridge/ciao#72).
         debug(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
-        return PromiseTimeout(2000).then(() => this.advertiseService(service, () => {
+        return this.delay(2000).then(() => this.advertiseService(service, () => {
           // empty
         }));
       }).catch(error => {
@@ -321,23 +366,27 @@ export class Responder implements PacketHandler {
 
       callback(); // service is considered announced. After the call to the announce() method the service state is set to ANNOUNCING
     }, reason => {
-      /*
-       * I know seems unintuitive to place the probe error handling below here, miles away from the probe method call.
-       * Trust me it makes sense (encountered regression now two times in a row).
-       * 1. We can't put it in the THEN call above, since then errors simply won't be handled from the probe method call.
-       *  (CANCEL error would be passed through and would result in some unwanted stack trace)
-       * 2. We can't add a catch call above, since otherwise we would silence the CANCEL would be silenced and announce
-       *  would be called anyway.
+      /* Probe errors are handled here, on the continuation of the step, rather than inside the step. A catch inside the step would turn a cancel into a
+       * fulfilled step, and the handler above would then announce an advertisement that was withdrawn...here a cancel settles the caller without
+       * announcing. Any other reason is a probe query that could not be sent: it is retried after a delay and logged to debug rather than the console,
+       * for the reason the announce retry above gives.
        */
-
-      // handle probe error
       if (reason === Prober.CANCEL_REASON) {
         callback();
-      } else { // other errors are only thrown when sockets error occur
-        // debug, not console - same reasoning as the announce retry above
-        debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
-        return PromiseTimeout(2000).then(() => this.advertiseService(service, callback));
+        return;
       }
+
+      debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+      return this.delay(2000).then(() => {
+        // The retry stops once the service has left UNANNOUNCED, because a later advertisement covers it by then, and re-entering here would cancel
+        // that advertisement's announcer.
+        if (service.serviceState !== ServiceState.UNANNOUNCED) {
+          callback();
+          return;
+        }
+
+        return this.advertiseService(service, callback);
+      });
     });
   }
 
@@ -352,7 +401,7 @@ export class Responder implements PacketHandler {
       assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
 
       const promise = service.currentAnnouncer!.isSendingGoodbye()
-        ? service.currentAnnouncer!.awaitAnnouncement()
+        ? Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement())
         : service.currentAnnouncer!.cancel();
 
       return promise.then(() => this.advertiseService(service, callback));
@@ -364,7 +413,7 @@ export class Responder implements PacketHandler {
 
     // and now we basically just announce the service by doing probing and the 'announce' step
     if (delayAnnounce) {
-      return PromiseTimeout(1000)
+      return this.delay(1000)
         .then(() => this.advertiseService(service, callback));
     } else {
       return this.advertiseService(service, callback);
@@ -377,30 +426,29 @@ export class Responder implements PacketHandler {
     }
 
     if (service.serviceState === ServiceState.ANNOUNCED || service.serviceState === ServiceState.ANNOUNCING) {
+      let goodbye: Promise<void>;
+
       if (service.serviceState === ServiceState.ANNOUNCING) {
         assert(service.currentAnnouncer, "Service is in state ANNOUNCING though has no linked announcer!");
-        if (service.currentAnnouncer!.isSendingGoodbye()) {
-          return service.currentAnnouncer!.awaitAnnouncement(); // we are already sending a goodbye
+        if (!service.currentAnnouncer!.isSendingGoodbye()) {
+          return service.currentAnnouncer!.cancel().then(() => {
+            service.serviceState = ServiceState.ANNOUNCED; // unpublishService requires announced state
+            return this.unpublishService(service, callback);
+          });
         }
 
-        return service.currentAnnouncer!.cancel().then(() => {
-          service.serviceState = ServiceState.ANNOUNCED; // unpublishService requires announced state
-          return this.unpublishService(service, callback);
-        });
+        // A goodbye is already being sent, so this caller settles with it.
+        goodbye = service.currentAnnouncer!.awaitAnnouncement();
+      } else {
+        debug("[%s] Removing service from the network", service.getFQDN());
+        this.clearService(service);
+        service.serviceState = ServiceState.UNANNOUNCED;
+
+        goodbye = this.goodbye(service);
       }
 
-      debug("[%s] Removing service from the network", service.getFQDN());
-      this.clearService(service);
-      service.serviceState = ServiceState.UNANNOUNCED;
-
-      let promise = this.goodbye(service);
-      if (callback) {
-        promise = promise.then(() => callback(), reason => {
-          console.log(`[${service.getFQDN()}] failed goodbye with reason: ${reason}.`);
-          callback();
-        });
-      }
-      return promise;
+      // With no caller to settle, as on shutdown, the goodbye's own outcome is returned, so a failure reaches whoever awaits it.
+      return callback ? Responder.goodbyeSettled(service, goodbye).then(() => callback()) : goodbye;
     } else if (service.serviceState === ServiceState.PROBING) {
       debug("[%s] Canceling probing", service.getFQDN());
       if (this.currentProber && this.currentProber.getService() === service) {
@@ -616,6 +664,15 @@ export class Responder implements PacketHandler {
       if (reason !== Announcer.CANCEL_REASON) {
         return Promise.reject(reason);
       }
+    });
+  }
+
+  /* Settles once a goodbye has settled, whatever its outcome, a failure logged rather than passed on. The service is off the network whatever the
+   * outcome, as a record nobody answers for anymore expires from every cache, so whoever waits on the goodbye goes on as though it had been sent.
+   */
+  private static goodbyeSettled(service: CiaoService, goodbye: Promise<void>): Promise<void> {
+    return goodbye.catch(reason => {
+      console.log(`[${service.getFQDN()}] failed goodbye with reason: ${reason}.`);
     });
   }
 

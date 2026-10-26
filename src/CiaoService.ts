@@ -316,6 +316,12 @@ export class CiaoService extends EventEmitter {
   private serviceRecords?: ServiceRecords;
 
   private destroyed = false;
+  /**
+   * Whether the service is meant to be on the network: set by {@link advertise}, and cleared only by {@link end} and {@link destroy}. A queued
+   * advertisement reads it at its turn and is dropped once it is cleared, while the retry after a failed probe and every republish, which re-enter the
+   * Responder without passing through {@link advertise}, find it still set.
+   */
+  private advertisementIntent = false;
 
   /**
    * Constructs a new service. Please use {@link Responder.createService} to create new service.
@@ -405,11 +411,10 @@ export class CiaoService extends EventEmitter {
    *  - The service name (and hostname) will be probed unique on all interfaces (as defined in RFC 6762 8.1).
    *  - Once probed unique the service will be announced (as defined in RFC 6762 8.3).
    *
-   *  The returned promise resolves once the last announcement packet was successfully sent on all network interfaces.
-   *  The promise might be rejected caused by one of the following reasons:
-   *    - A probe query could not be sent successfully
-   *    - Prober could not find a unique service name while trying for a minute (timeout)
-   *    - One of the announcement packets could not be sent successfully
+   *  The returned promise resolves once the service was probed unique and its announcement has started. A probe query that could not be sent
+   *  is retried after a delay, and the promise resolves once a retry gets through. It also resolves, without announcing, when the advertisement
+   *  is withdrawn first: by {@link end}, by {@link destroy} or by the shutdown of the Responder. A second call while the service is still probing
+   *  resolves once that probing, and any advertisement queued behind it, has settled. The promise rejects when the service is already announced.
    */
   public advertise(): Promise<void> {
     assert(!this.destroyed, "Cannot publish destroyed service!");
@@ -418,6 +423,8 @@ export class CiaoService extends EventEmitter {
     if (this.listeners(ServiceEvent.NAME_CHANGED).length === 0) {
       debug("[%s] WARN: No listeners found for a potential name change on the 'name-change' event!", this.name);
     }
+
+    this.advertisementIntent = true;
     return new Promise((resolve, reject) => {
       this.emit(InternalServiceEvent.PUBLISH, error => error? reject(error): resolve());
     });
@@ -425,12 +432,15 @@ export class CiaoService extends EventEmitter {
 
   /**
    * This method will remove the advertisement for the service on all connected network interfaces.
-   * If the service is still in the Probing state, probing will simply be cancelled.
+   * If the service is still in the Probing state, probing will simply be cancelled. An advertisement still waiting for its turn to probe,
+   * or for a retry, is dropped, and its {@link advertise} promise resolves without announcing.
    *
-   * @returns Promise will resolve once the last goodbye packet was sent out
+   * @returns Promise will resolve once the last goodbye packet was sent out, or failed to send, and at once for a service that is not announced
    */
   public end(): Promise<void> {
     assert(!this.destroyed, "Cannot end destroyed service!");
+    this.advertisementIntent = false;
+
     if (this.serviceState === ServiceState.UNANNOUNCED) {
       return Promise.resolve();
     }
@@ -469,6 +479,14 @@ export class CiaoService extends EventEmitter {
    */
   public isDestroyed(): boolean {
     return this.destroyed;
+  }
+
+  /**
+   * Internal lifecycle query used by {@link Responder} to drop an advertisement that was withdrawn while it waited for its turn to probe.
+   * @private
+   */
+  public hasAdvertisementIntent(): boolean {
+    return this.advertisementIntent;
   }
 
   /**

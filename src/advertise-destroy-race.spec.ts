@@ -10,6 +10,7 @@ interface FakeResponderInternal {
     send: jest.Mock;
   };
   promiseChain: Promise<void>;
+  shutdownController: AbortController;
   servicePointer: Map<string, string[]>;
   announcedServices: Map<string, CiaoService>;
   getAnnouncedServices: () => IterableIterator<CiaoService>;
@@ -31,6 +32,7 @@ function makeFakeResponder() {
   const responder = Object.create(Responder.prototype) as unknown as FakeResponderInternal;
   responder.server = server;
   responder.promiseChain = Promise.resolve();
+  responder.shutdownController = new AbortController();
   responder.servicePointer = new Map();
   responder.announcedServices = new Map();
   responder.getAnnouncedServices = () => responder.announcedServices.values();

@@ -18,8 +18,8 @@ describe("tiebreaking", () => {
   describe(rrComparator, () => {
 
     it("should compare A records correctly", () => {
-      expect(rrComparator(printerHost, printerOpponent)).toBeLessThanOrEqual(-1);
-      expect(rrComparator(printerOpponent, printerHost)).toBeGreaterThanOrEqual(1);
+      expect(rrComparator(printerHost, printerOpponent)).toBe(-1);
+      expect(rrComparator(printerOpponent, printerHost)).toBe(1);
     });
 
     it("should detect tie correctly", () => {
@@ -28,18 +28,18 @@ describe("tiebreaking", () => {
     });
 
     it("should correctly decide on class", () => {
-      expect(rrComparator(printerHost, differentClass)).toBeLessThanOrEqual(-1);
-      expect(rrComparator(differentClass, printerHost)).toBeGreaterThanOrEqual(1);
+      expect(rrComparator(printerHost, differentClass)).toBe(-1);
+      expect(rrComparator(differentClass, printerHost)).toBe(1);
     });
 
     it("should correctly decide on type", () => {
-      expect(rrComparator(printerHost, differentType)).toBeLessThanOrEqual(-1);
-      expect(rrComparator(differentType, printerHost)).toBeGreaterThanOrEqual(1);
+      expect(rrComparator(printerHost, differentType)).toBe(-1);
+      expect(rrComparator(differentType, printerHost)).toBe(1);
     });
 
     it("should correctly decide on data length", () => {
-      expect(rrComparator(shortData, longerData)).toBeLessThanOrEqual(-1);
-      expect(rrComparator(longerData, shortData)).toBeGreaterThanOrEqual(1);
+      expect(rrComparator(shortData, longerData)).toBe(-1);
+      expect(rrComparator(longerData, shortData)).toBe(1);
     });
 
   });
@@ -59,6 +59,11 @@ describe("tiebreaking", () => {
     it("should win with the same records but more data", () => {
       expect(runTiebreaking([printerHost], [printerHost, differentType])).toBe(TiebreakingResult.OPPONENT);
       expect(runTiebreaking([printerHost, differentType], [printerHost])).toBe(TiebreakingResult.HOST);
+    });
+
+    it("should decide on record type when the first unequal records differ in type", () => {
+      expect(runTiebreaking([printerHost, printerOpponent], [printerHost, shortData])).toBe(TiebreakingResult.OPPONENT);
+      expect(runTiebreaking([printerHost, shortData], [printerHost, printerOpponent])).toBe(TiebreakingResult.HOST);
     });
 
   });

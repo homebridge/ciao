@@ -1117,6 +1117,7 @@ export class Responder implements PacketHandler {
     //    question name, the record rrtype must match the question qtype unless
     //    the qtype is "ANY" (255) or the rrtype is "CNAME" (5), and the record
     //    rrclass must match the question qclass unless the qclass is "ANY" (255).
+    // The CNAME exception is a record's rrtype, and ciao publishes no CNAME record, so a CNAME question matches only records of its own type.
 
     if (question.class !== QClass.IN && question.class !== QClass.ANY) {
       // We just publish answers with IN class. So only IN or ANY questions classes will match
@@ -1126,7 +1127,7 @@ export class Responder implements PacketHandler {
     const serviceResponses: QueryResponse[] = [];
     let metaQueryResponse: QueryResponse | undefined = undefined;
 
-    if (question.type === QType.PTR || question.type === QType.ANY || question.type === QType.CNAME) {
+    if (question.type === QType.PTR || question.type === QType.ANY) {
       const destinations = this.servicePointer.get(question.getLowerCasedName()); // look up the pointer, all entries are dnsLowerCased
 
       if (destinations) {
@@ -1196,7 +1197,7 @@ export class Responder implements PacketHandler {
     const response = new QueryResponse(knownAnswers);
 
     const loweredQuestionName = question.getLowerCasedName();
-    const askingAny = question.type === QType.ANY || question.type === QType.CNAME;
+    const askingAny = question.type === QType.ANY;
 
     const addAnswer = response.addAnswer.bind(response);
     const addAdditional = response.addAdditional.bind(response);

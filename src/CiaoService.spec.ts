@@ -5,8 +5,11 @@ import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
 
-function addressNSECTypes(options: Partial<ServiceOptions> = {}): RType[] {
-  const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+// The types the address NSEC of en0 lists, for a service whose records are built from an interface map holding en0 with the addresses given, or undefined
+// when the service holds no NSEC there.
+function addressNSECTypes(addresses: Partial<NetworkInterface>, options: Partial<ServiceOptions> = {}): RType[] | undefined {
+  const en0: NetworkInterface = { name: "en0", loopback: false, mac: "00:00:5e:00:53:01", ...addresses };
+  const networkManager = { getInterfaceMap: () => new Map([[ en0.name, en0 ]]) } as unknown as NetworkManager;
   const service = new CiaoService(networkManager, {
     name: "Test Service",
     type: "http",
@@ -15,8 +18,13 @@ function addressNSECTypes(options: Partial<ServiceOptions> = {}): RType[] {
   });
   service.rebuildServiceRecords();
 
+  const record = service.addressNSECRecord("en0");
+  if (!record) {
+    return undefined;
+  }
+
   const types: RType[] = [];
-  for (const window of service.addressNSECRecord().rrTypeWindows) {
+  for (const window of record.rrTypeWindows) {
     types.push(...window.rrtypes);
   }
   return types;
@@ -25,13 +33,25 @@ function addressNSECTypes(options: Partial<ServiceOptions> = {}): RType[] {
 describe(CiaoService, () => {
   describe("addressNSECRecord", () => {
     it("should assert A and AAAA records", () => {
-      expect(addressNSECTypes()).toStrictEqual([RType.A, RType.AAAA]);
+      expect(addressNSECTypes({ ipv4: "192.0.2.1", ipv6: "fe80::1" })).toStrictEqual([RType.A, RType.AAAA]);
     });
 
     it("should not assert AAAA records when IPv6 is disabled", () => {
       // RFC 6762 6.1.: the bitmap lists the types which do exist for the name. Listing AAAA
       // without having such a record leaves a querier waiting for an answer that never comes.
-      expect(addressNSECTypes({ disabledIpv6: true })).toStrictEqual([RType.A]);
+      expect(addressNSECTypes({ ipv4: "192.0.2.1", ipv6: "fe80::1" }, { disabledIpv6: true })).toStrictEqual([RType.A]);
+    });
+
+    // The bitmap is read from the records the service holds on the interface, so an interface carrying one address type lists that type alone, any of
+    // the link-local, routable and unique local addresses standing for AAAA, and an interface carrying neither has no address NSEC.
+    it.each<[string, Partial<NetworkInterface>, RType[] | undefined]>([
+      ["an IPv4-only interface", { ipv4: "192.0.2.1" }, [RType.A]],
+      ["an interface with only a link-local IPv6 address", { ipv6: "fe80::1" }, [RType.AAAA]],
+      ["an interface with only a routable IPv6 address", { globallyRoutableIpv6: "2001:db8::1" }, [RType.AAAA]],
+      ["an interface with only a unique local IPv6 address", { uniqueLocalIpv6: "fd00::1" }, [RType.AAAA]],
+      ["an interface with no address", {}, undefined],
+    ])("should list the address types %s carries", (_, addresses, expected) => {
+      expect(addressNSECTypes(addresses)).toStrictEqual(expected);
     });
   });
 

@@ -35,6 +35,13 @@ export class NSECRecord extends ResourceRecord {
     this.rrTypeWindows = NSECRecord.rrTypesToWindowMap(rrtypes);
   }
 
+  /**
+   * @returns Whether the type bitmap lists the rrtype, which is how the record asserts that its name holds records of that type.
+   */
+  public listsType(rrtype: RType): boolean {
+    return this.rrTypeWindows.some(window => window.rrtypes.includes(rrtype));
+  }
+
   public getLowerCasedNextDomainName(): string {
     return this.lowerCasedNextDomainName || (this.lowerCasedNextDomainName = dnsLowerCase(this.nextDomainName));
   }

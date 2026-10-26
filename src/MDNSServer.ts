@@ -15,6 +15,7 @@ import {
 } from "./coder/DNSPacket";
 import {
   InterfaceName,
+  IPAddress,
   IPFamily,
   NetworkInterface,
   NetworkManager,
@@ -262,20 +263,15 @@ export class MDNSServer {
 
     const promises: Promise<void>[] = [];
 
-    for (const [name, networkInterface] of this.networkManager.getInterfaceMap()) {
-      this.advertiseFamilies.forEach((family: IPFamily) => {
-        const socket = this.createDgramSocket(name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
-        const promise = this.bindSocket(socket, networkInterface, family)
-          .catch(reason => {
-            // TODO if bind errors we probably will never bind again
-            console.log("Could not bind detected network interface: " + reason.stack);
-          });
-        promises.push(promise);
-      });
+    for (const name of this.networkManager.getInterfaceMap().keys()) {
+      for (const family of this.advertiseFamilies) {
+        promises.push(this.bindInterface(name, family));
+      }
     }
 
     return Promise.all(promises).then(() => {
-      this.bound = true;
+      // shutdown() may have run while the sockets were binding, and a closed server is never bound.
+      this.bound = !this.closed;
       // map void[] to void
     });
   }
@@ -586,13 +582,26 @@ export class MDNSServer {
 
   private bindSocket(socket: Socket, networkInterface: NetworkInterface, family: IPFamily): Promise<void> {
     return new Promise((resolve, reject) => {
-      const errorHandler = (error: Error): void => reject(new Error("Failed to bind on interface " + networkInterface.name + ": " + error.message));
+      // A socket whose bind fails is never registered, so neither closeSocket nor shutdown would ever close it, and the failure closes it here before rejecting.
+      const errorHandler = (error: Error): void => {
+        try {
+          socket.close();
+        } catch (error) {
+          // Ignore
+        }
+        reject(new Error("Failed to bind on interface " + networkInterface.name + ": " + error.message));
+      };
       const isIPv6 = family === IPFamily.IPv6;
+      const socketName = isIPv6 ? networkInterface.name + "/6" : networkInterface.name;
 
       socket.once("error", errorHandler);
 
+      // By the time a socket's close arrives its name may belong to another socket: the one already registered when this socket was refused at bind
+      // completion, or one registered after this socket was closed. So a close forgets the name only while the name still maps to this socket.
       socket.on("close", () => {
-        this.sockets.delete(networkInterface.name + (isIPv6 ? "/6" : ""));
+        if (this.sockets.get(socketName) === socket) {
+          this.sockets.delete(socketName);
+        }
       });
 
       socket.bind(MDNSServer.MDNS_PORT, () => {
@@ -610,10 +619,33 @@ export class MDNSServer {
           return;
         }
 
+        const interfaceAddress = isIPv6 ? networkInterface.ipv6 : networkInterface.ipv4;
+
+        /* This is the one place a socket is registered, so the rule that a family's socket exists only while its interface holds that family's address is
+         * held here. A network change can arrive while the socket binds and remove the interface, or take or change the address the bind started for. That
+         * change finds no socket to close or move, so where an address remains it binds a fresh socket of its own. The socket is therefore registered only
+         * when the interface's current record holds the very address it is about to join and no socket holds its name yet, and is closed otherwise. A bind
+         * started without an address of its family is closed whatever the current record holds: here when the record has gained one, and by the branch below
+         * when it has not.
+         */
+        const currentInterface = this.networkManager.getInterface(networkInterface.name);
+        const currentAddress = isIPv6 ? currentInterface?.ipv6 : currentInterface?.ipv4;
+
+        if (currentAddress !== interfaceAddress || this.sockets.has(socketName)) {
+          debug("Closing the %s socket that finished binding on %s, as the interface's current address differs from the one the socket was bound for or its " +
+            "name is taken: %o", family, networkInterface.name, { boundAddress: interfaceAddress, currentAddress: currentAddress });
+          try {
+            socket.close();
+          } catch (error) {
+            // Ignore
+          }
+          resolve();
+          return;
+        }
+
         socket.setRecvBufferSize(800*1024); // setting max recv buffer size to 800KiB (Pi will max out at 352KiB)
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
-        const interfaceAddress = isIPv6 ? networkInterface.ipv6 : networkInterface.ipv4;
 
         // assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
         if (!interfaceAddress) {
@@ -645,7 +677,7 @@ export class MDNSServer {
 
           socket.setMulticastLoopback(true); // We can't disable multicast loopback, as otherwise queriers on the same host won't receive our packets
 
-          this.sockets.set(isIPv6 ? networkInterface.name + "/6" : networkInterface.name, socket);
+          this.sockets.set(socketName, socket);
           resolve();
         } catch (error) {
           try {
@@ -706,15 +738,9 @@ export class MDNSServer {
         // return;
       }
     } else {
-      if (!networkInterface.ip4Netmask) {
-        // The interface has lost its IPv4 address (a lapsed DHCP lease, a network flap). Its socket is kept
-        // to pick the address up again, and still receives packets - on linux even from other interfaces - but
-        // there is no subnet left to check them against: getNetAddress asserted, and as this runs from the
-        // socket's 'message' event, that took the whole process down
-        debug("Dropping packet on interface '%s', which currently has no IPv4 address", name);
-        return;
-      }
-      const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask);
+      // bindSocket registers an IPv4 socket only when its interface holds the address it joins, and a change that takes the address closes it, so the netmask
+      // is present.
+      const ip4Netaddress = getNetAddress(rinfo.address, networkInterface.ip4Netmask!);
       if (networkInterface.loopback) {
         if (ip4Netaddress !== networkInterface.ipv4Netaddress) {
           return;
@@ -795,111 +821,94 @@ export class MDNSServer {
   private handleUpdatedNetworkInterfaces(networkUpdate: NetworkUpdate): void {
     if (networkUpdate.removed) {
       for (const networkInterface of networkUpdate.removed) {
-        // Handle IPv4
-        let socket = this.sockets.get(networkInterface.name);
-        this.sockets.delete(networkInterface.name);
-        this.sentPackets.delete(networkInterface.name);
-        if (socket) {
-          socket.close();
-        }
-
-        // Handle IPv6
-        socket = this.sockets.get(networkInterface.name + "/6");
-        this.sockets.delete(networkInterface.name + "/6");
-        this.sentPackets.delete(networkInterface.name + "/6");
-        if (socket) {
-          socket.close();
-        }
+        this.closeSocket(networkInterface.name);
+        this.closeSocket(networkInterface.name + "/6");
       }
     }
 
     if (networkUpdate.changes) {
       for (const change of networkUpdate.changes) {
-        // Handle IPv4
-        let socket = this.sockets.get(change.name);
-        if (!change.outdatedIpv4 && change.updatedIpv4) {
-          // On dynamic networks (e.g., Starlink, cellular), an interface may gain
-          // an IPv4 address after initially appearing as IPv6-only. Handle gracefully
-          // by treating it like a new interface addition for IPv4.
-          debug("IPv4 address appeared on changed interface %s (was undefined, now %s). Adding membership.", change.name, change.updatedIpv4);
-          if (socket) {
-            try {
-              socket.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
-              socket.setMulticastInterface(change.updatedIpv4);
-            } catch (error) {
-              debug("Error adding membership for newly appeared IPv4 on %s: %s", change.name, error.message);
-            }
-          } else {
-            // The interface had no IPv4 address when its sockets were bound - typically at boot, before DHCP
-            // finished, while the IPv6 link-local address was already up - so its IPv4 socket was closed again.
-            // Without a new one the interface stayed dark on IPv4 until a restart
-            this.bindInterface(change.name, IPFamily.IPv4);
-          }
-        } else if (change.outdatedIpv4 && !change.updatedIpv4) {
-          // On dynamic networks, an interface may lose its IPv4 address temporarily
-          // (e.g., Starlink network flap, DHCP lease expiry). Handle gracefully by
-          // dropping the old membership instead of crashing.
-          debug("IPv4 address disappeared on changed interface %s (was %s, now undefined). Dropping membership.", change.name, change.outdatedIpv4);
-          if (socket) {
-            try {
-              socket.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
-            } catch (error) {
-              debug("Error dropping membership for disappeared IPv4 on %s: %s", change.name, error.message);
-            }
-          }
-        } else if (socket && change.outdatedIpv4 && change.updatedIpv4) {
-          try {
-            socket!.dropMembership(MDNSServer.MULTICAST_IPV4, change.outdatedIpv4);
-          } catch (error) {
-            debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
-          }
-          try {
-            socket!.addMembership(MDNSServer.MULTICAST_IPV4, change.updatedIpv4);
-          } catch (error) {
-            debug("Thrown unexpected error when adding new address membership: " + error.message);
-          }
-
-          socket!.setMulticastInterface(change.updatedIpv4);
-        }
-
-        // Handle IPv6
-        socket = this.sockets.get(change.name + "/6");
-        if (!socket && change.updatedIpv6) {
-          // as for IPv4: no IPv6 socket was kept, as the interface had no IPv6 address when it was bound
-          this.bindInterface(change.name, IPFamily.IPv6);
-        } else if (socket && change.outdatedIpv6 && !change.updatedIpv6) {
-          try {
-            socket.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
-          } catch (error) {
-            debug("Error dropping membership for disappeared IPv6 on %s: %s", change.name, error.message);
-          }
-        } else if (socket && change.outdatedIpv6 && change.updatedIpv6) {
-          try {
-            socket!.dropMembership(MDNSServer.MULTICAST_IPV6, change.outdatedIpv6 + "%" + change.name);
-          } catch (error) {
-            debug("Thrown unexpected error when dropping outdated address membership: " + error.message);
-          }
-          try {
-            socket!.addMembership(MDNSServer.MULTICAST_IPV6, change.updatedIpv6 + "%" + change.name);
-          } catch (error) {
-            debug("Thrown unexpected error when adding new address membership: " + error.message);
-          }
-        }
+        this.handleAddressChange(change.name, IPFamily.IPv4, change.outdatedIpv4, change.updatedIpv4);
+        this.handleAddressChange(change.name, IPFamily.IPv6, change.outdatedIpv6, change.updatedIpv6);
       }
     }
 
     if (networkUpdate.added) {
       for (const networkInterface of networkUpdate.added) {
-        this.advertiseFamilies.forEach((family: IPFamily) => this.bindInterface(networkInterface.name, family));
+        for (const family of this.advertiseFamilies) {
+          void this.bindInterface(networkInterface.name, family);
+        }
       }
+    }
+  }
+
+  /**
+   * Keeps one address family's socket in step with an interface change, by the rule that a family's socket exists only while its interface holds an address
+   * of that family, and an advertised family binds one when it gains an address. A family whose address went has its socket closed, a family that holds an
+   * address and has no socket binds one, and a kept socket moves its membership and multicast interface to the new address. A change record carries a
+   * family's addresses only when they changed, so a family with neither is left alone.
+   */
+  private handleAddressChange(name: InterfaceName, family: IPFamily, outdatedAddress?: IPAddress, updatedAddress?: IPAddress): void {
+    if (!outdatedAddress && !updatedAddress) {
+      return;
+    }
+
+    const isIPv6 = family === IPFamily.IPv6;
+    const socketName = isIPv6 ? name + "/6" : name;
+
+    if (!updatedAddress) {
+      debug("Interface %s has lost its %s address %s. Closing that family's socket, if one is open.", name, family, outdatedAddress);
+      this.closeSocket(socketName);
+      return;
+    }
+
+    const socket = this.sockets.get(socketName);
+    if (!socket) {
+      debug("Interface %s holds the %s address %s and no socket for that family. Binding one, if the family is advertised.", name, family, updatedAddress);
+      void this.bindInterface(name, family);
+      return;
+    }
+
+    // As in bindSocket, an IPv6 membership and multicast interface name the interface by its zone, and an IPv4 one by the address alone.
+    const membershipAddress = (address: IPAddress): string => isIPv6 ? address + "%" + name : address;
+    const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
+
+    const attemptStep = (step: string, run: () => void): void => {
+      try {
+        run();
+      } catch (error) {
+        debug("Error %s for the %s socket on %s: %s", step, family, name, error.message);
+      }
+    };
+
+    /* Each step of the move is attempted on its own, so a step that fails leaves the rest to run. The membership governs what the socket receives and the
+     * multicast interface governs where it sends: they are independent kernel settings, so a failed join must not keep outgoing traffic on the outdated
+     * address. A socket exists only while its family holds an address, so a kept socket always has an outdated address to leave.
+     */
+    attemptStep("dropping the outdated membership", () => socket.dropMembership(multicastAddress, membershipAddress(outdatedAddress!)));
+    attemptStep("adding the updated membership", () => socket.addMembership(multicastAddress, membershipAddress(updatedAddress)));
+    attemptStep("setting the multicast interface", () => socket.setMulticastInterface(membershipAddress(updatedAddress)));
+  }
+
+  /**
+   * Closes the socket held under a socket name, the interface's name for IPv4 and that name with "/6" appended for IPv6, and forgets the name in the
+   * socket map and the sent-packet record. A name with no socket is only forgotten.
+   */
+  private closeSocket(socketName: InterfaceName): void {
+    const socket = this.sockets.get(socketName);
+    this.sockets.delete(socketName);
+    this.sentPackets.delete(socketName);
+    if (socket) {
+      socket.close();
     }
   }
 
   /**
    * Opens and binds the socket for one address family of an interface the server is not yet bound on.
    * Does nothing when that family is not advertised, or the interface is no longer known.
+   * The returned promise never rejects: it resolves once the bind has completed or failed, and a failed bind is logged here.
    */
-  private bindInterface(name: InterfaceName, family: IPFamily): void {
+  private async bindInterface(name: InterfaceName, family: IPFamily): Promise<void> {
     if (this.closed || !this.advertiseFamilies.includes(family)) {
       return;
     }
@@ -909,10 +918,12 @@ export class MDNSServer {
     }
 
     const socket = this.createDgramSocket(networkInterface.name, true, family === IPFamily.IPv6 ? "udp6" : "udp4");
-    this.bindSocket(socket, networkInterface, family).catch(reason => {
-      // TODO if bind errors we probably will never bind again
+    try {
+      await this.bindSocket(socket, networkInterface, family);
+    } catch (reason) {
+      // A failed bind is not retried on its own; the family binds again when its address next changes and an address of that family remains.
       console.log("Could not bind detected network interface: " + reason.stack);
-    });
+    }
   }
 
 }

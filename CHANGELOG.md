@@ -35,6 +35,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: honor an explicit zero TTL in record constructors (@hjdhjd)
 - refactor: remove the disabled per-interface record update (@hjdhjd)
 - refactor: derive loopback interfaces from the current interface map (@hjdhjd)
+- fix: advance past each received record by its declared rdata length (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

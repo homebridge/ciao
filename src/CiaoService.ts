@@ -16,6 +16,7 @@ import { Protocol } from "./index";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";
+import { escapeLabel, splitLabels, wireLength } from "./util/dns-labels";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
@@ -79,8 +80,9 @@ export interface ServiceOptions {
   protocol?: Protocol;
   /**
    * Defines a hostname under which the service can be reached.
-   * The specified hostname must not include the TLD.
-   * If undefined the service name will be used as default.
+   * The specified hostname must not include the TLD. It is a domain name in DNS presentation form and is used as given, so a dot separates labels and a
+   * backslash escapes the character after it.
+   * If undefined, the hostname is derived from the service name as one label, in which each space and each dot becomes a dash.
    */
   hostname?: string;
   /**
@@ -354,9 +356,20 @@ export class CiaoService extends EventEmitter {
       })).map(dnsLowerCase);
     }
 
-    this.hostname = domainFormatter.formatHostname(options.hostname || this.name, this.serviceDomain)
+    // A derived hostname is one DNS label, so a dot in the service name becomes a dash one for one, as a space does, and the label escape keeps a backslash
+    // literal through the escape-aware split. An explicit hostname is a domain name in presentation form and is taken as given.
+    this.hostname = domainFormatter.formatHostname(options.hostname || escapeLabel(this.name.replace(/\./g, "-")), this.serviceDomain)
       .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
     this.loweredHostname = dnsLowerCase(this.hostname);
+
+    if (!options.hostname) {
+      const hostnameLabel = splitLabels(this.hostname)[0];
+      const hostnameOctets = Buffer.byteLength(hostnameLabel);
+
+      assert(hostnameOctets <= 63, "The hostname label '" + hostnameLabel + "' derived from the service name '" + this.name + "' takes " + hostnameOctets +
+        " octets, more than the 63 a DNS label may hold.");
+    }
+
     this.port = options.port;
 
     if (options.restrictedAddresses) {
@@ -484,7 +497,8 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
-   * @returns The fully qualified domain name of the service, used to identify the service.
+   * @returns The fully qualified domain name of the service, used to identify the service. It is in DNS presentation form: a dot or a backslash inside the
+   *   service name is escaped with a backslash, so the service named "Mr. Coffee" is "Mr\. Coffee._hap._tcp.local.".
    */
   public getFQDN(): string {
     return this.fqdn;
@@ -818,7 +832,14 @@ export class CiaoService extends EventEmitter {
       domain: this.serviceDomain,
     });
 
-    assert(fqdn.length <= 255, "A fully qualified domain name cannot be longer than 255 characters");
+    // The limits are in octets on the wire, so an escape counts nothing and a multi-byte character counts each of its bytes.
+    const labels = splitLabels(fqdn);
+    const instanceOctets = Buffer.byteLength(labels[0]);
+    const fqdnOctets = wireLength(labels);
+
+    assert(instanceOctets <= 63, "The service name '" + this.name + "' takes " + instanceOctets + " octets as an instance label, more than the 63 a DNS label " +
+      "may hold.");
+    assert(fqdnOctets <= 255, "The name '" + fqdn + "' takes " + fqdnOctets + " octets on the wire, more than the 255 a DNS name may hold.");
     return fqdn;
   }
 

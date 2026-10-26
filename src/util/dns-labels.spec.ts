@@ -1,5 +1,5 @@
 import { DNSLabelCoder } from "../coder/DNSLabelCoder";
-import { escapeLabel, splitLabels, wireLength } from "./dns-labels";
+import { escapeLabel, splitLabels, splitRelativeName, wireLength } from "./dns-labels";
 
 // Names in presentation form, the raw labels each splits into, and the presentation form those labels escape back into, which is the name itself for
 // every spelling the escape produces and the canonical spelling for an escape of another character.
@@ -22,6 +22,18 @@ describe("dns-labels", () => {
 
     it("should refuse a name ending with an escaped dot", () => {
       expect(() => splitLabels("a\\.")).toThrow(/escaped dot/);
+    });
+  });
+
+  describe(splitRelativeName, () => {
+    it.each([
+      ["foo\\", ["foo"]],
+      ["a\\.", ["a."]],
+      ["a\\\\", ["a\\"]],
+      ["a.b", ["a", "b"]],
+      ["a.", ["a", ""]],
+    ])("should split %s into the raw labels %j", (name, labels) => {
+      expect(splitRelativeName(name)).toEqual(labels);
     });
   });
 

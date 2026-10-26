@@ -275,6 +275,7 @@ describe(CiaoService, () => {
       ["an explicit hostname carrying the domain in another spelling", "Test", { domain: "my\\x", hostname: "foo.my\\x" }, "foo.myx.", [ "foo", "myx" ]],
       ["an explicit hostname ending in a lone backslash, which quotes nothing", "Test", { hostname: "foo\\" }, "foo.local.", [ "foo", "local" ]],
       ["an explicit hostname whose own label ends in an escaped dot and a lone backslash", "Test", { hostname: "a\\.\\" }, "a\\..local.", [ "a.", "local" ]],
+      ["an explicit hostname ending in an escaped dot", "Test", { hostname: "a\\." }, "a\\..local.", [ "a.", "local" ]],
       ["an explicit hostname that is the domain alone", "Test", { hostname: "local" }, "local.local.", [ "local", "local" ]],
       ["an explicit hostname whose last label alone is the domain's last", "Test", { domain: "my.domain", hostname: "a.foo.domain" }, "a.foo.domain.my.domain.",
         [ "a", "foo", "domain", "my", "domain" ]],
@@ -304,14 +305,16 @@ describe(CiaoService, () => {
       expect(names.map(name => encoded(name).decoded)).toEqual(names);
     });
 
-    // A domain written absolute ends with the root label every name built from it appends anyway, so it gives the names its relative form gives.
+    // A domain written absolute ends with the root label every name built from it appends anyway, and a backslash ending a domain quotes nothing and is
+    // dropped, so each gives the names its plain form gives.
     it.each([
       ["local.", "local"],
       ["my.domain.", "my.domain"],
-    ])("should give the absolute domain %s the FQDN, the type PTR and the hostname of the domain %s", (absolute, relative) => {
+      ["local\\", "local"],
+    ])("should give the domain %s the FQDN, the type PTR and the hostname of the domain %s", (spelling, plain) => {
       const names = (service: CiaoService): string[] => [ service.getFQDN(), service.getTypePTR(), service.getHostname() ];
 
-      expect(names(serviceNamed("Test", { domain: absolute }))).toEqual(names(serviceNamed("Test", { domain: relative })));
+      expect(names(serviceNamed("Test", { domain: spelling }))).toEqual(names(serviceNamed("Test", { domain: plain })));
     });
 
     it("should answer to the lowercased name a packet carries for its dotted instance label", () => {
@@ -338,6 +341,10 @@ describe(CiaoService, () => {
       ["a domain label over 63 octets", "Test", { domain: "d".repeat(64) }, /The hostname '.*' holds a label of 64 octets/],
     ])("should reject %s with a sentence naming the octets", (_, name, options, message) => {
       expect(() => serviceNamed(name, options)).toThrow(message);
+    });
+
+    it("should refuse an explicit hostname ending in the root label", () => {
+      expect(() => serviceNamed("Test", { hostname: "a." })).toThrow("hostname must not end with the root label!");
     });
 
     // A label is measured in octets on the wire, so an escape counts nothing, and a label of 63 octets, the most a DNS label may hold, constructs.

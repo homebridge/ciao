@@ -131,6 +131,8 @@ export interface ServiceOptions {
   /**
    * Adds ability to set custom domain. Will default to "local".
    * The domain will also be automatically appended to the hostname.
+   * Creating the service throws when a label of the domain is empty or takes more than 63 octets, with an error naming the hostname it is appended to, or
+   * when the domain carries the service's full name past 255 octets on the wire, with an error naming that name.
    */
   domain?: string;
 
@@ -378,7 +380,19 @@ export class CiaoService extends EventEmitter {
     this.type = options.type;
     this.subTypes = options.subtypes;
     this.protocol = options.protocol || Protocol.TCP;
-    this.serviceDomain = options.domain || "local";
+    /* The domain is held in the spelling the label coder decodes, each label split and escaped again, so the FQDN, the type PTR and the hostname built from
+     * it are the names a received packet carries. It is split as the end of a name, ahead of the root label, so a last label ending in an escaped dot stays
+     * one label.
+     */
+    const domainLabels = splitLabels((options.domain || "local") + ".").slice(0, -1);
+
+    // A domain written absolute, "local." for "local", ends with the root label every name built from it appends anyway, so that one label is dropped. It is
+    // dropped only after a filled label, so no domain is emptied, as "." would be, and every refusal names each label written, as the refusal of "local.." does.
+    if (domainLabels[domainLabels.length - 1] === "" && domainLabels[domainLabels.length - 2] !== "") {
+      domainLabels.pop();
+    }
+
+    this.serviceDomain = domainLabels.map(escapeLabel).join(".");
 
     this.fqdn = this.formatFQDN();
     this.loweredFqdn = dnsLowerCase(this.fqdn);

@@ -1,4 +1,6 @@
-import { RType } from "./DNSPacket";
+import { AddressInfo } from "net";
+import { DNSLabelCoder } from "./DNSLabelCoder";
+import { OptionalDecodedData, RType } from "./DNSPacket";
 import { AAAARecord } from "./records/AAAARecord";
 import { ARecord } from "./records/ARecord";
 import { CNAMERecord } from "./records/CNAMERecord";
@@ -73,6 +75,57 @@ describe(ResourceRecord, () => {
   ])("should keep a TTL of zero on an %s record built by name, and the default with none", (_type, build, defaultTTL) => {
     expect(build(0).ttl).toBe(0);
     expect(build().ttl).toBe(defaultTTL);
+  });
+
+  /* A received record is read to the end its RDLENGTH declares, so one whose decoder reads short or long is dropped, and the record after it decodes from
+   * where the packet places it. Each packet holds the record under test for host.local., then an A record whose name is a compression pointer to that
+   * name at offset 0, so the second record keeps its name only when its decode starts at its own first byte.
+   */
+  describe("a received record whose decoder reads a length other than its RDLENGTH", () => {
+    const context: AddressInfo = { address: "192.0.2.9", family: "IPv4", port: 5353 };
+    const hostLocal = [ 4, ...Buffer.from("host"), 5, ...Buffer.from("local"), 0 ];
+    // The fields after a record's name: its type, the class IN, a TTL of 120 seconds and its RDLENGTH.
+    const fields = (type: RType, rDataLength: number): number[] => [ 0, type, 0, 1, 0, 0, 0, 120, 0, rDataLength ];
+    const pointedARecord = [ 0xc0, 0x00, ...fields(RType.A, 4), 192, 0, 2, 2 ];
+
+    function decodePacket(first: number[]): { first: OptionalDecodedData<ResourceRecord>; second: OptionalDecodedData<ResourceRecord> } {
+      const buffer = Buffer.from([ ...first, ...pointedARecord ]);
+      const coder = new DNSLabelCoder();
+      coder.initBuf(buffer);
+
+      const firstRecord = ResourceRecord.decode(context, coder, buffer, 0);
+      return { first: firstRecord, second: ResourceRecord.decode(context, coder, buffer, firstRecord.readBytes) };
+    }
+
+    it.each([
+      ["an A record whose RDLENGTH runs a byte past its address", [ ...hostLocal, ...fields(RType.A, 5), 192, 0, 2, 1, 0 ]],
+      ["a PTR record whose name runs past its RDLENGTH into the next record's pointer", [ ...hostLocal, ...fields(RType.PTR, 2), 1, ...Buffer.from("x") ]],
+    ])("should drop %s and decode the record after it", (_record, first) => {
+      const decoded = decodePacket(first);
+
+      expect(decoded.first).toEqual({ readBytes: first.length });
+      expect(decoded.second.readBytes).toBe(pointedARecord.length);
+      expect(decoded.second.data?.name).toBe("host.local.");
+      expect((decoded.second.data as ARecord).ipAddress).toBe("192.0.2.2");
+    });
+
+    /* A decoder that throws still clears the local compression location of its record. The record after it has an owner name of [ 0x80, 0x00 ], a local
+     * pointer to its own first byte, which it reads before its own location is set, so a location left from the record before would resolve it to that
+     * record's name at offset 0.
+     */
+    it("should clear the local compression location when a decoder throws, so the next record's name cannot resolve against it", () => {
+      // An A record whose RDLENGTH of 2 cuts its address short, so its decoder throws reading past the rdata.
+      const first = [ ...hostLocal, ...fields(RType.A, 2), 192, 0 ];
+      const second = [ 0x80, 0x00, ...fields(RType.A, 4), 192, 0, 2, 2 ];
+      const buffer = Buffer.from([ ...first, ...second ]);
+      const coder = new DNSLabelCoder();
+      coder.initBuf(buffer);
+
+      const decoded = ResourceRecord.decode(context, coder, buffer, 0);
+
+      expect(decoded).toEqual({ readBytes: first.length });
+      expect(() => ResourceRecord.decode(context, coder, buffer, decoded.readBytes)).toThrow("Cannot decompress locally compressed name as record is not initialized!");
+    });
   });
 
 });

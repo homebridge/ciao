@@ -2,7 +2,7 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
-## v1.3.13 (Pending Release)
+## v1.4.0 (Pending Release)
 
 ### Changes
 
@@ -24,6 +24,31 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: return the interface list with the loopback added, not the platform helper's promise
 - fix: log a delayed response that fails to send, instead of throwing out of its timer
 - refactor: break the load-time import cycle between CiaoService and the Responder
+- fix: keep other services advertising when a probe is cancelled, destroyed, or fails
+- fix: complete the responder shutdown, pending announcements included, when a goodbye fails
+- fix: ignore probe sends that complete after their attempt ends
+- fix: stop announcement retries once a newer advertisement takes over
+- fix: format IPv6 addresses per RFC 5952
+- fix: normalize the tiebreak comparator's sign
+- fix: add the interpreter line to the conformance test helper
+- refactor: define each error code once
+- refactor: honor an explicit zero TTL in record constructors
+- refactor: remove the disabled per-interface record update
+- refactor: derive loopback interfaces from the current interface map
+- fix: advance past each received record by its declared rdata length
+- fix: write OPT record header fields with the record header
+- fix: stop answering CNAME questions with address records
+- fix: answer questions for types ciao doesn't hold with an NSEC record (RFC 6762 6.1)
+- fix: tie each address family's socket to that family's address
+- chore: target ES2024 and require Node 22 or later
+- fix: keep a dot inside a service name as part of one label
+- fix: replace dots like spaces when deriving a hostname from a service name
+- fix: shorten renamed service names and hostnames on whole characters to fit DNS limits
+- fix: spell the service domain the way the label coder decodes it
+- fix: append the domain to a hostname by label, dashing spaces only in its own labels
+- fix: enforce DNS label and name limits on hostnames
+- fix: read hostnames and domains ending in a backslash by one rule
+- fix: format IPv4-mapped and zone-qualified IPv6 addresses consistently
 
 ## v1.3.12 (2026-08-15)
 

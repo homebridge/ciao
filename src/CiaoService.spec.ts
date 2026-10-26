@@ -1,5 +1,8 @@
+import os from "os";
 import { CiaoService, ServiceOptions } from "./CiaoService";
-import { RType } from "./coder/DNSPacket";
+import { DNSLabelCoder } from "./coder/DNSLabelCoder";
+import { RClass, RType } from "./coder/DNSPacket";
+import { AAAARecord } from "./coder/records/AAAARecord";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
 
 function addressNSECTypes(options: Partial<ServiceOptions> = {}): RType[] {
@@ -109,6 +112,77 @@ describe(CiaoService, () => {
     it("should not advertise on the IPv6 socket of an interface it isn't restricted to", () => {
       const service = restrictedTo("eth1");
       expect(service.advertisesOnInterface("eth0/6", true)).toBe(false);
+    });
+  });
+
+  describe("IPv6 address spelling", () => {
+    // A routable address whose only zero hextet is a lone one, which RFC 5952 keeps as "0" and a shortener compressing it to "::" would spell another way.
+    const routableAddress = "2001:db8:1234:0:abcd:ef01:2345:6789";
+    let networkManager: NetworkManager | undefined;
+
+    afterEach(() => {
+      networkManager?.shutdown();
+      networkManager = undefined;
+      jest.restoreAllMocks();
+    });
+
+    // A NetworkManager restricted to eth0 by name, so no platform command runs, reading its interface map from an operating system that reports an IPv4
+    // address and one IPv6 address on eth0, the IPv6 one in the spelling and scope given.
+    async function managerReporting(address: string, scopeid: number): Promise<NetworkManager> {
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        eth0: [
+          { address: "192.0.2.1", cidr: "192.0.2.1/24", family: "IPv4", internal: false, mac: "00:00:5e:00:53:01", netmask: "255.255.255.0" },
+          { address: address, cidr: address + "/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:01", netmask: "ffff:ffff:ffff:ffff::", scopeid: scopeid },
+        ],
+        lo: [
+          { address: "127.0.0.1", cidr: "127.0.0.1/8", family: "IPv4", internal: true, mac: "00:00:00:00:00:00", netmask: "255.0.0.0" },
+        ],
+      });
+
+      networkManager = new NetworkManager({ interface: "eth0" });
+      await networkManager.waitForInit();
+      return networkManager;
+    }
+
+    // The address text of the AAAA record decoded from an address's 16 bytes, given as hex, as a record received from the network carries it.
+    function receivedAddress(hex: string): string {
+      const header = { name: "Test-Service.local.", type: RType.AAAA, class: RClass.IN, ttl: 120, flushFlag: true };
+      return AAAARecord.decodeData(new DNSLabelCoder(), header, Buffer.from(hex, "hex"), 0).data.ipAddress;
+    }
+
+    // Each interface-map field's address is reported in Node's own spelling and in a lowercase spelling Node does not produce, which stands in for any
+    // operating system spelling that differs from ciao's: in each, the service recognizes its own address coming back from the network.
+    const fieldCases: ["ipv6" | "globallyRoutableIpv6" | "uniqueLocalIpv6", string, number, string, string][] = [
+      ["ipv6", "fe80::1:2:3:4", 2, "fe800000000000000001000200030004", "fe80::1:2:3:4"],
+      ["ipv6", "fe80:0:0:0:1:2:3:4", 2, "fe800000000000000001000200030004", "fe80::1:2:3:4"],
+      ["globallyRoutableIpv6", routableAddress, 0, "20010db812340000abcdef0123456789", routableAddress],
+      ["globallyRoutableIpv6", "2001:db8:1234::abcd:ef01:2345:6789", 0, "20010db812340000abcdef0123456789", routableAddress],
+      ["uniqueLocalIpv6", "fd12:3456:789a:0:1:2:3:4", 0, "fd123456789a00000001000200030004", "fd12:3456:789a:0:1:2:3:4"],
+      ["uniqueLocalIpv6", "fd12:3456:789a::1:2:3:4", 0, "fd123456789a00000001000200030004", "fd12:3456:789a:0:1:2:3:4"],
+    ];
+
+    it.each(fieldCases)("should own its %s address a received AAAA record carries when the operating system spells it %s",
+      async (field, spelling, scopeid, hex, canonical) => {
+        const manager = await managerReporting(spelling, scopeid);
+        const service = new CiaoService(manager, { name: "Test Service", type: "http", port: 4711 });
+        service.rebuildServiceRecords();
+
+        expect(manager.getInterface("eth0")?.[field]).toBe(canonical);
+        expect(receivedAddress(hex)).toBe(canonical);
+        expect(service.hasAddress(receivedAddress(hex))).toBe(true);
+      });
+
+    it("should restrict to the interface holding an address given in another spelling", async () => {
+      const service = new CiaoService(await managerReporting(routableAddress, 0), {
+        name: "Test Service",
+        type: "http",
+        port: 4711,
+        restrictedAddresses: ["2001:0DB8:1234:0:ABCD:EF01:2345:6789"],
+      });
+      service.rebuildServiceRecords();
+
+      expect(service.advertisesOnInterface("eth0")).toBe(true);
+      expect(service.aaaaRoutableRecord("eth0")?.ipAddress).toBe(routableAddress);
     });
   });
 });

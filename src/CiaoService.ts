@@ -375,11 +375,15 @@ export class CiaoService extends EventEmitter {
 
       for (const entry of options.restrictedAddresses) {
         if (net.isIP(entry)) {
-          if (entry === "0.0.0.0" || entry === "::") {
+          // An IPv6 entry is canonicalized, and that text is what the unspecified-address check, the interface resolution and the stored list use, so a
+          // consumer's spelling selects the interface it names and matches the interface map's canonical text; an error message keeps the consumer's spelling.
+          const address = net.isIPv6(entry)? domainFormatter.canonicalizeIPv6(entry): entry;
+
+          if (address === "0.0.0.0" || address === "::") {
             throw new Error(`[${this.fqdn}] Unspecified ip address (${entry}) cannot be used to restrict on to!`);
           }
 
-          const interfaceName = NetworkManager.resolveInterface(entry);
+          const interfaceName = NetworkManager.resolveInterface(address);
           if (!interfaceName) {
             throw new Error(`[${this.fqdn}] Could not restrict service to address ${entry} as we could not resolve it to an interface name!`);
           }
@@ -387,11 +391,11 @@ export class CiaoService extends EventEmitter {
           const current = this.restrictedAddresses.get(interfaceName);
           if (current) {
             // empty interface signals "catch all" was already configured for this
-            if (current.length && !current.includes(entry)) {
-              current.push(entry);
+            if (current.length && !current.includes(address)) {
+              current.push(address);
             }
           } else {
-            this.restrictedAddresses.set(interfaceName, [entry]);
+            this.restrictedAddresses.set(interfaceName, [address]);
           }
         } else {
           this.restrictedAddresses.set(entry, []); // empty array signals "use all addresses for interface"

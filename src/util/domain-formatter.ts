@@ -202,13 +202,11 @@ export function shortenIPv6(address: string | string[]): string {
     i = j; // skip all the zeros we already checked + the one after that, we know that's not a zero
   }
 
-  if (longestBlockOfZerosIndex !== -1) {
+  // RFC 5952 4.2.2 forbids "::" for a single zero hextet, so only a run of two or more is compressed and a lone zero stays "0".
+  if (longestBlockOfZerosLength > 1) {
     const startOrEnd = longestBlockOfZerosIndex === 0 || (longestBlockOfZerosIndex + longestBlockOfZerosLength === 8);
     address[longestBlockOfZerosIndex] = startOrEnd? ":": "";
-
-    if (longestBlockOfZerosLength > 1) {
-      address.splice(longestBlockOfZerosIndex + 1, longestBlockOfZerosLength - 1);
-    }
+    address.splice(longestBlockOfZerosIndex + 1, longestBlockOfZerosLength - 1);
   }
 
   const result = address.join(":");
@@ -218,6 +216,18 @@ export function shortenIPv6(address: string | string[]): string {
   }
 
   return result;
+}
+
+/**
+ * Spells an IPv6 address in the text form of RFC 5952 section 4: lowercase hex digits, no leading zeros in a hextet, and the longest run of two or more
+ * zero hextets, the first on a tie, compressed to "::". Text that enters ciao from outside passes through here: the address of a record built by name,
+ * every address the operating system reports and every address a consumer gives in its options, so different spellings of one address compare equal as
+ * strings. Hextets ciao formats itself with `toString(16)` are lowercase with no leading zeros already, so `shortenIPv6` alone gives them the same text.
+ *
+ * @param address - An IPv6 address in any spelling `net.isIPv6` accepts.
+ */
+export function canonicalizeIPv6(address: string): string {
+  return shortenIPv6(enlargeIPv6(address.toLowerCase()));
 }
 
 export function formatReverseAddressPTRName(address: string): string {
@@ -294,7 +304,7 @@ export function getNetAddress(address: string, netmask: string): string {
       netAddressParts[i] = (addressNum & netmaskNum).toString(16);
     }
 
-    return shortenIPv6(enlargeIPv6(netAddressParts.join(":")));
+    return shortenIPv6(netAddressParts);
   } else {
     throw new Error("Illegal argument. Address is not an ip address!");
   }

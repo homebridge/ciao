@@ -6,7 +6,7 @@ import { EventEmitter } from "events";
 import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
-import { getNetAddress } from "./util/domain-formatter";
+import { canonicalizeIPv6, getNetAddress } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
@@ -132,7 +132,8 @@ export class NetworkManager extends EventEmitter {
 
       for (const iface of interfaces) {
         if (net.isIP(iface)) {
-          const interfaceName = NetworkManager.resolveInterface(iface);
+          // A consumer's IPv6 address is canonicalized before it is resolved, since resolveInterface compares canonical text, so any spelling selects its interface.
+          const interfaceName = NetworkManager.resolveInterface(net.isIPv6(iface)? canonicalizeIPv6(iface): iface);
           if (interfaceName) {
             restrictedInterfaces.push(interfaceName);
           } else {
@@ -403,15 +404,19 @@ export class NetworkManager extends EventEmitter {
             continue;
           }
 
-          if (info.scopeid && !ipv6Info) { // we only care about non zero scope (aka link-local ipv6)
-            ipv6Info = info;
-          } else if (info.scopeid === 0) { // global routable ipv6
-            if (info.address.startsWith("fc") || info.address.startsWith("fd")) {
+          // The operating system's text is canonicalized once, here, so the unique-local test below and the interface map's fields read the RFC 5952 text
+          // every AAAA record carries, and the service's own records, the reverse-address map keyed by them and a received record compare as strings.
+          const canonicalInfo = { ...info, address: canonicalizeIPv6(info.address) };
+
+          if (canonicalInfo.scopeid && !ipv6Info) { // we only care about non zero scope (aka link-local ipv6)
+            ipv6Info = canonicalInfo;
+          } else if (canonicalInfo.scopeid === 0) { // global routable ipv6
+            if (canonicalInfo.address.startsWith("fc") || canonicalInfo.address.startsWith("fd")) {
               if (!uniqueLocalIpv6Info) {
-                uniqueLocalIpv6Info = info;
+                uniqueLocalIpv6Info = canonicalInfo;
               }
             } else if (!routableIpv6Info) {
-              routableIpv6Info = info;
+              routableIpv6Info = canonicalInfo;
             }
           }
         }
@@ -467,12 +472,19 @@ export class NetworkManager extends EventEmitter {
     return interfaces;
   }
 
+  /**
+   * The name of the interface the operating system reports an address on. An IPv6 address arrives in its canonical text and is compared against the
+   * canonical text of each IPv6 address reported, so the operating system's spelling does not decide the match; an IPv4 address is compared as given.
+   */
   public static resolveInterface(address: IPAddress): InterfaceName | undefined {
+    const ipv6 = net.isIPv6(address);
     let interfaceName: InterfaceName | undefined;
 
     outer: for (const [name, infoArray] of Object.entries(os.networkInterfaces())) {
       for (const info of infoArray ?? []) {
-        if (info.address === address) {
+        const reported = (ipv6 && net.isIPv6(info.address))? canonicalizeIPv6(info.address): info.address;
+
+        if (reported === address) {
           interfaceName = name;
           break outer; // exit out of both loops
         }

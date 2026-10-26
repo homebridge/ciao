@@ -1,6 +1,8 @@
+import { SocketAddress } from "net";
 import { ServiceType } from "../CiaoService";
 import { Protocol } from "../index";
 import {
+  canonicalizeIPv6,
   enlargeIPv6,
   formatHostname,
   formatReverseAddressPTRName,
@@ -163,8 +165,18 @@ describe("domain-formatter", () => {
       expect(shortenIPv6("fe80:0000:0000:0000:72ee:50ff:fe63:d1a0")).toBe("fe80::72ee:50ff:fe63:d1a0");
       expect(shortenIPv6("0000:0000:0000:0000:0000:0000:0000:0001")).toBe("::1");
       expect(shortenIPv6("2001:0db8:0000:0000:0000:ff00:0042:8329")).toBe("2001:db8::ff00:42:8329");
-      expect(shortenIPv6("2001:0db8:0:73c8:0305:00ff:fe00:0aaa")).toBe("2001:db8::73c8:305:ff:fe00:aaa");
-      expect(shortenIPv6("2001:0db8:aaaa:0a4c:0305:00ff:fe00:0000")).toBe("2001:db8:aaaa:a4c:305:ff:fe00::");
+      expect(shortenIPv6("2001:0db8:0:73c8:0305:00ff:fe00:0aaa")).toBe("2001:db8:0:73c8:305:ff:fe00:aaa");
+      expect(shortenIPv6("2001:0db8:aaaa:0a4c:0305:00ff:fe00:0000")).toBe("2001:db8:aaaa:a4c:305:ff:fe00:0");
+    });
+
+    // Node's own spelling (net.SocketAddress) follows RFC 5952, so it is the oracle for a lone zero at either end and in the middle, two equal runs,
+    // a shorter run or a lone zero ahead of a longer run, no zeros at all, the loopback and unspecified addresses, and hextets carrying leading zeros.
+    it.each([
+      "0:1:2:3:4:5:6:7", "1:0:2:3:4:5:6:7", "1:2:3:4:5:6:7:0", "2001:db8:1234:0:abcd:ef01:2345:6789",
+      "ffff:0:0:ffff:ffff:0:0:ffff", "ffff:0:0:ffff:0:0:0:ffff", "ffff:0:ffff:0:0:ffff:ffff:ffff",
+      "1:2:3:4:5:6:7:8", "0:0:0:0:0:0:0:1", "0:0:0:0:0:0:0:0", "2001:0db8:0000:0000:0000:ff00:0042:8329", "fe80:0:0:0:1:2:3:4",
+    ])("should shorten %s the way Node spells it", address => {
+      expect(shortenIPv6(address)).toBe(new SocketAddress({ address: address, family: "ipv6" }).address);
     });
 
     it("should shorten the longest consecutive block of zeros (and only one)", () => {
@@ -181,6 +193,15 @@ describe("domain-formatter", () => {
       expect(shortenIPv6("ff01:0:0:0:0:0:0:101")).toBe("ff01::101");
       expect(shortenIPv6("0:0:0:0:0:0:0:1")).toBe("::1");
       expect(shortenIPv6("0:0:0:0:0:0:0:0")).toBe("::");
+    });
+  });
+
+  describe(canonicalizeIPv6, () => {
+    it("should spell any form of an address the way Node does", () => {
+      expect(canonicalizeIPv6("2001:0DB8:1234:0000:ABCD:EF01:2345:6789")).toBe("2001:db8:1234:0:abcd:ef01:2345:6789");
+      expect(canonicalizeIPv6("2001:db8:1234::abcd:ef01:2345:6789")).toBe("2001:db8:1234:0:abcd:ef01:2345:6789");
+      expect(canonicalizeIPv6("FE80:0:0:0:0:0:0:1")).toBe(new SocketAddress({ address: "FE80:0:0:0:0:0:0:1", family: "ipv6" }).address);
+      expect(canonicalizeIPv6("::")).toBe("::");
     });
   });
 

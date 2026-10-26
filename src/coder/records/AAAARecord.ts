@@ -23,7 +23,7 @@ export class AAAARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.AAAA, ttl || AAAARecord.DEFAULT_TTL, flushFlag);
+      super(name, RType.AAAA, ttl ?? AAAARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.AAAA);
       super(name);

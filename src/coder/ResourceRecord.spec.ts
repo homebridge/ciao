@@ -64,4 +64,15 @@ describe(ResourceRecord, () => {
     runRecordEncodingTest(new TXTRecord("test.local.", [Buffer.from("key=value"), Buffer.from("key2=value2")]));
   });
 
+  // A record built by name keeps the TTL it is given, zero among them, and takes its type's default only when given none.
+  it.each<[string, (ttl?: number) => ResourceRecord, number]>([
+    ["A", ttl => new ARecord("host.local.", "192.0.2.1", true, ttl), ARecord.DEFAULT_TTL],
+    ["AAAA", ttl => new AAAARecord("host.local.", "fe80::1", true, ttl), AAAARecord.DEFAULT_TTL],
+    ["SRV", ttl => new SRVRecord("Test._hap._tcp.local.", "host.local.", 4711, true, ttl), SRVRecord.DEFAULT_TTL],
+    ["NSEC", ttl => new NSECRecord("host.local.", "host.local.", [RType.A], ttl, true), NSECRecord.RR_DEFAULT_TTL_SHORT],
+  ])("should keep a TTL of zero on an %s record built by name, and the default with none", (_type, build, defaultTTL) => {
+    expect(build(0).ttl).toBe(0);
+    expect(build().ttl).toBe(defaultTTL);
+  });
+
 });

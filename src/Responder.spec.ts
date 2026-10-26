@@ -1,10 +1,14 @@
 import { CiaoService, InternalServiceEvent, PublishCallback, ServiceEvent, ServiceOptions, ServiceState, UnpublishCallback } from "./CiaoService";
-import { MDNSServer, TimedSendResult } from "./MDNSServer";
-import { NetworkManager } from "./NetworkManager";
+import { DNSPacket, QType, RType } from "./coder/DNSPacket";
+import { Question } from "./coder/Question";
+import { EndpointInfo, MDNSServer, TimedSendResult } from "./MDNSServer";
+import { NetworkInterface, NetworkManager } from "./NetworkManager";
 import { Responder } from "./Responder";
 import { Announcer } from "./responder/Announcer";
 import { Prober } from "./responder/Prober";
+import { QueryResponse } from "./responder/QueryResponse";
 import { TXTRecord } from "./coder/records/TXTRecord";
+import { ResourceRecord } from "./coder/ResourceRecord";
 
 // Build a Responder instance without running the constructor — it would otherwise
 // open sockets and start the MDNSServer. We only need a `server` field that lets
@@ -50,10 +54,12 @@ function probedNames(server: ChainServer): string[] {
   return server.sendQueryBroadcast.mock.calls.map(call => call[1].getFQDN().split(".")[0]);
 }
 
-/** The Responder internals the advertise-chain rows read or drive directly. */
+/** The Responder internals the advertise-chain and answer rows read or drive directly. */
 interface ChainResponder {
   announcedServices: Map<string, CiaoService>;
+  servicePointer: Map<string, string[]>;
   advertiseService(service: CiaoService, callback: PublishCallback): Promise<void>;
+  answerQuestion(question: Question, endpoint: EndpointInfo): QueryResponse[];
   probe(service: CiaoService): Promise<void>;
   republishService(service: CiaoService, callback: PublishCallback, delayAnnounce?: boolean): Promise<void>;
   retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void>;
@@ -136,6 +142,36 @@ async function drainJobs(): Promise<void> {
 async function advance(milliseconds: number): Promise<void> {
   await jest.advanceTimersByTimeAsync(milliseconds);
   await drainJobs();
+}
+
+/* A service announced on a Responder built without its constructor, as the answer rows read it: its records are built from an interface map holding en0
+ * with the addresses given, and the Responder's pointers name the service and its subtype as announcing it records them. A question is asked on en0.
+ */
+function makeAnsweringResponder(addresses: Partial<NetworkInterface>): { answer: (name: string, type: QType) => DNSPacket[]; service: CiaoService } {
+  const en0: NetworkInterface = { name: "en0", loopback: false, mac: "00:00:5e:00:53:01", ...addresses };
+  const manager = { getInterfaceMap: () => new Map([[ en0.name, en0 ]]) } as unknown as NetworkManager;
+  const service = new CiaoService(manager, { name: "Kitchen", port: 4711, subtypes: ["primary"], type: "hap" });
+  const { internals } = makeChainResponder();
+
+  service.rebuildServiceRecords();
+  internals.announcedServices.set(service.getLowerCasedFQDN(), service);
+  internals.servicePointer.set(Responder.SERVICE_TYPE_ENUMERATION_NAME, [service.getLowerCasedTypePTR()]);
+  internals.servicePointer.set(service.getLowerCasedTypePTR(), [service.getLowerCasedFQDN()]);
+
+  for (const subtypePTR of service.getLowerCasedSubtypePTRs() ?? []) {
+    internals.servicePointer.set(subtypePTR, [service.getLowerCasedFQDN()]);
+  }
+
+  const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+  const answer = (name: string, type: QType): DNSPacket[] => internals.answerQuestion(new Question(name, type, false), endpoint)
+    .map(response => response.asPacket());
+
+  return { answer, service };
+}
+
+// The types of a section's records, in the order the response holds them.
+function typesOf(records: Map<string, ResourceRecord>): RType[] {
+  return [...records.values()].map(record => record.type);
 }
 
 // Advertises a service and runs the clock past its probing and its last announcement, so it ends ANNOUNCED.
@@ -906,6 +942,22 @@ describe(Responder, () => {
 
         expect(announcementReason).toBe(Announcer.CANCEL_REASON);
       });
+    });
+  });
+
+  describe("answers to a question on a service's names", () => {
+    it("a CNAME question gets no address, SRV or TXT record, while ANY and PTR questions are answered as before", () => {
+      const { answer, service } = makeAnsweringResponder({ ipv4: "192.0.2.1", ipv6: "fe80::1" });
+      const cnameRecords = [ service.getHostname(), service.getFQDN(), service.getTypePTR() ].flatMap(name => answer(name, QType.CNAME))
+        .flatMap(packet => [ ...packet.answers.values(), ...packet.additionals.values() ]);
+      const sections = (packets: DNSPacket[]) => packets.map(packet => ({ additionals: typesOf(packet.additionals), answers: typesOf(packet.answers) }));
+
+      expect(cnameRecords.filter(record => [ RType.A, RType.AAAA, RType.SRV, RType.TXT ].includes(record.type))).toEqual([]);
+      expect(sections(answer(service.getHostname(), QType.ANY))).toEqual([{ additionals: [RType.NSEC], answers: [ RType.A, RType.AAAA ] }]);
+      expect(sections(answer(service.getFQDN(), QType.ANY)))
+        .toEqual([{ additionals: [ RType.A, RType.AAAA, RType.NSEC, RType.NSEC ], answers: [ RType.TXT, RType.SRV ] }]);
+      expect(sections(answer(service.getTypePTR(), QType.PTR)))
+        .toEqual([{ additionals: [ RType.TXT, RType.SRV, RType.A, RType.AAAA, RType.NSEC, RType.NSEC ], answers: [RType.PTR] }]);
     });
   });
 });

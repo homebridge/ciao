@@ -25,6 +25,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: log a delayed response that fails to send, instead of throwing out of its timer
 - refactor: break the load-time import cycle between CiaoService and the Responder
 - fix: keep other services advertising when a probe is cancelled, destroyed, or fails (@hjdhjd)
+- fix: complete the responder shutdown, pending announcements included, when a goodbye fails (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

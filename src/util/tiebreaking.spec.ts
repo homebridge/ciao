@@ -1,5 +1,6 @@
 import { AAAARecord } from "../coder/records/AAAARecord";
 import { ARecord } from "../coder/records/ARecord";
+import { OPTRecord } from "../coder/records/OPTRecord";
 import { TXTRecord } from "../coder/records/TXTRecord";
 import { rrComparator, runTiebreaking, TiebreakingResult } from "./tiebreaking";
 
@@ -40,6 +41,15 @@ describe("tiebreaking", () => {
     it("should correctly decide on data length", () => {
       expect(rrComparator(shortData, longerData)).toBe(-1);
       expect(rrComparator(longerData, shortData)).toBe(1);
+    });
+
+    // The opponent's authorities in a received probe are sorted with this comparator, and two OPT records with one payload size are told apart by their
+    // raw rdata, the options alone.
+    it("should sort two OPT authorities of one payload size by their options", () => {
+      const lower = new OPTRecord(1440, [{ code: 1, data: Buffer.from("a") }]);
+      const higher = new OPTRecord(1440, [{ code: 1, data: Buffer.from("b") }]);
+
+      expect([ higher, lower ].sort(rrComparator)).toEqual([ lower, higher ]);
     });
 
   });

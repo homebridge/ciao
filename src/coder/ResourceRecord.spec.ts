@@ -12,6 +12,16 @@ import { TXTRecord } from "./records/TXTRecord";
 import { ResourceRecord } from "./ResourceRecord";
 import { runRecordEncodingTest } from "./test-utils";
 
+// The bytes one record encodes to on its own, as hex.
+function encodedHex(record: ResourceRecord): string {
+  const coder = new DNSLabelCoder();
+  const buffer = Buffer.alloc(record.getEncodingLength(coder));
+
+  coder.initBuf(buffer);
+  record.encode(coder, buffer, 0);
+  return buffer.toString("hex");
+}
+
 describe(ResourceRecord, () => {
   it("should encode AAAA", () => {
     runRecordEncodingTest(new AAAARecord("test.local.", "::1"));
@@ -45,6 +55,32 @@ describe(ResourceRecord, () => {
     runRecordEncodingTest(new OPTRecord(1472, options));
     runRecordEncodingTest(new OPTRecord(1472, [], 13, { dnsSecOK: true }));
     runRecordEncodingTest(new OPTRecord(1472, options, 13, { dnsSecOK: true }, 1));
+  });
+
+  it("should encode an OPT record's rdata alone through getRawData, its fields in the header, and round-trip both", () => {
+    const record = new OPTRecord(1440, [{ code: 1337, data: Buffer.from("hi") }], 1, { dnsSecOK: true, zero: 3 }, 2);
+
+    expect(record.getRawData().toString("hex")).toBe("053900026869");
+    runRecordEncodingTest(record);
+  });
+
+  // RFC 6891 6.1.3 packs the extended rcode, the version, the DO bit and the 15-bit Z into the TTL, so the high bit of each octet lands in the header.
+  it("should write an OPT record with every high bit set to the bytes RFC 6891 6.1.2 lays out", () => {
+    const record = new OPTRecord(1472, [], 0xff, { dnsSecOK: true, zero: 0x1234 }, 0x80);
+
+    // The root name, the type 41, the payload size as the class, the TTL holding 0xff, 0x80 and DO with Z, and an empty rdata.
+    expect(encodedHex(record)).toBe("00002905c0ff8092340000");
+    runRecordEncodingTest(record);
+  });
+
+  // Z takes the 15 bits after the DO bit, so a Z of 0xffff is stored and written as 0x7fff. With DO clear the bit Z loses is the one DO would set, so the
+  // wire bytes show the mask as the stored flags do.
+  it("should store and write an OPT record's Z of 0xffff as its 15 bits", () => {
+    const record = new OPTRecord(1472, [], 0, { zero: 0xffff });
+
+    expect(record.flags.zero).toBe(0x7fff);
+    expect(encodedHex(record)).toBe("00002905c000007fff0000");
+    runRecordEncodingTest(record);
   });
 
   it("should encode PTR", () => {

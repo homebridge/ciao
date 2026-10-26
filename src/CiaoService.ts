@@ -16,7 +16,7 @@ import { Protocol } from "./index";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";
-import { escapeLabel, splitLabels, wireLength } from "./util/dns-labels";
+import { escapeLabel, splitLabels, splitRelativeName, wireLength } from "./util/dns-labels";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
@@ -383,13 +383,14 @@ export class CiaoService extends EventEmitter {
     this.subTypes = options.subtypes;
     this.protocol = options.protocol || Protocol.TCP;
     /* The domain is held in the spelling the label coder decodes, each label split and escaped again, so the FQDN, the type PTR and the hostname built from
-     * it are the names a received packet carries. It is split as the end of a name, ahead of the root label, so a last label ending in an escaped dot stays
-     * one label.
+     * it are the names a received packet carries. It splits as a name without its root label, so a backslash ending it quotes nothing and is dropped, and a
+     * last label ending in an escaped dot stays one label.
      */
-    const domainLabels = splitLabels((options.domain || "local") + ".").slice(0, -1);
+    const domainLabels = splitRelativeName(options.domain || "local");
 
     // A domain written absolute, "local." for "local", ends with the root label every name built from it appends anyway, so that one label is dropped. It is
-    // dropped only after a filled label, so no domain is emptied, as "." would be, and every refusal names each label written, as the refusal of "local.." does.
+    // dropped only when the label before it is not empty, so "." keeps its empty label and every refusal names each label written, as the refusal of "local.."
+    // does. A domain empty once its trailing backslash is dropped, "\" alone, is the empty name, and the service is refused for that empty label.
     if (domainLabels[domainLabels.length - 1] === "" && domainLabels[domainLabels.length - 2] !== "") {
       domainLabels.pop();
     }
@@ -822,9 +823,9 @@ export class CiaoService extends EventEmitter {
     }
 
     // The number goes on the hostname's last own label, ahead of the service domain however many labels that holds, read raw so its octets are its own. The
-    // own part is split as the end of a name, so a last own label ending in an escaped dot stays one label.
+    // own part splits as a name without its root label, so a last own label ending in an escaped dot stays one label.
     const ownPart = domainFormatter.removeTLD(this.hostname, this.serviceDomain);
-    const ownLabels = splitLabels(ownPart + ".").slice(0, -1);
+    const ownLabels = splitRelativeName(ownPart);
     const lastLabel = ownLabels[ownLabels.length - 1];
 
     const hostnameMatcher = lastLabel.match(numberedHostnameLabelPattern);

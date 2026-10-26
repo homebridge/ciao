@@ -41,6 +41,24 @@ export function splitLabels(name: string): string[] {
 }
 
 /**
+ * Splits a name in presentation form that carries no root label, a hostname or a domain as a caller writes it, into its raw labels. A backslash ending the
+ * name, not itself escaped, quotes nothing and is dropped, so an odd run of trailing backslashes loses its last. The name then splits as the end of a name,
+ * its root label added and dropped again, so a trailing escaped dot stays a literal dot in the last label and a trailing dot leaves an empty last label. No
+ * backslash is left to quote the root label added, so the split never throws.
+ *
+ * @param name - The name in presentation form, without the root label.
+ */
+export function splitRelativeName(name: string): string[] {
+  let backslashes = 0;
+
+  while (name.charAt(name.length - 1 - backslashes) === "\\") {
+    backslashes++;
+  }
+
+  return splitLabels((backslashes % 2 === 1? name.slice(0, -1): name) + ".").slice(0, -1);
+}
+
+/**
  * Writes one raw label in presentation form, a backslash before each dot and each backslash. A label holding neither comes back unchanged.
  *
  * @param label - The raw label.

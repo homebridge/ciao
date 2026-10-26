@@ -2,7 +2,7 @@ import assert from "assert";
 import net from "net";
 import { ServiceType } from "../CiaoService";
 import { Protocol } from "../index";
-import { escapeLabel, splitLabels } from "./dns-labels";
+import { escapeLabel, splitLabels, splitRelativeName } from "./dns-labels";
 import { getIPFromV4Mapped, isIPv4Mapped } from "./v4mapped";
 
 /**
@@ -138,17 +138,17 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
  * @param domain - The domain in presentation form.
  */
 export function formatHostname(hostname: string, domain = "local"): string {
-  assert(!hostname.endsWith("."), "hostname must not end with the root label!");
-
-  /* The hostname splits whole, which cannot throw as the assert above bars a final dot, so a backslash ending it quotes nothing. The domain splits as a
-   * name ending at the root, that root then dropped, so a last label ending in an escaped dot stays one label, and a hostname carrying the domain ends with
-   * every label the domain splits into. Each return spells the hostname from its labels, each escaped again, rather than from its raw text, where a
-   * backslash ending it would quote the dot that joins it to the domain. That is the spelling the label coder decodes, so a backslash before a character
-   * other than a dot or a backslash is dropped as the wire drops it.
+  /* The hostname and the domain each split as a name without its root label, so a backslash ending the name quotes nothing and is dropped, a last label
+   * ending in an escaped dot stays one label, and a hostname carrying the domain ends with every label the domain splits into. A hostname whose last label
+   * is empty ends with the root label, which this function appends itself, so it is refused. Each return spells the hostname from its labels, each escaped
+   * again, rather than from its raw text, where a backslash ending it would quote the dot that joins it to the domain. That is the spelling the label coder
+   * decodes, so a backslash before a character other than a dot or a backslash is dropped as the wire drops it.
    */
-  const labels = splitLabels(hostname);
-  const domainLabels = splitLabels(domain + ".").slice(0, -1);
+  const labels = splitRelativeName(hostname);
+  const domainLabels = splitRelativeName(domain);
   const ownLabels = labels.length - domainLabels.length;
+
+  assert(labels[labels.length - 1] !== "", "hostname must not end with the root label!");
 
   if (ownLabels > 0 && domainLabels.every((label, index) => label === labels[ownLabels + index])) {
     return [ ...labels.slice(0, ownLabels).map(escapeLabel), domain ].join(".") + ".";

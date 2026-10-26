@@ -47,6 +47,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: spell the service domain the way the label coder decodes it (@hjdhjd)
 - fix: append the domain to a hostname by label, dashing spaces only in its own labels (@hjdhjd)
 - fix: enforce DNS label and name limits on hostnames (@hjdhjd)
+- fix: read hostnames and domains ending in a backslash by one rule (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

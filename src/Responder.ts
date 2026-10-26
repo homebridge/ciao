@@ -1198,6 +1198,8 @@ export class Responder implements PacketHandler {
 
     const loweredQuestionName = question.getLowerCasedName();
     const askingAny = question.type === QType.ANY;
+    // The address records and the address NSEC are keyed by the interface's own name, not its IPv6 socket's ("<name>/6").
+    const interfaceName = endpoint.interface.endsWith("/6") ? endpoint.interface.slice(0, -2) : endpoint.interface;
 
     const addAnswer = response.addAnswer.bind(response);
     const addAdditional = response.addAdditional.bind(response);
@@ -1216,9 +1218,10 @@ export class Responder implements PacketHandler {
 
           // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
           response.addAdditional(service.txtRecord(), service.srvRecord());
-          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
-          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
-          response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
+          this.addAddressRecords(service, interfaceName, RType.A, addAdditional);
+          this.addAddressRecords(service, interfaceName, RType.AAAA, addAdditional);
+          response.addAdditional(service.serviceNSECRecord());
+          this.addAddressNSEC(service, interfaceName, addAdditional);
         }
       }
     } else if (loweredQuestionName === service.getLowerCasedFQDN()) {
@@ -1228,52 +1231,69 @@ export class Responder implements PacketHandler {
 
         if (addedSrv) {
           // RFC 6763 12.2: include additionals: a, aaaa
-          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
-          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
-          response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
+          this.addAddressRecords(service, interfaceName, RType.A, addAdditional);
+          this.addAddressRecords(service, interfaceName, RType.AAAA, addAdditional);
+          response.addAdditional(service.serviceNSECRecord());
+          this.addAddressNSEC(service, interfaceName, addAdditional);
         }
       } else if (question.type === QType.SRV) {
         const added = response.addAnswer(service.srvRecord());
 
         if (added) {
           // RFC 6763 12.2: include additionals: a, aaaa
-          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
-          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
-          response.addAdditional(service.serviceNSECRecord(true), service.addressNSECRecord());
+          this.addAddressRecords(service, interfaceName, RType.A, addAdditional);
+          this.addAddressRecords(service, interfaceName, RType.AAAA, addAdditional);
+          response.addAdditional(service.serviceNSECRecord(true));
+          this.addAddressNSEC(service, interfaceName, addAdditional);
         }
       } else if (question.type === QType.TXT) {
         response.addAnswer(service.txtRecord());
         response.addAdditional(service.serviceNSECRecord());
 
         // RFC 6763 12.3: not any other additionals
+      } else {
+        // RFC 6762 6.1: the instance name is uniquely owned and holds its SRV and TXT records alone, so a question for any other type is answered with the
+        // service NSEC, which asserts as much.
+        response.addAnswer(service.serviceNSECRecord());
       }
     } else if (loweredQuestionName === service.getLowerCasedHostname() || loweredQuestionName + "local." === service.getLowerCasedHostname()) {
+      // The NSEC lists the address types the service holds on this interface, built from its records there, and none exists for an interface it holds
+      // neither type on, where the hostname holds no record to answer with or about.
+      const addressNSEC = service.addressNSECRecord(interfaceName);
+
       if (askingAny) {
-        this.addAddressRecords(service, endpoint, RType.A, addAnswer);
-        this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
-        response.addAdditional(service.addressNSECRecord());
-      } else if (question.type === QType.A) {
+        this.addAddressRecords(service, interfaceName, RType.A, addAnswer);
+        this.addAddressRecords(service, interfaceName, RType.AAAA, addAnswer);
+        if (addressNSEC) {
+          response.addAdditional(addressNSEC);
+        }
+      } else if (question.type === QType.A && addressNSEC?.listsType(RType.A)) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        const added = this.addAddressRecords(service, endpoint, RType.A, addAnswer);
+        const added = this.addAddressRecords(service, interfaceName, RType.A, addAnswer);
         if (added) {
-          this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
+          this.addAddressRecords(service, interfaceName, RType.AAAA, addAdditional);
         }
 
-        response.addAdditional(service.addressNSECRecord()); // always add the negative response, always assert dominance
-      } else if (question.type === QType.AAAA) {
+        response.addAdditional(addressNSEC); // always add the negative response, always assert dominance
+      } else if (question.type === QType.AAAA && addressNSEC?.listsType(RType.AAAA)) {
         // RFC 6762 6.2 When a Multicast DNS responder places an IPv4 or IPv6 address record
         //    (rrtype "A" or "AAAA") into a response message, it SHOULD also place
         //    any records of the other address type with the same name into the
         //    additional section, if there is space in the message.
-        const added = this.addAddressRecords(service, endpoint, RType.AAAA, addAnswer);
+        const added = this.addAddressRecords(service, interfaceName, RType.AAAA, addAnswer);
         if (added) {
-          this.addAddressRecords(service, endpoint, RType.A, addAdditional);
+          this.addAddressRecords(service, interfaceName, RType.A, addAdditional);
         }
 
-        response.addAdditional(service.addressNSECRecord()); // always add the negative response, always assert dominance
+        response.addAdditional(addressNSEC); // always add the negative response, always assert dominance
+      } else if (addressNSEC) {
+        /* RFC 6762 6.1: the hostname is uniquely owned, so a question for a type it holds no record of on this interface, CNAME and every other type beside
+         * A and AAAA as much as an address type the interface does not carry, is answered with the address NSEC, which asserts that nonexistence.
+         */
+        response.addAnswer(addressNSEC);
       }
     } else if (service.getLowerCasedSubtypePTRs()) {
       if (askingAny || question.type === QType.PTR) {
@@ -1289,9 +1309,10 @@ export class Responder implements PacketHandler {
           if (added) {
             // RFC 6763 12.1: include additionals: srv, txt, a, aaaa
             response.addAdditional(service.txtRecord(), service.srvRecord());
-            this.addAddressRecords(service, endpoint, RType.A, addAdditional);
-            this.addAddressRecords(service, endpoint, RType.AAAA, addAdditional);
-            response.addAdditional(service.serviceNSECRecord(), service.addressNSECRecord());
+            this.addAddressRecords(service, interfaceName, RType.A, addAdditional);
+            this.addAddressRecords(service, interfaceName, RType.AAAA, addAdditional);
+            response.addAdditional(service.serviceNSECRecord());
+            this.addAddressNSEC(service, interfaceName, addAdditional);
           }
         }
       }
@@ -1302,26 +1323,24 @@ export class Responder implements PacketHandler {
 
   /**
    * This method is a helper method to reduce the complexity inside {@link answerServiceQuestion}.
-   * The method calculates which A and AAAA records to be added for a given {@code endpoint} using
+   * The method calculates which A and AAAA records to be added for a given interface using
    * the records from the provided {@code service}.
    * It will add the records by calling the provided {@code dest} method.
    *
    * @param {CiaoService} service - service which records to be use
-   * @param {EndpointInfo} endpoint - endpoint information providing the interface
+   * @param {InterfaceName} interfaceName - the interface's own name, which the address records are keyed by
    * @param {RType.A | RType.AAAA} type - defines the type of records to be added
    * @param {RecordAddMethod} dest - defines the destination which the records should be added
    * @returns true if any records got added
    */
-  private static addAddressRecords(service: CiaoService, endpoint: EndpointInfo, type: RType.A | RType.AAAA, dest: RecordAddMethod): boolean {
-    const endpointInterface = endpoint.interface.endsWith("/6") ? endpoint.interface.slice(0, -2) : endpoint.interface;
-
+  private static addAddressRecords(service: CiaoService, interfaceName: InterfaceName, type: RType.A | RType.AAAA, dest: RecordAddMethod): boolean {
     if (type === RType.A) {
-      const record = service.aRecord(endpointInterface);
+      const record = service.aRecord(interfaceName);
       return record? dest(record): false;
     } else if (type === RType.AAAA) {
-      const record = service.aaaaRecord(endpointInterface);
-      const routableRecord = service.aaaaRoutableRecord(endpointInterface);
-      const ulaRecord = service.aaaaUniqueLocalRecord(endpointInterface);
+      const record = service.aaaaRecord(interfaceName);
+      const routableRecord = service.aaaaRoutableRecord(interfaceName);
+      const ulaRecord = service.aaaaUniqueLocalRecord(interfaceName);
 
       let addedAny = false;
       if (record) {
@@ -1340,6 +1359,19 @@ export class Responder implements PacketHandler {
     } else {
       assert.fail("Illegal argument!");
     }
+  }
+
+  /**
+   * Adds the address NSEC of an interface through the provided {@code dest} method, when the service holds an address record there.
+   *
+   * @param {CiaoService} service - service which records to be use
+   * @param {InterfaceName} interfaceName - the interface's own name, which the address records are keyed by
+   * @param {RecordAddMethod} dest - defines the destination which the record should be added
+   * @returns true if the record got added
+   */
+  private static addAddressNSEC(service: CiaoService, interfaceName: InterfaceName, dest: RecordAddMethod): boolean {
+    const record = service.addressNSECRecord(interfaceName);
+    return record? dest(record): false;
   }
 
 }

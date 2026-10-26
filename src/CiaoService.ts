@@ -152,7 +152,6 @@ export interface ServiceRecords {
   aaaaR: Record<InterfaceName, AAAARecord>; // routable AAAA
   aaaaULA: Record<InterfaceName, AAAARecord>; // unique local address
   reverseAddressPTRs: Record<IPAddress, PTRRecord>; // indexed by address
-  addressNSEC: NSECRecord;
 }
 
 /**
@@ -889,8 +888,6 @@ export class CiaoService extends EventEmitter {
       aaaaR: aaaaRoutableRecordMap,
       aaaaULA: aaaaUniqueLocalRecordMap,
       reverseAddressPTRs: reverseAddressMap,
-      // without AAAA records the bitmap must not list them, or a querier keeps waiting for one (RFC 6762 6.1.)
-      addressNSEC: new NSECRecord(this.hostname, this.hostname, this.disableIpv6? [RType.A]: [RType.A, RType.AAAA], 120, true), // 120 TTL of A and AAAA records
     };
   }
 
@@ -1034,10 +1031,26 @@ export class CiaoService extends EventEmitter {
   }
 
   /**
-   * @private used to get a copy of the address NSEC record
+   * @param name - The interface's own name, which the address records are keyed by.
+   * @private used to get the address NSEC record of an interface, or undefined for an interface on which the service holds no address record. Its bitmap
+   *   lists exactly the address types the service holds records of there: A for its A record, and AAAA for any of its link-local, routable and unique
+   *   local AAAA records. A type listed without a record keeps a querier waiting for one that never comes (RFC 6762 6.1), so the bitmap is built from the
+   *   interface's records each time it is asked for, and no stored bitmap can outlive a network change.
    */
-  addressNSECRecord(): NSECRecord {
-    return this.serviceRecords!.addressNSEC.clone();
+  addressNSECRecord(name: InterfaceName): NSECRecord | undefined {
+    const records = this.serviceRecords!;
+    const types: RType[] = [];
+
+    if (records.a[name]) {
+      types.push(RType.A);
+    }
+
+    if (records.aaaa[name] || records.aaaaR[name] || records.aaaaULA[name]) {
+      types.push(RType.AAAA);
+    }
+
+    // The NSEC takes the TTL of the address records whose existence it asserts (RFC 6762 6.1).
+    return types.length? new NSECRecord(this.hostname, this.hostname, types, ARecord.DEFAULT_TTL, true): undefined;
   }
 
   /**

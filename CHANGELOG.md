@@ -38,6 +38,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: advance past each received record by its declared rdata length (@hjdhjd)
 - fix: write OPT record header fields with the record header (@hjdhjd)
 - fix: stop answering CNAME questions with address records (@hjdhjd)
+- fix: answer questions for types ciao doesn't hold with an NSEC record (RFC 6762 6.1) (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

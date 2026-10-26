@@ -1,6 +1,10 @@
 import { Announcer } from "./Announcer";
-import { DNSPacket } from "../coder/DNSPacket";
+import { CiaoService } from "../CiaoService";
+import { DNSPacket, RType } from "../coder/DNSPacket";
 import { AAAARecord } from "../coder/records/AAAARecord";
+import { NSECRecord } from "../coder/records/NSECRecord";
+import { ResourceRecord } from "../coder/ResourceRecord";
+import { NetworkInterface, NetworkManager } from "../NetworkManager";
 import { InterfaceNotFoundError } from "../util/errors";
 
 describe(Announcer, () => {
@@ -162,6 +166,34 @@ describe(Announcer, () => {
 
         expect(packetSpy).toHaveBeenCalledTimes(1);
         expect(packetSpy.mock.calls[0][0].answers).toContain(aaaaRecord);
+      } finally {
+        packetSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("sendResponseAddingAddressRecords - address NSEC", () => {
+    // An announcement's address NSEC lists the address types of the interface it goes out on, on either of that interface's sockets.
+    it.each(["eth0", "eth0/6"])("lists only the address types of the interface an announcement on %s goes out on", async name => {
+      const packetSpy = jest.spyOn(DNSPacket, "createDNSResponsePacketsFromRRSet").mockReturnValue({} as DNSPacket);
+      const eth0: NetworkInterface = { name: "eth0", loopback: false, mac: "00:00:5e:00:53:01", ipv4: "192.0.2.1" };
+      const networkManager = { getInterfaceMap: () => new Map([[ eth0.name, eth0 ]]) } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Kitchen", port: 4711, type: "hap" });
+      const server = {
+        getBoundInterfaceNames: () => [name],
+        send: jest.fn(() => Promise.resolve({ status: "fulfilled", interface: name })),
+      };
+
+      service.rebuildServiceRecords();
+
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (Announcer as any).sendResponseAddingAddressRecords(server, service, [], false);
+
+        const additionals: ResourceRecord[] = packetSpy.mock.calls[0][0].additionals ?? [];
+        const addressNSEC = additionals.find(record => record.name === service.getHostname()) as NSECRecord | undefined;
+
+        expect(addressNSEC?.rrTypeWindows.flatMap(window => window.rrtypes)).toEqual([RType.A]);
       } finally {
         packetSpy.mockRestore();
       }

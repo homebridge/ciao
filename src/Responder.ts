@@ -180,12 +180,16 @@ export class Responder implements PacketHandler {
       const responses = [...responses4, ...responses6];
       QueryResponse.combineResponses(responses);
 
+      // The responses go out on the IPv4 socket when it is bound and on the IPv6 socket otherwise. With neither bound there are no responses, so a send
+      // never names an absent socket.
+      const socketName = boundInterfaceNames.includes(networkInterface.name) ? networkInterface.name : networkInterface.name + "/6";
+
       for (const response of responses) {
         if (!response.hasAnswers()) {
           continue;
         }
 
-        this.server.sendResponse(response.asPacket(), networkInterface.name);
+        this.server.sendResponse(response.asPacket(), socketName);
       }
     }
 

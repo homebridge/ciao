@@ -101,17 +101,17 @@ describe(MDNSServer, () => {
     });
   });
 
-  describe("an address that appears after the interface was bound", () => {
-    // At boot the IPv6 link-local address is up long before DHCP has handed out an IPv4 one, so the
-    // interface is bound with no IPv4 address and its IPv4 socket is closed again. When the address
-    // then arrived, the change handler only re-joined the multicast group on an existing socket -
-    // and there was none, so the interface never answered or announced over IPv4 until a restart
+  describe("an address family's socket exists only while its interface holds an address of that family", () => {
+    // An interface's address families come and go independently: at boot the IPv6 link-local address is up long before
+    // DHCP has handed out an IPv4 one, and a lease can lapse while the link stays up. An advertised family binds a socket
+    // when it gains an address, the socket follows the address as it changes and is closed when the address goes, and a
+    // change to one family leaves the other family's socket alone.
     /* eslint-disable @typescript-eslint/no-explicit-any */
     function serverWith(families: string[], sockets: string[] = []) {
       const server = makeBareServer();
       (server as any).advertiseFamilies = families;
       for (const name of sockets) {
-        (server as any).sockets.set(name, { addMembership: jest.fn(), setMulticastInterface: jest.fn(), dropMembership: jest.fn() });
+        (server as any).sockets.set(name, { addMembership: jest.fn(), setMulticastInterface: jest.fn(), dropMembership: jest.fn(), close: jest.fn() });
       }
       (server as any).networkManager = {
         getInterface: (name: string) => ({ name, loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.100", ip4Netmask: "255.255.255.0", ipv6: "fe80::1" }),
@@ -125,6 +125,46 @@ describe(MDNSServer, () => {
       return { server, created, bindSocket };
     }
     const change = (server: MDNSServer, update: NetworkUpdate) => (server as any).handleUpdatedNetworkInterfaces(update);
+    const eth0 = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.100", ip4Netmask: "255.255.255.0" };
+
+    // A socket is registered when its bind completes, and a network change can take or move its address, or register another socket under its name, before
+    // that. A pending bind holds its callback past such a change, as the bind racing shutdown row holds it past shutdown, and the network manager reports
+    // whichever record the row sets. A row can instead fail the bind by emitting the error a failed bind emits.
+    function pendingBind(record: object) {
+      const server = makeBareServer();
+      const network: { record?: object } = { record };
+      (server as any).networkManager = { getInterface: () => network.record };
+      let finishBind!: () => void;
+      let emitClose!: () => void;
+      let emitError!: (error: Error) => void;
+      const socket = {
+        on: (event: string, listener: () => void) => {
+          if (event === "close") {
+            emitClose = listener;
+          }
+          return socket;
+        },
+        once: (event: string, listener: (error: Error) => void) => {
+          if (event === "error") {
+            emitError = listener;
+          }
+          return socket;
+        },
+        removeListener: () => socket,
+        bind: (port: number, callback: () => void) => {
+          finishBind = callback;
+        },
+        close: jest.fn(),
+        setRecvBufferSize: jest.fn(),
+        addMembership: jest.fn(),
+        setMulticastInterface: jest.fn(),
+        setMulticastTTL: jest.fn(),
+        setTTL: jest.fn(),
+        setMulticastLoopback: jest.fn(),
+      };
+      const bound: Promise<void> = (server as any).bindSocket(socket, record, "IPv4");
+      return { server, network, socket, bound, finishBind: () => finishBind(), emitClose: () => emitClose(), emitError: (error: Error) => emitError(error) };
+    }
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
     it("binds an IPv4 socket for an IPv4 address that arrives later", () => {
@@ -142,6 +182,14 @@ describe(MDNSServer, () => {
       expect(created).toEqual(["eth0:udp6"]);
     });
 
+    it("binds an IPv4 socket for a changed IPv4 address when no IPv4 socket is held", () => {
+      const { server, created, bindSocket } = serverWith(["IPv4"]);
+      change(server, { changes: [{ name: "eth0", outdatedIpv4: "192.168.1.50", updatedIpv4: "192.168.1.100" }] });
+
+      expect(created).toEqual(["eth0:udp4"]);
+      expect(bindSocket).toHaveBeenCalledTimes(1);
+    });
+
     it("binds nothing for a family that isn't advertised", () => {
       const { server, created } = serverWith(["IPv4"], ["eth0"]);
       change(server, { changes: [{ name: "eth0", updatedIpv6: "fe80::1" }] });
@@ -149,21 +197,179 @@ describe(MDNSServer, () => {
       expect(created).toEqual([]);
     });
 
-    it("re-joins on the existing socket rather than opening a second one", () => {
-      const { server, created } = serverWith(["IPv4"], ["eth0"]);
-      change(server, { changes: [{ name: "eth0", updatedIpv4: "192.168.1.100" }] });
+    it("binds each advertised family of an added interface", () => {
+      const { server, created } = serverWith(["IPv4", "IPv6"]);
+      change(server, { added: [{ name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.100", ipv6: "fe80::1" }] });
 
-      expect(created).toEqual([]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((server as any).sockets.get("eth0").addMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.100");
+      expect(created).toEqual(["eth0:udp4", "eth0:udp6"]);
     });
 
-    it("drops the IPv6 membership when the IPv6 address goes away", () => {
+    it("re-joins on the existing socket rather than opening a second one", () => {
+      const { server, created } = serverWith(["IPv4"], ["eth0"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const socket = (server as any).sockets.get("eth0");
+      change(server, { changes: [{ name: "eth0", outdatedIpv4: "192.168.1.50", updatedIpv4: "192.168.1.100" }] });
+
+      expect(created).toEqual([]);
+      expect(socket.dropMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.50");
+      expect(socket.addMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.100");
+      expect(socket.setMulticastInterface).toHaveBeenCalledWith("192.168.1.100");
+    });
+
+    it("sets the multicast interface and drops the outdated membership on the existing socket when the join fails", () => {
+      const { server } = serverWith(["IPv4"], ["eth0"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const socket = (server as any).sockets.get("eth0");
+      socket.addMembership.mockImplementation(() => {
+        throw new Error("addMembership EADDRNOTAVAIL");
+      });
+      change(server, { changes: [{ name: "eth0", outdatedIpv4: "192.168.1.50", updatedIpv4: "192.168.1.100" }] });
+
+      expect(socket.addMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.100");
+      expect(socket.dropMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.50");
+      expect(socket.setMulticastInterface).toHaveBeenCalledWith("192.168.1.100");
+    });
+
+    it("adds the updated membership and sets the multicast interface on the existing socket when the leave fails", () => {
+      const { server } = serverWith(["IPv4"], ["eth0"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const socket = (server as any).sockets.get("eth0");
+      socket.dropMembership.mockImplementation(() => {
+        throw new Error("dropMembership EADDRNOTAVAIL");
+      });
+      change(server, { changes: [{ name: "eth0", outdatedIpv4: "192.168.1.50", updatedIpv4: "192.168.1.100" }] });
+
+      expect(socket.dropMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.50");
+      expect(socket.addMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV4, "192.168.1.100");
+      expect(socket.setMulticastInterface).toHaveBeenCalledWith("192.168.1.100");
+    });
+
+    it("closes and forgets the IPv6 socket when the IPv6 address goes away", () => {
       const { server } = serverWith(["IPv4", "IPv6"], ["eth0/6"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const socket = (server as any).sockets.get("eth0/6");
+      sentPacketsMap(server).set("eth0/6", new Map([["packet", [0]]]));
       change(server, { changes: [{ name: "eth0", outdatedIpv6: "fe80::1" }] });
 
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+      expect(sentPacketsMap(server).has("eth0/6")).toBe(false);
+    });
+
+    it("closes and forgets the IPv4 socket when the IPv4 address goes away", () => {
+      const { server } = serverWith(["IPv4"], ["eth0"]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((server as any).sockets.get("eth0/6").dropMembership).toHaveBeenCalledWith(MDNSServer.MULTICAST_IPV6, "fe80::1%eth0");
+      const socket = (server as any).sockets.get("eth0");
+      sentPacketsMap(server).set("eth0", new Map([["packet", [0]]]));
+      change(server, { changes: [{ name: "eth0", outdatedIpv4: "192.168.1.100" }] });
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+      expect(sentPacketsMap(server).has("eth0")).toBe(false);
+    });
+
+    it("closes and forgets each socket of a removed interface", () => {
+      const { server } = serverWith(["IPv4", "IPv6"], ["eth0", "eth0/6"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ipv4Socket = (server as any).sockets.get("eth0");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ipv6Socket = (server as any).sockets.get("eth0/6");
+      sentPacketsMap(server).set("eth0", new Map([["packet", [0]]]));
+      sentPacketsMap(server).set("eth0/6", new Map([["packet", [0]]]));
+      change(server, { removed: [{ name: "eth0", loopback: false, mac: "00:00:00:00:00:00" }] });
+
+      expect(ipv4Socket.close).toHaveBeenCalledTimes(1);
+      expect(ipv6Socket.close).toHaveBeenCalledTimes(1);
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+      expect(sentPacketsMap(server).size).toBe(0);
+    });
+
+    it("leaves the IPv4 socket alone on an IPv6-only change", () => {
+      const { server, created } = serverWith(["IPv4", "IPv6"], ["eth0", "eth0/6"]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const socket = (server as any).sockets.get("eth0");
+      change(server, { changes: [{ name: "eth0", outdatedIpv6: "fe80::1", updatedIpv6: "fe80::2" }] });
+
+      expect(created).toEqual([]);
+      expect(socket.close).not.toHaveBeenCalled();
+      expect(socket.dropMembership).not.toHaveBeenCalled();
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(socket.setMulticastInterface).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual(["eth0", "eth0/6"]);
+    });
+
+    it("closes and leaves unregistered a socket whose bind completes after its interface lost the address", async () => {
+      const { server, network, socket, bound, finishBind } = pendingBind(eth0);
+      network.record = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00" };
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+    });
+
+    it("closes and leaves unregistered a socket whose bind completes after its interface's address changed", async () => {
+      const { server, network, socket, bound, finishBind } = pendingBind(eth0);
+      network.record = { ...eth0, ipv4: "192.168.1.101" };
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+    });
+
+    it("closes and leaves unregistered a socket whose bind completes after its interface was removed", async () => {
+      const { server, network, socket, bound, finishBind } = pendingBind(eth0);
+      network.record = undefined;
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+    });
+
+    it("closes a socket whose bind completes while its name holds a socket, and keeps the holder registered", async () => {
+      const { server, socket, bound, finishBind } = pendingBind(eth0);
+      const holder = { close: jest.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sockets.set("eth0", holder);
+      finishBind();
+      await bound;
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(holder.close).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).sockets.get("eth0")).toBe(holder);
+    });
+
+    it("keeps the holder registered when a socket closed at bind completion emits its close", async () => {
+      // The address moved while the socket was binding, and the socket the change bound for the new address registered first.
+      const { server, network, socket, bound, finishBind, emitClose } = pendingBind(eth0);
+      const holder = { close: jest.fn() };
+      network.record = { ...eth0, ipv4: "192.168.1.101" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).sockets.set("eth0", holder);
+      finishBind();
+      await bound;
+      emitClose();
+
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).sockets.get("eth0")).toBe(holder);
+    });
+
+    it("closes and leaves unregistered a socket whose bind fails, and rejects", async () => {
+      const { server, socket, bound, emitError } = pendingBind(eth0);
+      emitError(new Error("bind EADDRINUSE 0.0.0.0:5353"));
+
+      await expect(bound).rejects.toThrow("Failed to bind on interface eth0: bind EADDRINUSE 0.0.0.0:5353");
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.addMembership).not.toHaveBeenCalled();
+      expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
     });
   });
 
@@ -403,31 +609,6 @@ describe(MDNSServer, () => {
     });
   });
 
-  describe("an interface that has lost its IPv4 address", () => {
-    it("drops IPv4 packets instead of throwing out of the socket's message handler", () => {
-      // The socket outlives the address (so it can be picked up again) and keeps receiving.
-      // Checking the sender's subnet against an undefined netmask threw an AssertionError
-      // from the 'message' event, which nothing catches - the process went down with it
-      const server = makeBareServer();
-      const handler = { handleQuery: jest.fn(), handleResponse: jest.fn() };
-      /* eslint-disable @typescript-eslint/no-explicit-any */
-      (server as any).handler = handler;
-      (server as any).networkManager = {
-        getInterface: () => ({ name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" }),
-        isLoopbackNetaddressV4: () => false,
-      };
-      const packet = DNSPacket.createDNSResponsePacketsFromRRSet({
-        answers: [new AAAARecord("other.local.", "fe80::2")],
-      }).encode();
-
-      expect(() => (server as any).handleMessage(
-        "eth0", packet, { address: "192.168.1.20", family: "IPv4", port: 5353, size: packet.length }, "IPv4",
-      )).not.toThrow();
-      /* eslint-enable @typescript-eslint/no-explicit-any */
-      expect(handler.handleResponse).not.toHaveBeenCalled();
-    });
-  });
-
   describe("sentPackets cleanup timer", () => {
     beforeEach(() => {
       jest.useFakeTimers();
@@ -498,6 +679,9 @@ describe(MDNSServer, () => {
      */
     it("reports a missing address through debug, not the console", async () => {
       const server = makeBareServer();
+      const networkInterface = { name: "en0", loopback: false, mac: "00:00:00:00:00:00" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).networkManager = { getInterface: () => networkInterface };
       let closed = false;
       const socket = {
         once: () => socket,
@@ -519,7 +703,7 @@ describe(MDNSServer, () => {
         /* eslint-disable @typescript-eslint/no-explicit-any */
         await (server as any).bindSocket(
           socket as any,
-          { name: "en0", loopback: false, mac: "00:00:00:00:00:00" } as any,
+          networkInterface as any,
           "IPv4" as any,
         );
         /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -535,6 +719,35 @@ describe(MDNSServer, () => {
     });
   });
 
+  describe("bind", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("binds each advertised family of each interface through bindInterface and leaves the server bound", async () => {
+      const networkInterface = { name: "en0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2", ipv6: "fe80::1" };
+      const server = makeBareServer();
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      (server as any).bound = false;
+      (server as any).advertiseFamilies = ["IPv4", "IPv6"];
+      (server as any).networkManager = {
+        waitForInit: () => Promise.resolve(),
+        getInterfaceMap: () => new Map([[networkInterface.name, networkInterface]]),
+        getInterface: () => networkInterface,
+      };
+      jest.spyOn(server as any, "createDgramSocket").mockReturnValue({});
+      const bindSocket = jest.spyOn(server as any, "bindSocket").mockResolvedValue(undefined);
+      const bindInterface = jest.spyOn(server as any, "bindInterface");
+
+      await server.bind();
+
+      expect(bindInterface.mock.calls).toStrictEqual([["en0", "IPv4"], ["en0", "IPv6"]]);
+      expect(bindSocket).toHaveBeenCalledTimes(2);
+      expect((server as any).bound).toBe(true);
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    });
+  });
+
   describe("bind racing shutdown (#27)", () => {
     const networkInterface = { name: "en0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2" };
 
@@ -546,6 +759,7 @@ describe(MDNSServer, () => {
         shutdown: () => { /* no-op */ },
         waitForInit,
         getInterfaceMap: () => new Map([[networkInterface.name, networkInterface]]),
+        getInterface: () => networkInterface,
       };
       return server;
     }
@@ -597,6 +811,8 @@ describe(MDNSServer, () => {
       expect(socket.close).toHaveBeenCalled();
       expect(socket.addMembership).not.toHaveBeenCalled();
       expect(Array.from(server.getBoundInterfaceNames())).toStrictEqual([]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((server as any).bound).toBe(false);
     });
   });
 
@@ -611,6 +827,7 @@ describe(MDNSServer, () => {
       const calls = {
         addMembership: [] as string[][],
         dropMembership: [] as string[][],
+        setMulticastInterface: [] as string[][],
       };
       const socket = {
         calls,
@@ -618,7 +835,9 @@ describe(MDNSServer, () => {
         on: () => socket,
         removeListener: () => socket,
         setRecvBufferSize: () => { /* no-op */ },
-        setMulticastInterface: () => { /* no-op */ },
+        setMulticastInterface: (...args: string[]) => {
+          calls.setMulticastInterface.push(args);
+        },
         setMulticastTTL: () => { /* no-op */ },
         setTTL: () => { /* no-op */ },
         setMulticastLoopback: () => { /* no-op */ },
@@ -637,13 +856,16 @@ describe(MDNSServer, () => {
     it("joins the IPv6 group on the interface the socket is bound for", async () => {
       const server = makeBareServer();
       const socket = membershipSocket();
+      const networkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).networkManager = { getInterface: () => networkInterface };
 
       // "IPv6" is IPFamily.IPv6; the enum is `const`, so its value is inlined
       // rather than importable at runtime from a spec.
       /* eslint-disable @typescript-eslint/no-explicit-any */
       await (server as any).bindSocket(
         socket as any,
-        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv6: "fe80::1" } as any,
+        networkInterface as any,
         "IPv6" as any,
       );
       /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -654,11 +876,14 @@ describe(MDNSServer, () => {
     it("keeps joining the IPv4 group by the interface's address", async () => {
       const server = makeBareServer();
       const socket = membershipSocket();
+      const networkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.0.2.1" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).networkManager = { getInterface: () => networkInterface };
 
       /* eslint-disable @typescript-eslint/no-explicit-any */
       await (server as any).bindSocket(
         socket as any,
-        { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.0.2.1" } as any,
+        networkInterface as any,
         "IPv4" as any,
       );
       /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -684,6 +909,7 @@ describe(MDNSServer, () => {
 
       expect(socket.calls.dropMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::1%eth0"]]);
       expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::2%eth0"]]);
+      expect(socket.calls.setMulticastInterface).toStrictEqual([["fe80::2%eth0"]]);
     });
   });
 });

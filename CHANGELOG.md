@@ -46,6 +46,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: shorten renamed service names and hostnames on whole characters to fit DNS limits (@hjdhjd)
 - fix: spell the service domain the way the label coder decodes it (@hjdhjd)
 - fix: append the domain to a hostname by label, dashing spaces only in its own labels (@hjdhjd)
+- fix: enforce DNS label and name limits on hostnames (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

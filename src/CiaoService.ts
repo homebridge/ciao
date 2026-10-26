@@ -579,7 +579,7 @@ export class CiaoService extends EventEmitter {
         // result in updated records on the next announcement. Otherwise, we still need to announce the updated records
         this.currentAnnouncer!.awaitAnnouncement().then(() => {
           this.queueTxtUpdate();
-        });
+        }, reason => this.handleAnnouncementWaitFailure(reason));
       }
     } else if (this.serviceState === ServiceState.ANNOUNCED) {
       this.rebuildServiceRecords();
@@ -611,6 +611,15 @@ export class CiaoService extends EventEmitter {
         });
       }, 50);
       this.txtTimer.unref(); // a pending debounce must not hold the event loop open at shutdown
+    }
+  }
+
+  /* The rejection handler of an update waiting on the current announcement. A cancelled announcement gave way to whatever cancelled it, and a failed one
+   * is handled by the code that started it, so neither leaves the update anything to do, and handling the rejection here keeps it from going unhandled.
+   */
+  private handleAnnouncementWaitFailure(reason: unknown): void {
+    if (reason !== Announcer.CANCEL_REASON) {
+      debug("[%s] The announcement an update waited on failed: %s", this.name, reason);
     }
   }
 
@@ -678,7 +687,7 @@ export class CiaoService extends EventEmitter {
           // result in updated records on the next announcement. Otherwise, we still need to announce the updated records
           this.currentAnnouncer!.awaitAnnouncement().then(() => {
             this.handleNetworkInterfaceUpdate(networkUpdate);
-          });
+          }, reason => this.handleAnnouncementWaitFailure(reason));
         }
       }
 

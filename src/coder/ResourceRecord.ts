@@ -174,9 +174,11 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
     const header = decodedHeader.data;
     const rrDecoder = this.typeToRecordDecoder.get(header.type);
+    // A record ends where its RDLENGTH says (RFC 1035 3.2.1), whatever its decoder reads, so the next record always starts there.
+    const readBytes = (offset + header.rDataLength) - oldOffset;
 
     if (!rrDecoder) {
-      return { readBytes: (offset + header.rDataLength) - oldOffset };
+      return { readBytes: readBytes };
     }
 
     coder.initRRLocation(oldOffset, offset, header.rDataLength); // defines record offset and rdata offset for local compression
@@ -185,7 +187,10 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
 
     let decodedRecord;
     try {
-      // we slice the buffer (below), so out of bounds error are instantly detected
+      /* The decoder reads its fields from a buffer that ends where the rdata does, so a fixed-size field read past RDLENGTH throws here. A name is read
+       * from the coder's buffer, the whole packet, as its compression pointers may lead anywhere in it, so a name can run past RDLENGTH without throwing,
+       * and the length the decoder read is held to RDLENGTH below.
+       */
       decodedRecord = rrDecoder(coder, header, rdata, offset);
     } catch (error) {
       if (error instanceof NameLimitExceededError) {
@@ -195,15 +200,22 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} \
 from ${context.address}:${context.port} with data '${rdata.subarray(offset).toString("hex")}': ${error.stack}`);
 
-      return { readBytes: (offset + header.rDataLength) - oldOffset };
+      return { readBytes: readBytes };
+    } finally {
+      // The location defines local compression for the current record alone, so it is cleared on every exit, a throw among them.
+      coder.clearRRLocation();
     }
-    offset += decodedRecord.readBytes;
 
-    coder.clearRRLocation();
+    if (decodedRecord.readBytes !== header.rDataLength) {
+      debug("Dropping a %s record for %s from %s:%d, whose rdata decoded to %d bytes where its RDLENGTH declares %d.", dnsTypeToString(header.type),
+        header.name, context.address, context.port, decodedRecord.readBytes, header.rDataLength);
+
+      return { readBytes: readBytes };
+    }
 
     return {
       data: decodedRecord.data,
-      readBytes: offset - oldOffset,
+      readBytes: readBytes,
     };
   }
 

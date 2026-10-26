@@ -1,9 +1,10 @@
 import assert from "assert";
+import { escapeLabel, splitLabels } from "../util/dns-labels";
 import { NameLimitExceededError } from "../util/errors";
 import { DecodedData } from "./DNSPacket";
 
 interface WrittenName {
-  name: string;
+  labels: string[]; // the raw labels of the name, ending with the empty root label
   writtenLabels: number[]; // array of indices where the corresponding labels are written in the buffer
 }
 
@@ -16,7 +17,7 @@ interface DecodedName {
 }
 
 interface NameLength {
-  name: string;
+  labels: string[]; // the raw labels of the name, ending with the empty root label
   length: number; // full length in bytes needed to encode this name
   labelLengths: number[]; // array of byte lengths for every individual label. will always end with root label with length of 1
 }
@@ -49,7 +50,8 @@ export class DNSLabelCoder {
 
   // RFC 1035 2.3.4. names are limited to 255 octets, counting the length bytes and the root label
   private static readonly MAX_NAME_LENGTH = 255;
-  // a name of 255 octets has at most 127 labels, so it never needs more pointers than that to be put together
+  // A well-formed name needs at most one pointer for each of its labels, and the 255-octet limit bounds how many labels a name can hold, so a longer
+  // chain of pointers is malformed.
   private static readonly MAX_POINTER_HOPS = 128;
 
   private buffer?: Buffer;
@@ -90,7 +92,7 @@ export class DNSLabelCoder {
     assert(name.endsWith("."), "Supplied illegal name which doesn't end with the root label!");
 
     let length = 0;
-    const labels: string[] = name.split(".");
+    const labels: string[] = splitLabels(name);
 
     for (let i = 0; i < labels.length; i++) {
       const label = labels[i];
@@ -114,11 +116,11 @@ export class DNSLabelCoder {
     }
     assert(name.endsWith("."), "Supplied illegal name which doesn't end with the root label!");
 
-    const labelLengths: number[] = name.split(".")
-      .map(label => DNSLabelCoder.getLabelLength(label));
+    const labels: string[] = splitLabels(name);
+    const labelLengths: number[] = labels.map(label => DNSLabelCoder.getLabelLength(label));
 
     const nameLength: NameLength = {
-      name: name,
+      labels: labels,
       length: 0, // total length needed for encoding (with compression enabled)
       labelLengths: labelLengths,
     };
@@ -129,7 +131,7 @@ export class DNSLabelCoder {
     // pointers MUST only point to PRIOR label locations
     for (let i = 0; i < this.trackedLengths.length; i++) {
       const element = this.trackedLengths[i];
-      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.name, name);
+      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.labels, labels);
 
       // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
       // don't change anything unless you fully understand all implications (0, and big comment block below)
@@ -179,7 +181,7 @@ export class DNSLabelCoder {
 
     const labels = name === "."
       ? [""]
-      : name.split(".");
+      : splitLabels(name);
 
     for (let i = 0; i < labels.length; i++) {
       const label = labels[i];
@@ -216,9 +218,9 @@ export class DNSLabelCoder {
 
     const oldOffset = offset;
 
-    const labels: string[] = name.split(".");
+    const labels: string[] = splitLabels(name);
     const writtenName: WrittenName = {
-      name: name,
+      labels: labels,
       writtenLabels: new Array(labels.length).fill(-1), // init with "-1" meaning unknown location
     };
 
@@ -227,7 +229,7 @@ export class DNSLabelCoder {
 
     for (let i = 0; i < this.writtenNames.length; i++) {
       const element = this.writtenNames[i];
-      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.name, name);
+      const suffixLength = DNSLabelCoder.computeLabelSuffixLength(element.labels, labels);
 
       // it is very important that this is an GREATER and not just a GREATER EQUAL!!!!
       // don't change anything unless you fully understand all implications (0, and big comment block below)
@@ -373,7 +375,8 @@ export class DNSLabelCoder {
       const label = this.buffer.toString("utf-8", offset, offset + labelLength);
       offset += labelLength;
 
-      name += (name? ".": "") + label;
+      // A literal label is written in presentation form, so a dot or a backslash inside it stays part of it; a pointed suffix arrives in that form already.
+      name += (name? ".": "") + escapeLabel(label);
     }
 
     return {
@@ -434,48 +437,19 @@ export class DNSLabelCoder {
     }
   }
 
-  private static computeLabelSuffixLength(a: string, b: string): number {
-    assert(a.length !== 0 && b.length !== 0, "Encountered empty name when comparing suffixes!");
-    const lastAIndex = a.length - 1;
-    const lastBIndex = b.length - 1;
-
+  /* The number of labels the names a and b share at their end, the root label aside, counted from the end and stopping at the first label that differs.
+   *
+   * Labels are compared whole, so a name that is a mid-label suffix of another shares only the labels after that point: "Bridge._hap._tcp.local." shares
+   * three labels with "My Bridge._hap._tcp.local.", not four, because "Bridge" is not "My Bridge". Crediting the fourth would encode it as a bare pointer
+   * to the other name, putting it on the wire under the other service's name. A dot inside a label is part of that label, so "Kitchen\.Lamp" and "Lamp"
+   * differ as wholes and share nothing more.
+   */
+  private static computeLabelSuffixLength(a: string[], b: string[]): number {
     let equalLabels = 0;
-    let exitByBreak = false;
 
-    // we start with i=1 as the last character will always be the root label terminator "."
-    for (let i = 1; i <= lastAIndex && i <= lastBIndex; i++) {
-      // we are comparing both strings backwards
-      const aChar = a.charAt(lastAIndex - i);
-      const bChar = b.charAt(lastBIndex - i);
-      assert(!!aChar && !!bChar, "Seemingly encountered out of bounds trying to calculate suffixes");
-
-      if (aChar !== bChar) {
-        exitByBreak = true;
-        break; // encountered the first character to differ
-      } else if (aChar === ".") {
-        // we reached the label terminator, thus we count up the labels which are equal
-        equalLabels++;
-      }
-    }
-
-    if (!exitByBreak) {
-      // The loop ran out of characters rather than finding one that differs, so the
-      // shorter name is a character-wise suffix of the longer one. That only means
-      // they share the top-most label if the shorter name starts on a label boundary
-      // in the longer one - "local." inside "foo.local." does, "local." inside
-      // "Xlocal." does not.
-      //
-      // Crediting a label unconditionally meant "Bridge._hap._tcp.local." looked like
-      // it shared four labels with "My Bridge._hap._tcp.local.", so it was encoded as
-      // a bare pointer to it and went out on the wire under the other service's name.
-      const comparedCharacters = Math.min(lastAIndex, lastBIndex);
-      const lastLongerIndex = Math.max(lastAIndex, lastBIndex);
-      const boundaryIndex = lastLongerIndex - comparedCharacters - 1;
-      const longer = lastAIndex >= lastBIndex? a: b;
-
-      if (boundaryIndex < 0 || longer.charAt(boundaryIndex) === ".") {
-        equalLabels++; // accommodate for the top level label (fqdn doesn't start with a dot)
-      }
+    // Both arrays end with the empty root label, which every name shares and which is not counted, so the comparison starts one label before it.
+    for (let i = a.length - 2, j = b.length - 2; i >= 0 && j >= 0 && a[i] === b[j]; i--, j--) {
+      equalLabels++;
     }
 
     return equalLabels;

@@ -1,4 +1,5 @@
-import { DNSLabelCoder } from "./DNSLabelCoder";
+import { splitLabels } from "../util/dns-labels";
+import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 
 function bufferFromArrayMix(data: (string | number)[]): Buffer {
   const bufferArray: number[] = [];
@@ -126,6 +127,30 @@ describe(DNSLabelCoder, () => {
       expect(offsets.map(at => decoder.decodeName(at).data)).toEqual(names);
     });
 
+    // A dotted instance name shares the type's labels with another instance and never more: compressing on characters would read the escaped dot before
+    // "Lamp" as a label boundary and write the second name as a bare pointer into the first one's label.
+    it.each([
+      [ "Kitchen\\.Lamp._hap._tcp.local.", "Lamp._hap._tcp.local." ],
+      [ "A\\.Lamp._hap._tcp.local.", "B\\.Lamp._hap._tcp.local." ],
+      [ "My Bridge._hap._tcp.local.", "Bridge._hap._tcp.local." ],
+    ])("writes %s and then %s as its own label and a pointer to the three type labels they share", (first, second) => {
+      const lengthCoder = new DNSLabelCoder();
+      const length = lengthCoder.getNameLength(first) + lengthCoder.getNameLength(second);
+
+      const buffer = Buffer.alloc(length);
+      const encoder = new DNSLabelCoder();
+      encoder.initBuf(buffer);
+
+      const firstLength = encoder.encodeName(first, 0);
+      const secondLength = encoder.encodeName(second, firstLength);
+      expect(firstLength + secondLength).toBe(length);
+      expect(secondLength).toBe(1 + Buffer.byteLength(splitLabels(second)[0]) + 2);
+
+      const decoder = new DNSLabelCoder();
+      decoder.initBuf(buffer);
+      expect([ decoder.decodeName(0).data, decoder.decodeName(firstLength).data ]).toEqual([ first, second ]);
+    });
+
     it("should decode name compression", () => {
       const coder = new DNSLabelCoder();
 
@@ -161,6 +186,60 @@ describe(DNSLabelCoder, () => {
       expect(decodedArpa.readBytes).toBe(2);
       expect(decodedRoot.data).toBe(".");
       expect(decodedRoot.readBytes).toBe(1);
+    });
+  });
+
+  describe("labels holding a dot or a backslash", () => {
+    const name = "Mr\\. Coffee._hap._tcp.local.";
+    const labels = [ "Mr. Coffee", "_hap", "_tcp", "local" ];
+
+    // The labels a buffer holds from its start, read by their length bytes up to the root label.
+    function wireLabels(buffer: Buffer): string[] {
+      const read: string[] = [];
+      for (let offset = 0; buffer[offset] !== 0; offset += 1 + buffer[offset]) {
+        read.push(buffer.toString("utf-8", offset + 1, offset + 1 + buffer[offset]));
+      }
+      return read;
+    }
+
+    it("should write a dotted instance as one label with compression, in the bytes its length counts", () => {
+      const coder = new DNSLabelCoder();
+      const length = coder.getNameLength(name);
+      const buffer = Buffer.alloc(length);
+      coder.initBuf(buffer);
+
+      expect(coder.encodeName(name, 0)).toBe(length);
+      expect(wireLabels(buffer)).toEqual(labels);
+    });
+
+    it("should write a dotted instance as one label without compression, in the bytes its length counts", () => {
+      const length = new DNSLabelCoder().getUncompressedNameLength(name);
+      const buffer = Buffer.alloc(length);
+
+      expect(new NonCompressionLabelCoder().getNameLength(name)).toBe(length);
+      expect(DNSLabelCoder.encodeUncompressedName(name, buffer, 0)).toBe(length);
+      expect(wireLabels(buffer)).toEqual(labels);
+    });
+
+    // Each name is written and read back, so a label holding a dot or a backslash comes back escaped as it went out, and an escape of any other
+    // character comes back as the character alone.
+    it.each([
+      [ "Mr\\. Coffee._hap._tcp.local.", "Mr\\. Coffee._hap._tcp.local." ],
+      [ "Foo\\\\Bar._hap._tcp.local.", "Foo\\\\Bar._hap._tcp.local." ],
+      [ "A\\.B\\\\C.local.", "A\\.B\\\\C.local." ],
+      [ "\\.start.local.", "\\.start.local." ],
+      [ "end\\..local.", "end\\..local." ],
+      [ "a\\Xb.local.", "aXb.local." ],
+      [ "My Device._hap._tcp.local.", "My Device._hap._tcp.local." ],
+    ])("should decode %s as %s", (written, decoded) => {
+      const coder = new DNSLabelCoder();
+      const buffer = Buffer.alloc(coder.getNameLength(written));
+      coder.initBuf(buffer);
+      coder.encodeName(written, 0);
+
+      const decoder = new DNSLabelCoder();
+      decoder.initBuf(buffer);
+      expect(decoder.decodeName(0).data).toBe(decoded);
     });
   });
 

@@ -1,5 +1,6 @@
 import assert from "assert";
 import createDebug from "debug";
+import { setMaxListeners } from "events";
 import {
   CiaoService,
   InternalServiceEvent,
@@ -134,6 +135,10 @@ export class Responder implements PacketHandler {
   }
 
   private constructor(options?: ResponderOptions) {
+    // Every pending delay listens on the shutdown signal, and more than ten services retrying at once is a normal day, not a leak, so the default
+    // listener cap and its warning do not apply to it.
+    setMaxListeners(0, this.shutdownController.signal);
+
     this.server = new MDNSServer(this, options);
     this.promiseChain = this.start();
 
@@ -213,8 +218,9 @@ export class Responder implements PacketHandler {
    *
    * The shutdown method must only be called ONCE.
    *
-   * @returns The Promise resolves once all goodbye packets were sent
-   * (or immediately if any other users have a reference to this Responder instance).
+   * @returns The Promise settles once every goodbye has settled and the server has shut down. It resolves when every goodbye was sent, and otherwise
+   * rejects with the first goodbye that failed, taking the services in the order they were announced. It resolves immediately if any other users
+   * have a reference to this Responder instance.
    */
   public shutdown(): Promise<void> {
     this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
@@ -248,8 +254,15 @@ export class Responder implements PacketHandler {
       promises.push(this.unpublishService(service));
     }
 
-    return Promise.all(promises).then(() => {
+    // Every goodbye settles before the server shuts down, so one failure never closes the sockets under the goodbyes still being sent, and the first
+    // failure is passed on once the server is down.
+    return Promise.allSettled(promises).then(results => {
       this.server.shutdown();
+
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failure) {
+        return Promise.reject(failure.reason);
+      }
     });
   }
 

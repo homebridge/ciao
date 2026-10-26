@@ -1,5 +1,5 @@
 import { CiaoService, InternalServiceEvent, PublishCallback, ServiceEvent, ServiceOptions, ServiceState, UnpublishCallback } from "./CiaoService";
-import { TimedSendResult } from "./MDNSServer";
+import { MDNSServer, TimedSendResult } from "./MDNSServer";
 import { NetworkManager } from "./NetworkManager";
 import { Responder } from "./Responder";
 import { Announcer } from "./responder/Announcer";
@@ -634,6 +634,48 @@ describe(Responder, () => {
       expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(1);
     });
 
+    it("shutdown() with one goodbye failing and one still pending sends the pending goodbye before the server shuts down, then rejects", async () => {
+      const { internals, server } = makeChainResponder();
+
+      await makeAnnouncedChainService(internals, "Failing");
+      await makeAnnouncedChainService(internals, "Pending");
+
+      const order: string[] = [];
+      let releasePendingGoodbye: (result: TimedSendResult) => void = () => {
+        throw new Error("The pending goodbye was never sent.");
+      };
+
+      // The goodbyes go out on one bound interface in the order the services were announced: the first fails at once, the second is held.
+      server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+      server.send
+        .mockImplementationOnce(async () => failedSend)
+        .mockImplementationOnce(() => new Promise(resolve => {
+          releasePendingGoodbye = resolve;
+        }));
+      server.shutdown.mockImplementation(() => {
+        order.push("server shut down");
+      });
+
+      const shutdown = track(internals.shutdown());
+
+      await advance(0);
+      expect(server.send).toHaveBeenCalledTimes(2);
+      expect(server.shutdown).not.toHaveBeenCalled();
+      expect(shutdown.state).toBe("pending");
+
+      order.push("pending goodbye sent");
+      releasePendingGoodbye({ interface: "en0", status: "fulfilled" });
+      await drainJobs();
+
+      expect(order).toEqual([ "pending goodbye sent", "server shut down" ]);
+      expect(shutdown.state).toBe("rejected");
+      expect(shutdown.reason).toEqual(new Error("Goodbye failed as of socket errors!"));
+
+      // Each goodbye's send races a timeout that expires on its own, so the row reads the timers once that has passed.
+      await advance(MDNSServer.SEND_TIMEOUT);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
     it("shutdown() while advertisements are queued behind a probing service: none of them probes, and every advertise() resolves", async () => {
       const { internals, server } = makeChainResponder();
       const probing = makeChainService(internals, "Probing").service;
@@ -785,6 +827,47 @@ describe(Responder, () => {
       expect(cancelSpy).not.toHaveBeenCalled();
       expect(service.currentAnnouncer).toBe(announcer);
       expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(4);
+    });
+
+    /* Node reports an unhandled rejection only after a real turn of the event loop, so this row runs on real timers and ends on one. The listener that
+     * reads it is jest-circus's own on the real process, which charges the rejection to the running test and fails it: a listener added through the
+     * test's process object never hears the event, as jest hands each test a copy of that object.
+     */
+    describe("announcement waits of a service", () => {
+      const realTurn = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 10));
+
+      beforeEach(() => {
+        jest.useRealTimers();
+      });
+
+      it("updateTxt() and a network update after the last announcement raise no unhandled rejection when the announcer is then cancelled", async () => {
+        const server = makeChainServer();
+        const service = new CiaoService(networkManager, { name: "Waiting", port: 4711, type: "http" });
+        let announcementReason: unknown = undefined;
+
+        // The one announcement goes out on a bound interface and its send is held, so the announcer has sent its last announcement and is pending.
+        server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+        server.send.mockImplementation(() => new Promise(() => undefined));
+        service.rebuildServiceRecords();
+        service.serviceState = ServiceState.ANNOUNCING;
+
+        const announcer = new Announcer(server as unknown as MDNSServer, service, { repetitions: 1 });
+
+        service.currentAnnouncer = announcer;
+        // The Responder handles the announcement's own rejection in production, so this row does too and leaves only the waits under test to be read.
+        announcer.announce().catch(reason => {
+          announcementReason = reason;
+        });
+        await realTurn();
+        expect(announcer.hasSentLastAnnouncement()).toBe(true);
+
+        service.updateTxt({ version: "2" });
+        service.handleNetworkInterfaceUpdate({ added: [] });
+        await announcer.cancel();
+        await realTurn();
+
+        expect(announcementReason).toBe(Announcer.CANCEL_REASON);
+      });
     });
   });
 });

@@ -27,6 +27,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: keep other services advertising when a probe is cancelled, destroyed, or fails (@hjdhjd)
 - fix: complete the responder shutdown, pending announcements included, when a goodbye fails (@hjdhjd)
 - fix: ignore probe sends that complete after their attempt ends (@hjdhjd)
+- fix: stop announcement retries once a newer advertisement takes over (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

@@ -301,6 +301,22 @@ export class Responder implements PacketHandler {
     });
   }
 
+  /**
+   * Retries an advertisement whose probing or announcing failed, after a delay. The retry stops once the service has left UNANNOUNCED, because a later
+   * advertisement covers it by then, and re-entering advertiseService would cancel that advertisement's announcer, so the callback it carries is called
+   * instead.
+   */
+  private retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void> {
+    return this.delay(2000).then(() => {
+      if (service.serviceState !== ServiceState.UNANNOUNCED) {
+        callback();
+        return;
+      }
+
+      return this.advertiseService(service, callback);
+    });
+  }
+
   private advertiseService(service: CiaoService, callback: PublishCallback): Promise<void> {
     if (service.serviceState === ServiceState.ANNOUNCED) {
       throw new Error("Can't publish a service that is already announced. Received " + service.serviceState + " for service " + service.getFQDN());
@@ -366,9 +382,9 @@ export class Responder implements PacketHandler {
         // error - is still reported loudly by MDNSServer, which owns it. Logging every retry
         // here as well put a line on the console every 2 seconds forever (homebridge/ciao#72).
         debug(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
-        return this.delay(2000).then(() => this.advertiseService(service, () => {
-          // empty
-        }));
+        return this.retryAdvertisement(service, () => {
+          // The caller was called back when announcing began, so the retry has nobody left to settle.
+        });
       }).catch(error => {
         // Terminal handler: the recursive advertiseService retry above is fire-and-forget, so any
         // rejection from the retry chain (probe failure, socket error, repeated cancellation) has
@@ -390,16 +406,7 @@ export class Responder implements PacketHandler {
       }
 
       debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
-      return this.delay(2000).then(() => {
-        // The retry stops once the service has left UNANNOUNCED, because a later advertisement covers it by then, and re-entering here would cancel
-        // that advertisement's announcer.
-        if (service.serviceState !== ServiceState.UNANNOUNCED) {
-          callback();
-          return;
-        }
-
-        return this.advertiseService(service, callback);
-      });
+      return this.retryAdvertisement(service, callback);
     });
   }
 
@@ -846,7 +853,8 @@ export class Responder implements PacketHandler {
           if (delayedResponse.combineWithUniqueResponseIfPossible(multicastResponse, endpoint.interface)) {
             const time = Date.now() - start;
             sentWithLaterPacket = true;
-            debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later", endpoint.interface, time);
+            debug("Multicast response on interface %s containing unique records (took %d ms) was combined with response which is sent out later",
+              endpoint.interface, time);
             break;
           }
         }

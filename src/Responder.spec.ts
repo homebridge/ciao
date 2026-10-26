@@ -56,6 +56,7 @@ interface ChainResponder {
   advertiseService(service: CiaoService, callback: PublishCallback): Promise<void>;
   probe(service: CiaoService): Promise<void>;
   republishService(service: CiaoService, callback: PublishCallback, delayAnnounce?: boolean): Promise<void>;
+  retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void>;
   shutdown(): Promise<void>;
   unpublishService(service: CiaoService, callback?: UnpublishCallback): Promise<void>;
 }
@@ -827,6 +828,43 @@ describe(Responder, () => {
       expect(cancelSpy).not.toHaveBeenCalled();
       expect(service.currentAnnouncer).toBe(announcer);
       expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(4);
+    });
+
+    it("an announce retry whose service a later advertise() is announcing meanwhile leaves that announcement alone and probes nothing", async () => {
+      const { internals, server } = makeChainResponder();
+      const cancelSpy = jest.spyOn(Announcer.prototype, "cancel");
+      const retrySpy = jest.spyOn(internals, "retryAdvertisement");
+      const { callbacks, service } = makeChainService(internals, "Reannounced");
+
+      // The first announcement goes out on one bound interface and fails there, at 750 ms once probing has finished, so its retry falls due at 2750 ms.
+      server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+      server.send.mockImplementationOnce(async () => failedSend);
+
+      const firstCall = track(service.advertise());
+
+      await advance(800);
+      expect(firstCall.state).toBe("resolved");
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(retrySpy).toHaveBeenCalledTimes(1);
+
+      // The first call settled when announcing began, so only the retry's own promise shows that the retry ran before the reads below.
+      const retry = track(retrySpy.mock.results[0].value);
+      const secondCall = track(service.advertise());
+
+      await advance(1000);
+      expect(secondCall.state).toBe("resolved");
+      expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
+
+      const announcer = service.currentAnnouncer;
+
+      await advance(1000);
+
+      expect(retry.state).toBe("resolved");
+      expect(callbacks.map(callback => callback.mock.calls)).toEqual([ [[]], [[]] ]);
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(service.currentAnnouncer).toBe(announcer);
+      expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(6);
+      expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
     });
 
     /* Node reports an unhandled rejection only after a real turn of the event loop, so this row runs on real timers and ends on one. The listener that

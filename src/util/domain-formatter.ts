@@ -128,10 +128,33 @@ export function stringify(parts: FQDNParts | SubTypePTRParts): string {
   return `${prefix}_${parts.type}._${parts.protocol || Protocol.TCP}.${parts.domain || "local"}.`;
 }
 
+/**
+ * The hostname with the domain and the root label after it, rebuilt from its labels in the spelling the label coder decodes, whether the domain is appended
+ * or already carried. The domain is appended unless the hostname's last labels already are the domain's, read raw, so an escaped dot in its last own label is
+ * no separator. A hostname carrying the domain keeps only its own labels ahead of the domain as given, so the domain is spelled one way in it, the spelling
+ * `removeTLD` cuts by.
+ *
+ * @param hostname - The hostname in presentation form, without the root label.
+ * @param domain - The domain in presentation form.
+ */
 export function formatHostname(hostname: string, domain = "local"): string {
   assert(!hostname.endsWith("."), "hostname must not end with the root label!");
-  const tld = "." + domain;
-  return (!hostname.endsWith(tld)? hostname + tld: hostname) + ".";
+
+  /* The hostname splits whole, which cannot throw as the assert above bars a final dot, so a backslash ending it quotes nothing. The domain splits as a
+   * name ending at the root, that root then dropped, so a last label ending in an escaped dot stays one label, and a hostname carrying the domain ends with
+   * every label the domain splits into. Each return spells the hostname from its labels, each escaped again, rather than from its raw text, where a
+   * backslash ending it would quote the dot that joins it to the domain. That is the spelling the label coder decodes, so a backslash before a character
+   * other than a dot or a backslash is dropped as the wire drops it.
+   */
+  const labels = splitLabels(hostname);
+  const domainLabels = splitLabels(domain + ".").slice(0, -1);
+  const ownLabels = labels.length - domainLabels.length;
+
+  if (ownLabels > 0 && domainLabels.every((label, index) => label === labels[ownLabels + index])) {
+    return [ ...labels.slice(0, ownLabels).map(escapeLabel), domain ].join(".") + ".";
+  }
+
+  return [ ...labels.map(escapeLabel), domain ].join(".") + ".";
 }
 
 /**

@@ -261,6 +261,28 @@ describe(CiaoService, () => {
       expect(serviceNamed("Mr. Coffee", { hostname: "foo.bar" }).getHostname()).toBe("foo.bar.local.");
     });
 
+    /* A space becomes a dash in the hostname's own labels alone, and the domain is matched label by label, so a domain holding a space stays as the FQDN
+     * spells it, an escaped dot in an own label is no separator, and a hostname carrying the domain in another spelling takes the domain's own.
+     */
+    it.each<[string, string, Partial<ServiceOptions>, string, string[]]>([
+      ["an explicit hostname carrying a domain that holds a space", "Test", { domain: "my domain", hostname: "my host.my domain" }, "my-host.my domain.",
+        [ "my-host", "my domain" ]],
+      ["a hostname derived under a domain that holds a space", "My Service", { domain: "my domain" }, "My-Service.my domain.", [ "My-Service", "my domain" ]],
+      ["an explicit hostname of one label whose text ends with an escaped dot and the domain", "Test", { hostname: "foo\\.local" }, "foo\\.local.local.",
+        [ "foo.local", "local" ]],
+      ["an explicit hostname carrying the domain after an own label ending in an escaped dot", "Test", { hostname: "a\\..local" }, "a\\..local.",
+        [ "a.", "local" ]],
+      ["an explicit hostname carrying the domain in another spelling", "Test", { domain: "my\\x", hostname: "foo.my\\x" }, "foo.myx.", [ "foo", "myx" ]],
+      ["an explicit hostname ending in a lone backslash, which quotes nothing", "Test", { hostname: "foo\\" }, "foo.local.", [ "foo", "local" ]],
+      ["an explicit hostname whose own label ends in an escaped dot and a lone backslash", "Test", { hostname: "a\\.\\" }, "a\\..local.", [ "a.", "local" ]],
+      ["an explicit hostname that is the domain alone", "Test", { hostname: "local" }, "local.local.", [ "local", "local" ]],
+      ["an explicit hostname whose last label alone is the domain's last", "Test", { domain: "my.domain", hostname: "a.foo.domain" }, "a.foo.domain.my.domain.",
+        [ "a", "foo", "domain", "my", "domain" ]],
+    ])("should form the hostname by label for %s, round tripping it through the coder", (_, name, options, hostname, labels) => {
+      expect(serviceNamed(name, options).getHostname()).toBe(hostname);
+      expect(encoded(hostname)).toEqual({ decoded: hostname, labels: labels });
+    });
+
     // A backslash before a character other than a dot or a backslash quotes nothing, so the label carries the character alone, as the decoder spells it.
     it("should hold an explicit hostname in the spelling the label coder decodes it to", () => {
       const hostname = serviceNamed("Test", { hostname: "foo\\bar.b\\.c" }).getHostname();
@@ -380,6 +402,10 @@ describe(CiaoService, () => {
 
       expect(result.service.getHostname()).toBe("host.sub-(2).local.");
       expect(result.hostname).toBe("host.sub-(2)");
+    });
+
+    it("should number an explicit hostname whose own label ends in an escaped dot", () => {
+      expect(renamed("Test", { hostname: "a\\.\\" }).service.getHostname()).toBe("a\\.-(2).local.");
     });
 
     // The hostname's other labels and its domain take 196 octets on the wire, so the 255 of the hostname bounds its last own label to 58, fewer than 63.

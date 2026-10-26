@@ -414,11 +414,13 @@ export class CiaoService extends EventEmitter {
     }
 
     /* A derived hostname is one DNS label, so a dot in the service name becomes a dash one for one, as a space does, and the label escape keeps a backslash
-     * literal through the escape-aware split.
+     * literal through the escape-aware split. A space becomes a dash in the hostname's own part alone, explicit or derived, split from the domain as
+     * removeTLD splits it, so a domain holding a space is spelled as the FQDN spells it.
      */
-    const hostname = domainFormatter.formatHostname(options.hostname || escapeLabel(this.name.replace(/\./g, "-")), this.serviceDomain)
-      .replace(/ /g, "-"); // replacing all spaces with dashes in the hostname
-    this.hostname = hostname;
+    const hostname = domainFormatter.formatHostname(options.hostname || escapeLabel(this.name.replace(/\./g, "-")), this.serviceDomain);
+    const ownPart = domainFormatter.removeTLD(hostname, this.serviceDomain);
+
+    this.hostname = ownPart.replace(/ /g, "-") + hostname.slice(ownPart.length);
     this.loweredHostname = dnsLowerCase(this.hostname);
 
     this.port = options.port;
@@ -460,9 +462,9 @@ export class CiaoService extends EventEmitter {
 
     this.txt = options.txt? CiaoService.txtBuffersFromRecord(options.txt): [];
 
-    /* The call aligns the numbers a persisted name and hostname carry, and it rebuilds the hostname's own labels, each split and escaped again. That rebuild
-     * is where an explicit hostname, a domain name in presentation form, is spelled once the way the label coder decodes it, so a backslash before any other
-     * character is dropped as the wire drops it, and the hostname the service holds is the one a received packet carries.
+    /* The call aligns the numbers a persisted name and hostname carry, and it rebuilds the hostname's own labels, each split and escaped again. The hostname
+     * reaches it already spelled from its labels the way the label coder decodes it, as formatHostname builds it, so the rebuild keeps that spelling and the
+     * hostname the service holds is the one a received packet carries.
      */
     this.incrementName(true);
   }
@@ -820,7 +822,7 @@ export class CiaoService extends EventEmitter {
     // The number goes on the hostname's last own label, ahead of the service domain however many labels that holds, read raw so its octets are its own. The
     // own part is split as the end of a name, so a last own label ending in an escaped dot stays one label.
     const ownPart = domainFormatter.removeTLD(this.hostname, this.serviceDomain);
-    const ownLabels = splitLabels(ownPart);
+    const ownLabels = splitLabels(ownPart + ".").slice(0, -1);
     const lastLabel = ownLabels[ownLabels.length - 1];
 
     const hostnameMatcher = lastLabel.match(numberedHostnameLabelPattern);

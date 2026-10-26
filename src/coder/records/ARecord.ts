@@ -14,7 +14,7 @@ export class ARecord extends ResourceRecord {
   constructor(header: RecordRepresentation, ipAddress: string);
   constructor(name: string | RecordRepresentation, ipAddress: string, flushFlag?: boolean, ttl?: number) {
     if (typeof name === "string") {
-      super(name, RType.A, ttl || ARecord.DEFAULT_TTL, flushFlag);
+      super(name, RType.A, ttl ?? ARecord.DEFAULT_TTL, flushFlag);
     } else {
       assert(name.type === RType.A);
       super(name);

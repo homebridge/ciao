@@ -17,11 +17,11 @@ export class NSECRecord extends ResourceRecord {
   private lowerCasedNextDomainName?: string;
   readonly rrTypeWindows: RRTypeWindow[];
 
-  constructor(name: string, nextDomainName: string, rrtypes: RType[], ttl: number, flushFlag?: boolean);
+  constructor(name: string, nextDomainName: string, rrtypes: RType[], ttl?: number, flushFlag?: boolean);
   constructor(header: RecordRepresentation, nextDomainName: string, rrtypes: RType[]);
   constructor(name: string | RecordRepresentation, nextDomainName: string, rrtypes: RType[], ttl?: number, flushFlag?: boolean) {
     if (typeof name === "string") {
-      super(name, RType.NSEC, ttl || NSECRecord.RR_DEFAULT_TTL_SHORT, flushFlag);
+      super(name, RType.NSEC, ttl ?? NSECRecord.RR_DEFAULT_TTL_SHORT, flushFlag);
     } else {
       assert(name.type === RType.NSEC);
       super(name);

@@ -269,6 +269,19 @@ describe(CiaoService, () => {
       expect(encoded(hostname)).toEqual({ decoded: hostname, labels: [ "foobar", "b.c", "local" ] });
     });
 
+    // The domain is held in the spelling the label coder decodes, so a backslash before a letter is dropped as the wire drops it, and every name built
+    // from the domain decodes from its own encoding unchanged.
+    it.each([
+      ["a backslash before a letter", "my\\x", [ "Test._hap._tcp.myx.", "_hap._tcp.myx.", "Test.myx." ]],
+      ["an escaped dot ending its last label", "foo\\.", [ "Test._hap._tcp.foo\\..", "_hap._tcp.foo\\..", "Test.foo\\.." ]],
+    ])("should spell the FQDN, the type PTR and the hostname under a domain holding %s the way the label coder decodes them", (_, domain, expected) => {
+      const service = serviceNamed("Test", { domain: domain });
+      const names = [ service.getFQDN(), service.getTypePTR(), service.getHostname() ];
+
+      expect(names).toEqual(expected);
+      expect(names.map(name => encoded(name).decoded)).toEqual(names);
+    });
+
     it("should answer to the lowercased name a packet carries for its dotted instance label", () => {
       const service = serviceNamed("Mr. Coffee");
       const buffer = Buffer.from([ 10, ...Buffer.from("Mr. Coffee"), 4, ...Buffer.from("_hap"), 4, ...Buffer.from("_tcp"), 5, ...Buffer.from("local"), 0 ]);
@@ -380,7 +393,7 @@ describe(CiaoService, () => {
     it("should number an explicit hostname's own label under a domain holding a backslash, cutting the domain off whole", () => {
       const result = renamed("Test", { domain: "my\\x", hostname: "foo" });
 
-      expect(result.service.getHostname()).toBe("foo-(2).my\\x.");
+      expect(result.service.getHostname()).toBe("foo-(2).myx.");
       expect(result.hostname).toBe("foo-(2)");
     });
 

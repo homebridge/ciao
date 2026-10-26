@@ -174,8 +174,6 @@ describe(NetworkManager, () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).currentInterfaces = new Map<InterfaceName, NetworkInterface>();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (manager as any).loopbackInterfaces = new Map<InterfaceName, NetworkInterface>();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).currentTimer = setTimeout(() => { /* no-op */ }, 1_000_000);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).currentTimer.unref();
@@ -190,11 +188,6 @@ describe(NetworkManager, () => {
       jest.restoreAllMocks();
     });
 
-    // Regression: when a NEW interface appeared post-startup the new-interface
-    // branch wrote to currentInterfaces twice instead of populating
-    // loopbackInterfaces. isLoopbackNetaddressV4 then never matched the
-    // runtime-added loopback, so the cross-interface packet filter on Linux
-    // failed for these interfaces.
     it("knows the loopback present from the start", async () => {
       const lo: NetworkInterface = { name: "lo", loopback: true, mac: "00:00:00:00:00:00", ipv4: "127.0.0.1", ipv4Netaddress: "127.0.0.0" };
       const eth0: NetworkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:01", ipv4: "192.168.1.5", ipv4Netaddress: "192.168.1.0" };
@@ -209,7 +202,7 @@ describe(NetworkManager, () => {
       expect(manager.isLoopbackNetaddressV4("192.168.1.0")).toBe(false);
     });
 
-    it("places a runtime-added loopback into loopbackInterfaces", async () => {
+    it("answers isLoopbackNetaddressV4 for a loopback added at runtime", async () => {
       const manager = makeBareManager();
       const lo: NetworkInterface = {
         name: "lo",
@@ -227,8 +220,6 @@ describe(NetworkManager, () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (manager as any).checkForNewInterfaces();
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((manager as any).loopbackInterfaces.has("lo")).toBe(true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).currentInterfaces.has("lo")).toBe(true);
       expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
@@ -315,7 +306,7 @@ describe(NetworkManager, () => {
       osSpy.mockRestore();
     });
 
-    it("does not place non-loopback interfaces into loopbackInterfaces", async () => {
+    it("does not answer isLoopbackNetaddressV4 for a non-loopback interface added at runtime", async () => {
       const manager = makeBareManager();
       const eth: NetworkInterface = {
         name: "eth0",
@@ -334,9 +325,36 @@ describe(NetworkManager, () => {
       await (manager as any).checkForNewInterfaces();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((manager as any).loopbackInterfaces.has("eth0")).toBe(false);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).currentInterfaces.has("eth0")).toBe(true);
+      expect(manager.isLoopbackNetaddressV4("192.168.1.0")).toBe(false);
+    });
+  });
+
+  describe("isLoopbackNetaddressV4", () => {
+    let manager: NetworkManager | undefined;
+
+    afterEach(() => {
+      manager?.shutdown();
+      manager = undefined;
+      jest.restoreAllMocks();
+    });
+
+    it("answers for a loopback interface present at startup", async () => {
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        eth0: [
+          { address: "192.0.2.1", cidr: "192.0.2.1/24", family: "IPv4", internal: false, mac: "00:00:5e:00:53:01", netmask: "255.255.255.0" },
+        ],
+        lo: [
+          { address: "127.0.0.1", cidr: "127.0.0.1/8", family: "IPv4", internal: true, mac: "00:00:00:00:00:00", netmask: "255.0.0.0" },
+        ],
+      });
+
+      // Restricted to eth0 by name, so no platform command runs, while the loopback joins the startup enumeration as it always does.
+      manager = new NetworkManager({ interface: "eth0" });
+      await manager.waitForInit();
+
+      expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
+      expect(manager.isLoopbackNetaddressV4("192.0.2.0")).toBe(false);
     });
   });
 

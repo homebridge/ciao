@@ -22,7 +22,7 @@ export default defineConfig([globalIgnores(["bin/", "lib/"]), {
 
   languageOptions: {
     parser: tsParser,
-    ecmaVersion: 2018,
+    ecmaVersion: 2024,
     sourceType: "module",
   },
 

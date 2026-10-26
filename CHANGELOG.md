@@ -32,6 +32,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: normalize the tiebreak comparator's sign (@hjdhjd)
 - fix: add the interpreter line to the conformance test helper (@hjdhjd)
 - refactor: define each error code once (@hjdhjd)
+- refactor: honor an explicit zero TTL in record constructors (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

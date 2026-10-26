@@ -26,11 +26,19 @@ export class OPTRecord extends ResourceRecord {
   readonly flags: OPTFlags;
   readonly options: OPTOption[];
 
-  constructor(udpPayloadSize: number, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number, ttl?: number);
-  constructor(header: RecordRepresentation, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number, ttl?: number)
-  constructor(udpPayloadSize: number | RecordRepresentation, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number, ttl?: number) {
+  constructor(udpPayloadSize: number, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number);
+  constructor(header: RecordRepresentation, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number)
+  constructor(udpPayloadSize: number | RecordRepresentation, options?: OPTOption[], extendedRCode?: number, flags?: OPTFlags, ednsVersion?: number) {
+    // Z takes the 15 bits after the DO bit (RFC 6891 6.1.3), so it is masked once, here, and the flags the record stores are the ones its TTL carries.
+    const storedFlags: Required<OPTFlags> = {
+      dnsSecOK: flags?.dnsSecOK ?? false,
+      zero: (flags?.zero ?? 0) & OPTRecord.NOT_DNS_SEC_OK_MASK,
+    };
+
     if (typeof udpPayloadSize === "number") {
-      super(".", RType.OPT, ttl, false, udpPayloadSize);
+      // The record header carries the OPT fields (RFC 6891 6.1.2), so the base encode writes them where it writes every record's header: the CLASS holds
+      // the payload size and the TTL the extended rcode, the version and the flags.
+      super(".", RType.OPT, OPTRecord.packTTL(extendedRCode || 0, ednsVersion || OPTRecord.EDNS_VERSION, storedFlags), false, udpPayloadSize);
       this.udpPayloadSize = udpPayloadSize;
     } else {
       assert(udpPayloadSize.type === RType.OPT);
@@ -40,11 +48,7 @@ export class OPTRecord extends ResourceRecord {
 
     this.extendedRCode = extendedRCode || 0;
     this.ednsVersion = ednsVersion || OPTRecord.EDNS_VERSION;
-    this.flags = {
-      dnsSecOK: flags?.dnsSecOK || false,
-      zero: flags?.zero || 0,
-      ...flags,
-    };
+    this.flags = storedFlags;
     this.options = options || [];
   }
 
@@ -60,22 +64,6 @@ export class OPTRecord extends ResourceRecord {
 
   protected encodeRData(coder: DNSLabelCoder, buffer: Buffer, offset: number): number {
     const oldOffset = offset;
-
-    const classOffset = offset - 8;
-    const ttlOffset = offset - 6;
-
-    // just to be sure
-    buffer.writeUInt16BE(this.udpPayloadSize, classOffset);
-
-    buffer.writeUInt8(this.extendedRCode, ttlOffset);
-    buffer.writeUInt8(this.ednsVersion, ttlOffset + 1);
-
-    let flags = this.flags.zero || 0;
-    if (this.flags.dnsSecOK) {
-      flags |= OPTRecord.DNS_SEC_OK_MASK;
-    }
-    buffer.writeUInt16BE(flags, ttlOffset + 2);
-
 
     for (const option of this.options) {
       buffer.writeUInt16BE(option.code, offset);
@@ -94,17 +82,13 @@ export class OPTRecord extends ResourceRecord {
   public static decodeData(coder: DNSLabelCoder, header: RecordRepresentation, buffer: Buffer, offset: number): DecodedData<OPTRecord> {
     const oldOffset = offset;
 
-    const classOffset = offset - 8;
-    const ttlOffset = offset - 6;
-
-    const udpPayloadSize = buffer.readUInt16BE(classOffset);
-    const extendedRCode = buffer.readUInt8(ttlOffset);
-    const ednsVersion = buffer.readUInt8(ttlOffset + 1);
-
-    const flagsField = buffer.readUInt16BE(ttlOffset + 2);
+    // The header it is handed carries the OPT fields: its class is the payload size, which the representation constructor reads, and its TTL the
+    // extended rcode, the version and the flags, each unpacked with an unsigned shift.
+    const extendedRCode = header.ttl >>> 24;
+    const ednsVersion = (header.ttl >>> 16) & 0xff;
     const flags: OPTFlags = {
-      dnsSecOK: !!(flagsField & OPTRecord.DNS_SEC_OK_MASK),
-      zero: flagsField & OPTRecord.NOT_DNS_SEC_OK_MASK,
+      dnsSecOK: !!(header.ttl & OPTRecord.DNS_SEC_OK_MASK),
+      zero: header.ttl & OPTRecord.NOT_DNS_SEC_OK_MASK,
     };
 
     const options: OPTOption[] = [];
@@ -123,9 +107,6 @@ export class OPTRecord extends ResourceRecord {
         data: data,
       });
     }
-
-    header.class = udpPayloadSize;
-    header.ttl = 4500; // default
 
     return {
       data: new OPTRecord(header, options, extendedRCode, flags, ednsVersion),
@@ -164,6 +145,16 @@ export class OPTRecord extends ResourceRecord {
     }
 
     return true;
+  }
+
+  /* The TTL field of RFC 6891 6.1.3: the extended rcode in the high octet, the version in the next, then the DO bit and the 15-bit Z. It is read back as
+   * an unsigned 32-bit value, since an extended rcode of 128 or more sets the sign bit of the shifted value, which the header's unsigned write refuses.
+   * The flags are the ones the constructor stores, Z already held to its 15 bits, so the wire and the stored record carry one value.
+   */
+  private static packTTL(extendedRCode: number, ednsVersion: number, flags: Required<OPTFlags>): number {
+    const flagsField = (flags.dnsSecOK? OPTRecord.DNS_SEC_OK_MASK: 0) | flags.zero;
+
+    return ((extendedRCode << 24) | (ednsVersion << 16) | flagsField) >>> 0;
   }
 
 }

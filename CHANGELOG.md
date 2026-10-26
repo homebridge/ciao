@@ -40,6 +40,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: stop answering CNAME questions with address records (@hjdhjd)
 - fix: answer questions for types ciao doesn't hold with an NSEC record (RFC 6762 6.1) (@hjdhjd)
 - fix: tie each address family's socket to that family's address (@hjdhjd)
+- chore: target ES2024 and require Node 22 or later (@hjdhjd)
 
 ## v1.3.12 (2026-08-15)
 

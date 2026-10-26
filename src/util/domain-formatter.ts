@@ -173,19 +173,16 @@ export function removeTLD(hostname: string, domain?: string): string {
   return hostname.slice(0, domain === undefined? hostname.lastIndexOf("."): hostname.length - domain.length - 1);
 }
 
-export function formatMappedIPv4Address(address: string): string {
-  assert(net.isIPv4(address), "Illegal argument. Must be an IPv4 address!");
-
-  // Convert IPv4 address to its hexadecimal representation
-  const hexParts = address.split(".").map(part => parseInt(part).toString(16).padStart(2, "0"));
-  const ipv6Part = `::ffff:${hexParts.join("")}`;
-
-  // Convert the hexadecimal representation to the standard IPv6 format
-  return ipv6Part.replace(/(.{4})(.{4})$/, "$1:$2");
-}
-
 export function enlargeIPv6(address: string): string {
   assert(net.isIPv6(address), "Illegal argument. Must be ipv6 address!");
+
+  // A dotted tail spells the last 32 bits as an IPv4 address, so it is rewritten as the two hextets it stands for before the hextets are counted.
+  if (address.includes(".")) {
+    const tailStart = address.lastIndexOf(":") + 1;
+    const octets = address.slice(tailStart).split(".").map(octet => parseInt(octet, 10));
+
+    address = address.slice(0, tailStart) + ((octets[0] << 8) | octets[1]).toString(16) + ":" + ((octets[2] << 8) | octets[3]).toString(16);
+  }
 
   const parts = address.split("::");
   
@@ -244,6 +241,18 @@ export function shortenIPv6(address: string | string[]): string {
     i = j; // skip all the zeros we already checked + the one after that, we know that's not a zero
   }
 
+  /* RFC 5952 section 5's mixed notation writes the last 32 bits dotted, under the rule libuv's inet_ntop6 applies, so the text is the one Node's
+   * net.SocketAddress writes: the compressed run starts at hextet 0 and is six hextets long, the IPv4-compatible form, or five long and followed by "ffff",
+   * the IPv4-mapped form. Each run is the longest it can be, so a run of six is followed by a nonzero hextet, and an address such as ::1, ::2 or ::ffff
+   * stays hex.
+   */
+  if (longestBlockOfZerosIndex === 0 && (longestBlockOfZerosLength === 6 || (longestBlockOfZerosLength === 5 && address[5] === "ffff"))) {
+    const high = parseInt(address[6], 16);
+    const low = parseInt(address[7], 16);
+
+    return (longestBlockOfZerosLength === 5? "::ffff:": "::") + [ high >>> 8, high & 0xff, low >>> 8, low & 0xff ].join(".");
+  }
+
   // RFC 5952 4.2.2 forbids "::" for a single zero hextet, so only a run of two or more is compressed and a lone zero stays "0".
   if (longestBlockOfZerosLength > 1) {
     const startOrEnd = longestBlockOfZerosIndex === 0 || (longestBlockOfZerosIndex + longestBlockOfZerosLength === 8);
@@ -262,14 +271,22 @@ export function shortenIPv6(address: string | string[]): string {
 
 /**
  * Spells an IPv6 address in the text form of RFC 5952 section 4: lowercase hex digits, no leading zeros in a hextet, and the longest run of two or more
- * zero hextets, the first on a tie, compressed to "::". Text that enters ciao from outside passes through here: the address of a record built by name,
- * every address the operating system reports and every address a consumer gives in its options, so different spellings of one address compare equal as
- * strings. Hextets ciao formats itself with `toString(16)` are lowercase with no leading zeros already, so `shortenIPv6` alone gives them the same text.
+ * zero hextets, the first on a tie, compressed to "::". It applies section 5's mixed notation to the IPv4-mapped form (::ffff:a.b.c.d) and the
+ * IPv4-compatible form (::a.b.c.d) under the rule `shortenIPv6` states, the one Node's `net.SocketAddress` follows, so ::ffff:c000:201 and
+ * ::ffff:192.0.2.1 both read ::ffff:192.0.2.1, while ::1 and the RFC 2765 form ::ffff:0:c000:201 stay hex. A zone (RFC 4007 section 11) is no part of
+ * an address's text, as RFC 4007 keeps it off the wire, so the text is cut at its first "%" before anything else reads it; the zone is read only where
+ * an address selects an interface, `NetworkManager.resolveInterface`.
  *
- * @param address - An IPv6 address in any spelling `net.isIPv6` accepts.
+ * Text that enters ciao from outside passes through here: the address of a record built by name, every address the operating system reports and every
+ * address a consumer gives in its options, so different spellings of one address compare equal as strings. Hextets ciao formats itself with
+ * `toString(16)` are lowercase with no leading zeros already, so `shortenIPv6` alone gives them the same text.
+ *
+ * @param address - An IPv6 address in any spelling `net.isIPv6` accepts, a zone among them.
  */
 export function canonicalizeIPv6(address: string): string {
-  return shortenIPv6(enlargeIPv6(address.toLowerCase()));
+  const zoneStart = address.indexOf("%");
+
+  return shortenIPv6(enlargeIPv6((zoneStart === -1? address: address.slice(0, zoneStart)).toLowerCase()));
 }
 
 export function formatReverseAddressPTRName(address: string): string {

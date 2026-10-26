@@ -394,6 +394,47 @@ describe(NetworkManager, () => {
 
       expect([...manager.getInterfaceMap().keys()]).toStrictEqual(["eth0", "lo"]);
     });
+
+    /* An operating system reporting en0's link-local address after the loopback lo0 carrying the same one, so a resolution that ignores the zone selects lo0,
+     * and utun0 carrying a link-local address of its own. An address that resolves to no interface falls back to every interface, and the mock of the
+     * platform helper keeps that fallback off the platform's own commands. The console spy keeps the manager's log lines out of the test output.
+     */
+    function reportZonedInterfaces(): jest.SpyInstance {
+      jest.spyOn(os, "networkInterfaces").mockReturnValue({
+        lo0: [
+          { address: "fe80::1", cidr: "fe80::1/64", family: "IPv6", internal: true, mac: "00:00:00:00:00:00", netmask: "ffff:ffff:ffff:ffff::", scopeid: 1 },
+        ],
+        utun0: [
+          { address: "fe80::2", cidr: "fe80::2/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:02", netmask: "ffff:ffff:ffff:ffff::", scopeid: 9 },
+        ],
+        en0: [
+          { address: "fe80::1", cidr: "fe80::1/64", family: "IPv6", internal: false, mac: "00:00:5e:00:53:01", netmask: "ffff:ffff:ffff:ffff::", scopeid: 4 },
+        ],
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(NetworkManager as any, "getNetworkInterfaceNames").mockResolvedValue(["lo0", "utun0", "en0"] as never);
+
+      return jest.spyOn(console, "log").mockImplementation(() => { /* swallow */ });
+    }
+
+    it("resolves an address to the interface its zone names", async () => {
+      reportZonedInterfaces();
+
+      manager = new NetworkManager({ interface: "FE80::1%en0" });
+      await manager.waitForInit();
+
+      expect([...manager.getInterfaceMap().keys()]).toStrictEqual(["en0", "lo0"]);
+    });
+
+    it("leaves an address whose zone names an interface not carrying it unresolved, with the log line for an unresolved address", async () => {
+      const logSpy = reportZonedInterfaces();
+
+      manager = new NetworkManager({ interface: "fe80::1%utun0" });
+      await manager.waitForInit();
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("though couldn't find a matching interface for the given address."), "fe80::1%utun0");
+      expect([...manager.getInterfaceMap().keys()]).toStrictEqual(["lo0", "utun0", "en0"]);
+    });
   });
 
 });

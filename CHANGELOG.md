@@ -21,6 +21,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - perf: match a known answer whatever its letter case
 - perf: stop the send timeout once the packet is sent
 - refactor: remove the unreachable process.exit calls
+- chore: stop publishing the test helper
 
 ## v1.4.0 (2026-11-01)
 

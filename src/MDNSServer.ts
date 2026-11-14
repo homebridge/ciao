@@ -657,7 +657,6 @@ export class MDNSServer {
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
 
-        // assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
         if (!interfaceAddress) {
           // There isn't necessarily an IPv4 and IPv6 address assigned to every interface even on dual-stack systems.
           // Because that is normal rather than a fault, it goes to debug: this fires once per interface per family
@@ -679,7 +678,6 @@ export class MDNSServer {
           // carries no scope, so the kernel would pick the default multicast interface, or refuse (EADDRNOTAVAIL)
           socket.addMembership(multicastAddress, isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
-          // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
           socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams

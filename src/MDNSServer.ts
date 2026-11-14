@@ -189,7 +189,8 @@ export interface PacketHandler {
 /**
  * This class can be used to create a mdns server to send and receive mdns packets on the local network.
  *
- * Currently only udp4 sockets will be advertised.
+ * It binds one udp4 socket for every interface that holds an IPv4 address, and one udp6 socket for every interface that holds a link-local IPv6
+ * address when {@link MDNSServerOptions.advertiseIpv6} is set. An IPv6 socket goes by the interface's name with "/6" appended.
  */
 export class MDNSServer {
 

@@ -951,11 +951,9 @@ export class Responder implements PacketHandler {
       if (conflictingRData) {
         this.republishService(service, error => {
           if (error) {
-            console.log(`FATAL Error occurred trying to resolve conflict for service ${service.getFQDN()}! We can't recover from this!`);
-            console.log(error.stack);
-            process.exit(1); // we have a service which should be announced, though we failed to reannounce.
-            // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
-            // for situations where it makes sense
+            // A republish retries a failed advertisement itself and calls back with no error. Should one ever arrive it is reported here, and what to do
+            // about it is left to the application: a library does not end the process it runs in.
+            console.warn(`CIAO: [${service.getFQDN()}] Failed to re-announce the service after a conflict: ${error.stack ?? error}`);
           }
         }, true).catch(error => {
           // Terminal handler: nothing awaits the republish, so a rejection would otherwise go unhandled and end the host process.

@@ -20,6 +20,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: keep Buffer TXT values as raw bytes and leave out undefined or null ones
 - perf: match a known answer whatever its letter case
 - perf: stop the send timeout once the packet is sent
+- refactor: remove the unreachable process.exit calls
 
 ## v1.4.0 (2026-11-01)
 

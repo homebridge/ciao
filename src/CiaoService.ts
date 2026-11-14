@@ -800,11 +800,9 @@ export class CiaoService extends EventEmitter {
       // thus, when sending the first request, the socket will be bound, and we don't need to wait here
       this.emit(InternalServiceEvent.REPUBLISH, error => {
         if (error) {
-          console.log("FATAL Error occurred trying to re-announce service " + this.fqdn + "! We can't recover from this!");
-          console.log(error.stack);
-          process.exit(1); // we have a service which should be announced, though we failed to re-announce.
-          // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
-          // for situations where it makes sense
+          // The Responder retries a failed advertisement itself and hands a republish no error. Should one ever arrive it is reported here, and what
+          // to do about it is left to the application: a library does not end the process it runs in.
+          console.warn(`CIAO: [${this.fqdn}] Failed to re-announce the service after a network change: ${error.stack ?? error}`);
         }
       });
     }

@@ -1,5 +1,5 @@
 import os from "os";
-import { CiaoService, ServiceOptions, ServiceType } from "./CiaoService";
+import { CiaoService, InternalServiceEvent, PublishCallback, ServiceOptions, ServiceState, ServiceType } from "./CiaoService";
 import { DNSLabelCoder } from "./coder/DNSLabelCoder";
 import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
@@ -599,6 +599,28 @@ describe(CiaoService, () => {
       await expect(service.destroy()).resolves.toBeUndefined();
       expect(end).toHaveBeenCalledTimes(2);
       expect(service.isDestroyed()).toBe(true);
+    });
+  });
+
+  describe("a network update on an announced service", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("should report a republish that fails with a warning, and never end the process", () => {
+      const exit = jest.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const log = jest.spyOn(console, "log").mockImplementation(() => { /* swallow */ });
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+
+      service.on(InternalServiceEvent.REPUBLISH, (callback: PublishCallback) => callback(new Error("The republish failed.")));
+      service.serviceState = ServiceState.ANNOUNCED;
+      service.handleNetworkInterfaceUpdate({ added: [{ name: "en1", loopback: false, mac: "00:00:5e:00:53:02", ipv4: "192.0.2.7" }] });
+
+      expect(exit).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to re-announce the service after a network change"));
     });
   });
 

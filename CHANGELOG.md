@@ -22,6 +22,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - perf: stop the send timeout once the packet is sent
 - refactor: remove the unreachable process.exit calls
 - chore: stop publishing the test helper
+- refactor: remove commented-out code from CiaoService
 
 ## v1.4.0 (2026-11-01)
 

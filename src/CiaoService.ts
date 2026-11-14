@@ -1216,41 +1216,5 @@ export class CiaoService extends EventEmitter {
   hasAddress(address: IPAddress): boolean {
     return !!this.serviceRecords!.reverseAddressPTRs[address];
   }
-  /*
-  reverseAddressMapping(address: string): PTRRecord | undefined {
-    const record = this.serviceRecords.reverseAddressPTRs[address];
-    return record? record.clone(): undefined;
-  }
-
-  reverseAddressMappings(networkInterface: NetworkInterface): PTRRecord[] {
-    const records: PTRRecord[] = [];
-
-    if (networkInterface.ipv4) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.ipv4];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-
-    if (networkInterface.ipv6) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.ipv6];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-    if (networkInterface.globallyRoutableIpv6) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.globallyRoutableIpv6];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-
-    return records;
-  }
-
-  allReverseAddressMappings(): PTRRecord[] {
-    return ResourceRecord.clone(Object.values(this.serviceRecords.reverseAddressPTRs));
-  }
-  */
 
 }

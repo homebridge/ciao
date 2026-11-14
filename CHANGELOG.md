@@ -17,6 +17,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: let destroy() be called again on a destroyed service
 - fix: spell the http-alt service type with a dash
 - fix: don't take a goodbye record for a name conflict while probing
+- fix: keep Buffer TXT values as raw bytes and leave out undefined or null ones
 
 ## v1.4.0 (2026-11-01)
 

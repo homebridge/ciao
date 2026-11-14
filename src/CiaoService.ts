@@ -165,6 +165,8 @@ export interface ServiceOptions {
 /**
  * A service txt consist of multiple key=value pairs,
  * which get advertised on the network.
+ * A Buffer value is advertised byte for byte, and any other value as its text, so `true` is advertised as "true" and `5` as "5".
+ * A key whose value is `undefined` or `null` is left out.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServiceTxt = Record<string, any>;
@@ -741,7 +743,14 @@ export class CiaoService extends EventEmitter {
     const result: Buffer[] = [];
 
     Object.entries(txt).forEach(([key, value]) => {
-      const entry = Buffer.from(key + "=" + value);
+      // A key without a value is left out, where the text "undefined" or "null" would be advertised as its value.
+      if (value === undefined || value === null) {
+        return;
+      }
+
+      // A TXT value is opaque binary data (RFC 6763 6.5), so a Buffer goes out byte for byte, where turning it into text would rewrite every byte
+      // sequence that is not UTF-8. Any other value goes out as its text.
+      const entry = Buffer.isBuffer(value)? Buffer.concat([ Buffer.from(key + "="), value ]): Buffer.from(key + "=" + value);
 
       // The length of a TXT entry is written in one octet (RFC 6763 6.1), and an entry past it could not be encoded: the packet build would throw later, out
       // of a timer, so it is refused here, where the caller can catch it.

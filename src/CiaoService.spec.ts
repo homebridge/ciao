@@ -602,6 +602,36 @@ describe(CiaoService, () => {
     });
   });
 
+  describe("TXT values", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should advertise a Buffer value byte for byte", () => {
+      // 0xff and 0xfe are no valid UTF-8, so turning the Buffer into text and back would replace each with the three bytes of U+FFFD.
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { raw: Buffer.from([ 0xff, 0x00, 0xfe ]) }, type: "http" });
+
+      expect(service.getTXT()).toEqual([Buffer.from([ 0x72, 0x61, 0x77, 0x3d, 0xff, 0x00, 0xfe ])]);
+    });
+
+    it("should leave out a key whose value is undefined or null, and keep the others as text", () => {
+      const service = new CiaoService(networkManager, {
+        name: "Test Service",
+        port: 4711,
+        txt: { a: undefined, b: null, c: "", d: 0, e: false, f: true, g: "text" },
+        type: "http",
+      });
+
+      expect(service.getTXT().map(entry => entry.toString())).toEqual([ "c=", "d=0", "e=false", "f=true", "g=text" ]);
+
+      service.updateTxt({ a: undefined, g: "next" });
+      expect(service.getTXT().map(entry => entry.toString())).toEqual(["g=next"]);
+    });
+
+    it("should measure a Buffer value by its bytes against the 255 octets of an entry", () => {
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { raw: Buffer.alloc(252, 0xff) }, type: "http" }))
+        .toThrow(/The txt entry 'raw' takes 256 octets/);
+    });
+  });
+
   describe("a TXT entry longer than 255 octets", () => {
     const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
 

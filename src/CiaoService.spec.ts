@@ -554,4 +554,31 @@ describe(CiaoService, () => {
       }
     });
   });
+
+  describe("a TXT entry longer than 255 octets", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should refuse the service at creation, naming the key", () => {
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { ok: "fine", big: "x".repeat(252) }, type: "http" }))
+        .toThrow("The txt entry 'big' takes 256 octets as 'key=value', more than the 255 a TXT entry may hold.");
+    });
+
+    it("should count octets, so a multi-byte value is measured by its bytes", () => {
+      // "k=" and 127 two-byte characters take 256 octets, in 129 characters.
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { k: "\u00e9".repeat(127) }, type: "http" })).toThrow(/takes 256 octets/);
+    });
+
+    it("should accept an entry of exactly 255 octets", () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { big: "x".repeat(251) }, type: "http" });
+
+      expect(service.getTXT()[0].length).toBe(255);
+    });
+
+    it("should refuse updateTxt() and leave the txt as it was", () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { a: "1" }, type: "http" });
+
+      expect(() => service.updateTxt({ a: "2", big: "x".repeat(300) })).toThrow(/The txt entry 'big' takes 304 octets/);
+      expect(service.getTXT().map(entry => entry.toString())).toEqual(["a=1"]);
+    });
+  });
 });

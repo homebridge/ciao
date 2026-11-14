@@ -2,6 +2,12 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.4.1 (Pending Release)
+
+### Changes
+
+- fix: reject a TXT entry longer than 255 bytes
+
 ## v1.4.0 (2026-11-01)
 
 ### Changes

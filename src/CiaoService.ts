@@ -127,6 +127,7 @@ export interface ServiceOptions {
   hostname?: string;
   /**
    * If defined, a txt record will be published with the given service.
+   * Creating the service throws when an entry, written as `key=value`, takes more than 255 octets.
    */
   txt?: ServiceTxt;
 
@@ -624,6 +625,7 @@ export class CiaoService extends EventEmitter {
 
   /**
    * Sets or updates the txt of the service.
+   * The call throws, with the service unchanged, when an entry, written as `key=value`, takes more than 255 octets.
    *
    * @param {ServiceTxt} txt - The updated txt record.
    * @param {boolean} silent - If set to true no announcement is sent for the updated record.
@@ -731,8 +733,12 @@ export class CiaoService extends EventEmitter {
     const result: Buffer[] = [];
 
     Object.entries(txt).forEach(([key, value]) => {
-      const entry = key + "=" + value;
-      result.push(Buffer.from(entry));
+      const entry = Buffer.from(key + "=" + value);
+
+      // The length of a TXT entry is written in one octet (RFC 6763 6.1), and an entry past it could not be encoded: the packet build would throw later, out
+      // of a timer, so it is refused here, where the caller can catch it.
+      assert(entry.length <= 255, "The txt entry '" + key + "' takes " + entry.length + " octets as 'key=value', more than the 255 a TXT entry may hold.");
+      result.push(entry);
     });
 
     return result;

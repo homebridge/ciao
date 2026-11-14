@@ -26,6 +26,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: remove commented-out code from Announcer
 - refactor: remove commented-out code from Responder
 - refactor: remove commented-out code from Prober
+- refactor: remove commented-out code from QueuedResponse
 
 ## v1.4.0 (2026-11-01)
 

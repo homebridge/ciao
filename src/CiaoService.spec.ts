@@ -1,5 +1,5 @@
 import os from "os";
-import { CiaoService, ServiceOptions } from "./CiaoService";
+import { CiaoService, ServiceOptions, ServiceType } from "./CiaoService";
 import { DNSLabelCoder } from "./coder/DNSLabelCoder";
 import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
@@ -552,6 +552,16 @@ describe(CiaoService, () => {
       } finally {
         emit.mockRestore();
       }
+    });
+  });
+
+  describe("ServiceType", () => {
+    // A service type holds letters, digits and hyphens (RFC 6335 5.1), and the IANA registry names HTTP's alternate port "http-alt".
+    it("should spell the http-alt type as registered, so it is advertised under _http-alt._tcp", () => {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 8080, type: ServiceType.HTTP_ALT });
+
+      expect(service.getTypePTR()).toBe("_http-alt._tcp.local.");
     });
   });
 

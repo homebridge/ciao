@@ -79,7 +79,7 @@ export const enum ServiceType {
   HAP = "hap", // used by HomeKit accessories
   HOMEKIT = "homekit", // used by home hubs
   HTTP = "http",
-  HTTP_ALT = "http_alt", // http alternate
+  HTTP_ALT = "http-alt", // http alternate
   IPP = "ipp", // internet printing protocol
   IPPS = "ipps", // internet printing protocol over https
   RAOP = "raop", // remote audio output protocol

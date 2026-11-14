@@ -59,6 +59,11 @@ export class Announcer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private promiseReject?: (reason?: any) => void;
 
+  /**
+   * Set by {@link cancel}. A send still in flight when the announcer is cancelled resolves later, and by then the service can be ANNOUNCING again under the
+   * announcer that took over, the goodbye of an {@link CiaoService.end} above all, so the service state alone cannot tell the send that it is stale.
+   */
+  private cancelled = false;
   private sentAnnouncements = 0;
   private sentLastAnnouncement = false;
   private nextInterval = 1000;
@@ -107,6 +112,7 @@ export class Announcer {
 
   public async cancel(): Promise<void> {
     debug("[%s] Canceling %s", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
+    this.cancelled = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -187,6 +193,12 @@ export class Announcer {
         // at this point we are not responsible for removing stale network interfaces or something
         debug(SendResultFormatError(results, `Some of the ${this.goodbye? "goodbye": "announcement"} requests for '${this.service.getFQDN()}' encountered an error`));
         // SEE no return here
+      }
+
+      // A cancelled announcer must not arm its timer again: the next repetition would announce the service after whatever cancelled it, a goodbye included.
+      if (this.cancelled) {
+        debug("[%s] The %s was cancelled while a packet was being sent. Stopping.", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
+        return;
       }
 
       if (this.service.serviceState !== ServiceState.ANNOUNCING) {

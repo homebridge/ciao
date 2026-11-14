@@ -728,6 +728,45 @@ describe(Responder, () => {
       });
     });
 
+    it("end() with an announcement packet in flight sends the goodbye last, and the cancelled announcement sends nothing after it", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Leaving");
+      const releases: Array<(result: TimedSendResult) => void> = [];
+      // The ttl of the type PTR tells an announcement, which carries the record's ttl, from a goodbye, which carries zero.
+      const sent: string[] = [];
+
+      server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+      server.send.mockImplementation(packet => {
+        const ptr = [...(packet as DNSPacket).answers.values()].find(record => record.type === RType.PTR)!;
+
+        sent.push(ptr.ttl === 0 ? "goodbye" : "announcement");
+        return new Promise(resolve => releases.push(resolve));
+      });
+
+      // Probing ends at 750 ms, and the announcer's first packet goes out on the timer after it.
+      void service.advertise();
+      await advance(760);
+      expect(sent).toEqual(["announcement"]);
+
+      // The first announcement is still being sent when end() cancels the announcer and starts the goodbye.
+      const ended = track(service.end());
+
+      await advance(0);
+      expect(sent).toEqual([ "announcement", "goodbye" ]);
+
+      // The cancelled announcement's send completes while the goodbye is in flight, so it finds the service ANNOUNCING, under the goodbye's announcer.
+      releases[0]({ interface: "en0", status: "fulfilled" });
+      await drainJobs();
+      releases[1]({ interface: "en0", status: "fulfilled" });
+      await drainJobs();
+      expect(ended.state).toBe("resolved");
+
+      await advance(10000);
+      expect(sent).toEqual([ "announcement", "goodbye" ]);
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
     it("shutdown() while a probe retry is pending resolves that advertise(), and no probe or timer follows", async () => {
       const { internals, server } = makeChainResponder();
       const { callbacks, service } = makeChainService(internals, "Retrying");

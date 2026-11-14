@@ -7,6 +7,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 ### Changes
 
 - fix: reject a TXT entry longer than 255 bytes
+- fix: don't crash when a service's records are too big for one packet
 
 ## v1.4.0 (2026-11-01)
 

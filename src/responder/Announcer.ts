@@ -160,7 +160,20 @@ export class Announcer {
       this.sentLastAnnouncement = true;
     }
 
-    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye, this.keepAddressRecords).then(results => {
+    /* Building the packets throws synchronously when the records cannot be encoded, a record set too big for one packet among them. This runs from a
+     * setTimeout callback, where an escaping throw is an uncaught exception that ends the host process, so the throw rejects the announcement instead, as a
+     * failed send does. It goes to debug for the reason the Prober gives for its own build failure: the Responder retries a rejected announcement.
+     */
+    let sending: Promise<TimedSendResult[]>;
+    try {
+      sending = Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye, this.keepAddressRecords);
+    } catch (error) {
+      debug(`[${this.service.getFQDN()}] Failed to build the ${this.goodbye? "goodbye": "announcement"}: ${error instanceof Error? error.message: String(error)}`);
+      this.promiseReject!(error instanceof Error? error: new Error(String(error)));
+      return;
+    }
+
+    sending.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)

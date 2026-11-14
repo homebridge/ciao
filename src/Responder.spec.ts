@@ -236,6 +236,26 @@ describe(Responder, () => {
       expect(logSpy).toHaveBeenCalled();
     });
 
+    // The real sendResponseBroadcast is not async: it builds and encodes the packet first, and a record set too big for one packet throws right there. The
+    // update is emitted from the txt debounce timer, so a throw escaping here ended the host process.
+    it("forwards a synchronous broadcast throw to the callback instead of throwing", async () => {
+      const cause = new Error("Couldn't construct a dns response packet from a rr set which fits in an udp payload sized packet!");
+      const responder = makeBareResponder(() => {
+        throw cause;
+      });
+      const errors: (Error | undefined)[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(() => (responder as any).handleServiceRecordUpdate(makeAnnouncedService(), { answers: [], additionals: [] }, (err?: Error) => errors.push(err)))
+        .not.toThrow();
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(errors).toEqual([cause]);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("failed to broadcast records update"));
+    });
+
     it("wraps a non-Error rejection reason into an Error for the callback", async () => {
       // sendResponseBroadcast theoretically might reject with a non-Error
       // value; the callback signature is RecordsUpdateCallback and expects an

@@ -26,6 +26,7 @@ import {
   PacketHandler,
   SendResultFailedRatio,
   SendResultFormatError,
+  TimedSendResult,
 } from "./MDNSServer";
 import { InterfaceName, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
@@ -606,8 +607,18 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), response.answers.length + (response.additionals?.length || 0));
 
+    // sendResponseBroadcast builds and encodes the packet before it sends, and throws when the records cannot be encoded, a record set too big for one packet
+    // among them. This is reached from the txt debounce timer, where an escaping throw is an uncaught exception that ends the host process, so the throw
+    // takes the path of a rejected broadcast below.
+    let broadcast: Promise<TimedSendResult[]>;
+    try {
+      broadcast = this.server.sendResponseBroadcast(response, service);
+    } catch (error) {
+      broadcast = Promise.reject(error);
+    }
+
     // TODO we should do a announcement at this point "in theory"
-    this.server.sendResponseBroadcast(response, service).then(results => {
+    broadcast.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`));
@@ -628,10 +639,9 @@ export class Responder implements PacketHandler {
         callback();
       }
     }, reason => {
-      // sendResponseBroadcast can reject synchronously (e.g. encode/assert failures
-      // before any send is attempted). Without this handler the rejection would
-      // surface as an unhandled promise rejection — same orphan-rejection footgun
-      // that bit the advertise/goodbye paths in homebridge/ciao#69.
+      // A broadcast that rejects, or that threw while building its packet (see above), ends here. Without
+      // this handler the rejection would surface as an unhandled promise rejection — same orphan-rejection
+      // footgun that bit the advertise/goodbye paths in homebridge/ciao#69.
       console.log(`[${service.getFQDN()}] failed to broadcast records update: ${reason?.message ?? reason}`);
       if (callback) {
         callback(reason instanceof Error ? reason : new Error(String(reason)));

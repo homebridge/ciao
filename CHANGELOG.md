@@ -14,6 +14,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: keep checking the network interfaces after a check fails
 - fix: ignore shutdown() on a responder that is already shut down
 - fix: stop the timer of a truncated query that was given up on
+- fix: let destroy() be called again on a destroyed service
 
 ## v1.4.0 (2026-11-01)
 

@@ -184,11 +184,12 @@ describe("immediate advertise()/destroy() lifecycle race", () => {
     expect(service.listenerCount(InternalServiceEvent.UNPUBLISH)).toBe(1);
   });
 
-  it("preserves the existing guard against destroying a service twice", async () => {
+  it("lets a destroyed service be destroyed again, while end() on it is still refused", async () => {
     const service = makeService();
 
     await service.destroy();
 
-    await expect(service.destroy()).rejects.toThrow("Cannot end destroyed service!");
+    await expect(service.destroy()).resolves.toBeUndefined();
+    expect(() => service.end()).toThrow("Cannot end destroyed service!");
   });
 });

@@ -355,6 +355,7 @@ export class CiaoService extends EventEmitter {
   private serviceRecords?: ServiceRecords;
 
   private destroyed = false;
+  private destroyPromise?: Promise<void>;
   /**
    * Whether the service is meant to be on the network: set by {@link advertise}, and cleared only by {@link end} and {@link destroy}. A queued
    * advertisement reads it at its turn and is dropped once it is cleared, while the retry after a failed probe and every republish, which re-enter the
@@ -525,9 +526,15 @@ export class CiaoService extends EventEmitter {
    * If the service is still announced, the service will first be removed
    * from the network by calling {@link end}.
    *
-   * @returns
+   * A call on a service that is destroyed, or is being destroyed, changes nothing and returns the Promise of the call that destroyed it.
+   *
+   * @returns Promise will resolve once the service was removed from the network and freed. It rejects, with the service still usable, when {@link end} does.
    */
-  public async destroy(): Promise<void> {
+  public destroy(): Promise<void> {
+    return this.destroyPromise ??= this.endAndFree();
+  }
+
+  private async endAndFree(): Promise<void> {
     const endPromise = this.end();
     this.destroyed = true;
 
@@ -535,6 +542,7 @@ export class CiaoService extends EventEmitter {
       await endPromise;
     } catch (error) {
       this.destroyed = false;
+      this.destroyPromise = undefined;
       throw error;
     }
 

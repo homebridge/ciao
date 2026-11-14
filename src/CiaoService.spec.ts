@@ -555,6 +555,43 @@ describe(CiaoService, () => {
     });
   });
 
+  describe("destroy()", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should resolve when called again on a destroyed service, with the first call's Promise", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const first = service.destroy();
+
+      // A second call while the first is in progress, and a third once it is done.
+      expect(service.destroy()).toBe(first);
+      await expect(first).resolves.toBeUndefined();
+      await expect(service.destroy()).resolves.toBeUndefined();
+      expect(service.isDestroyed()).toBe(true);
+    });
+
+    it("should still refuse end(), advertise() and updateTxt() on a destroyed service", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+
+      await service.destroy();
+
+      expect(() => service.end()).toThrow("Cannot end destroyed service!");
+      expect(() => service.advertise()).toThrow("Cannot publish destroyed service!");
+      expect(() => service.updateTxt({ a: "1" })).toThrow("Cannot update destroyed service!");
+    });
+
+    it("should leave the service usable, and destroyable again, when the end() it runs fails", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const end = jest.spyOn(service, "end").mockRejectedValueOnce(new Error("The goodbye failed."));
+
+      await expect(service.destroy()).rejects.toThrow("The goodbye failed.");
+      expect(service.isDestroyed()).toBe(false);
+
+      await expect(service.destroy()).resolves.toBeUndefined();
+      expect(end).toHaveBeenCalledTimes(2);
+      expect(service.isDestroyed()).toBe(true);
+    });
+  });
+
   describe("a TXT entry longer than 255 octets", () => {
     const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
 

@@ -19,6 +19,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: don't take a goodbye record for a name conflict while probing
 - fix: keep Buffer TXT values as raw bytes and leave out undefined or null ones
 - perf: match a known answer whatever its letter case
+- perf: stop the send timeout once the packet is sent
 
 ## v1.4.0 (2026-11-01)
 

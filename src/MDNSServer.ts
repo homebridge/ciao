@@ -24,7 +24,6 @@ import {
 } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
 import { InterfaceNotFoundError } from "./util/errors";
-import { PromiseTimeout } from "./util/promise-utils";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -126,6 +125,24 @@ export function SendResultFormatError(results: SendResult[] | TimedSendResult[],
 
     return string;
   }
+}
+
+/**
+ * Settles with the result of a send, or with a timeout result once the send has taken longer than {@link MDNSServer.SEND_TIMEOUT}.
+ * The timer is stopped as soon as the send settles, and it never holds the event loop open, so a send leaves no timer behind.
+ *
+ * @param send - The pending send.
+ * @param name - The name of the socket the packet is sent on, reported with a timeout.
+ */
+export function withSendTimeout(send: Promise<TimedSendResult>, name: InterfaceName): Promise<TimedSendResult> {
+  let timer: NodeJS.Timeout | undefined = undefined;
+
+  const timeout = new Promise<SendTimeoutResult>(resolve => {
+    timer = setTimeout(() => resolve({ status: "timeout", interface: name }), MDNSServer.SEND_TIMEOUT);
+    timer.unref();
+  });
+
+  return Promise.race([ send, timeout ]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -391,14 +408,7 @@ export class MDNSServer {
         });
       });
 
-      promises.push(Promise.race([
-        promise,
-        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
-          <SendTimeoutResult>{
-            status: "timeout",
-            interface: name,
-          }),
-      ]));
+      promises.push(withSendTimeout(promise, name));
     }
 
     return Promise.all(promises);

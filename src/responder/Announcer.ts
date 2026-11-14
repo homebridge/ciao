@@ -7,10 +7,9 @@ import {
   MDNSServer,
   SendResultFailedRatio,
   SendResultFormatError,
-  SendTimeoutResult,
   TimedSendResult,
+  withSendTimeout,
 } from "../MDNSServer";
-import { PromiseTimeout } from "../util/promise-utils";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Announcer");
@@ -312,14 +311,7 @@ export class Announcer {
         });
       }
 
-      promises.push(Promise.race([
-        sendPromise,
-        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
-          <SendTimeoutResult>{
-            status: "timeout",
-            interface: name,
-          }),
-      ]));
+      promises.push(withSendTimeout(sendPromise, name));
     }
 
     return Promise.all(promises);

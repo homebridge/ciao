@@ -1,5 +1,5 @@
 import dgram from "dgram";
-import { MDNSServer, SendResultFailedRatio, TimedSendResult } from "./MDNSServer";
+import { MDNSServer, SendResultFailedRatio, TimedSendResult, withSendTimeout } from "./MDNSServer";
 import { NetworkUpdate } from "./NetworkManager";
 import { DNSPacket } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
@@ -911,5 +911,78 @@ describe(MDNSServer, () => {
       expect(socket.calls.addMembership).toStrictEqual([[MDNSServer.MULTICAST_IPV6, "fe80::2%eth0"]]);
       expect(socket.calls.setMulticastInterface).toStrictEqual([["fe80::2%eth0"]]);
     });
+  });
+});
+
+describe(withSendTimeout, () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // These look at the one timer withSendTimeout starts, not at how many timers exist. A server made by an earlier
+  // test can still be starting its interface polling (on Linux it waits for `ip -o link show`), and that timer
+  // then lands on the fake clock while one of these tests is waiting.
+  function sendTimeoutTimers() {
+    const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+    const clearTimeoutSpy = jest.spyOn(global, "clearTimeout");
+
+    return {
+      started: () => setTimeoutSpy.mock.results
+        .filter((_result, index) => setTimeoutSpy.mock.calls[index][1] === MDNSServer.SEND_TIMEOUT)
+        .map(result => result.value as NodeJS.Timeout),
+      stopped: () => clearTimeoutSpy.mock.calls.map(call => call[0]),
+      restore: () => {
+        setTimeoutSpy.mockRestore();
+        clearTimeoutSpy.mockRestore();
+      },
+    };
+  }
+
+  it("settles with the result of a send that finishes in time, and stops its timer", async () => {
+    jest.useFakeTimers();
+    const timers = sendTimeoutTimers();
+
+    try {
+      const result: TimedSendResult = { interface: "en0", status: "fulfilled" };
+
+      await expect(withSendTimeout(Promise.resolve(result), "en0")).resolves.toBe(result);
+
+      expect(timers.started()).toHaveLength(1);
+      expect(timers.stopped()).toContain(timers.started()[0]);
+    } finally {
+      timers.restore();
+    }
+  });
+
+  it("settles with a timeout naming the socket once the send has taken longer than the send timeout", async () => {
+    jest.useFakeTimers();
+    const timers = sendTimeoutTimers();
+
+    try {
+      const timed = withSendTimeout(new Promise<TimedSendResult>(() => { /* never settles */ }), "en0/6");
+
+      await jest.advanceTimersByTimeAsync(MDNSServer.SEND_TIMEOUT);
+      await expect(timed).resolves.toEqual({ interface: "en0/6", status: "timeout" });
+
+      expect(timers.started()).toHaveLength(1);
+      expect(timers.stopped()).toContain(timers.started()[0]);
+    } finally {
+      timers.restore();
+    }
+  });
+
+  it("does not hold the event loop open while the send is pending", () => {
+    const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+
+    try {
+      void withSendTimeout(new Promise<TimedSendResult>(() => { /* never settles */ }), "en0");
+
+      const timer = setTimeoutSpy.mock.results[0].value as NodeJS.Timeout;
+
+      expect(timer.hasRef()).toBe(false);
+      clearTimeout(timer);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });

@@ -95,6 +95,32 @@ describe(Announcer, () => {
     });
   });
 
+  describe("sendResponseAddingAddressRecords - send timeout", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Every send used to leave a 200 ms timer running after the packet was out, which held the event loop open for that long.
+    it("leaves no timer behind once the packet is sent", async () => {
+      jest.useFakeTimers();
+
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Kitchen", port: 4711, type: "hap" });
+      const server = {
+        getBoundInterfaceNames: () => ["eth0"],
+        send: jest.fn(() => Promise.resolve({ status: "fulfilled", interface: "eth0" })),
+      };
+
+      service.rebuildServiceRecords();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results = await (Announcer as any).sendResponseAddingAddressRecords(server, service, [service.srvRecord()], false);
+
+      expect(results).toEqual([{ status: "fulfilled", interface: "eth0" }]);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
   describe("an announcement whose records are too big for one packet", () => {
     afterEach(() => {
       jest.useRealTimers();

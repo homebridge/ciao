@@ -18,6 +18,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: spell the http-alt service type with a dash
 - fix: don't take a goodbye record for a name conflict while probing
 - fix: keep Buffer TXT values as raw bytes and leave out undefined or null ones
+- perf: match a known answer whatever its letter case
 
 ## v1.4.0 (2026-11-01)
 

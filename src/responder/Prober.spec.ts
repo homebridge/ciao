@@ -259,6 +259,23 @@ describe(Prober, () => {
       expect(held.server.sendQueryBroadcast).toHaveBeenCalledTimes(3);
     });
 
+    it("a goodbye for the probed name is no conflict, while a live record beside it still renames the service", async () => {
+      const held = await probingWithSecondQueryHeld();
+      const goodbye = held.twin.srvRecord();
+      const additionalGoodbye = held.twin.txtRecord();
+
+      // A ttl of zero says the sender gives the name up (RFC 6762 10.1).
+      goodbye.ttl = 0;
+      additionalGoodbye.ttl = 0;
+
+      held.prober.handleResponse(DNSPacket.createDNSResponsePacketsFromRRSet({ additionals: [additionalGoodbye], answers: [goodbye] }), endpoint);
+      expect(held.service.getFQDN()).toBe("Kitchen._http._tcp.local.");
+      expect(held.service.serviceState).toBe(ServiceState.PROBING);
+
+      held.prober.handleResponse(DNSPacket.createDNSResponsePacketsFromRRSet({ additionals: [held.twin.txtRecord()], answers: [goodbye] }), endpoint);
+      expect(held.service.getFQDN()).toBe("Kitchen (2)._http._tcp.local.");
+    });
+
     it("a rename with the second query held leaves one timer, and the next query goes out one second later with the renamed records", async () => {
       const held = await probingWithSecondQueryHeld();
 

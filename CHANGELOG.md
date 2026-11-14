@@ -16,6 +16,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: stop the timer of a truncated query that was given up on
 - fix: let destroy() be called again on a destroyed service
 - fix: spell the http-alt service type with a dash
+- fix: don't take a goodbye record for a name conflict while probing
 
 ## v1.4.0 (2026-11-01)
 

@@ -259,16 +259,20 @@ export class Prober {
       return;
     }
 
+    // A record with a ttl of zero is a goodbye (RFC 6762 10.1): its sender is giving the name up, not holding it, so it answers no probe.
+    const holdsProbedName = (record: ResourceRecord): boolean => record.ttl !== 0
+      && (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname());
+
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     for (const record of packet.answers.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (holdsProbedName(record)) {
         containsAnswer = true;
         break;
       }
     }
     for (const record of packet.additionals.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (holdsProbedName(record)) {
         containsAnswer = true;
         break;
       }

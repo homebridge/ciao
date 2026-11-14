@@ -23,6 +23,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: remove the unreachable process.exit calls
 - chore: stop publishing the test helper
 - refactor: remove commented-out code from CiaoService
+- refactor: remove commented-out code from Announcer
 
 ## v1.4.0 (2026-11-01)
 

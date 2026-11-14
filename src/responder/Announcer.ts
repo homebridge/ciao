@@ -237,7 +237,6 @@ export class Announcer {
       const aaaaRecord = keepAddressRecords? undefined: service.aaaaRecord(interfaceName);
       const aaaaRoutableRecord = keepAddressRecords? undefined: service.aaaaRoutableRecord(interfaceName);
       const aaaaUniqueLocalRecord = keepAddressRecords? undefined: service.aaaaUniqueLocalRecord(interfaceName);
-      //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       // The address NSEC lists the address types this interface carries, and none exists where it carries neither.
       const nsecRecord = keepAddressRecords? undefined: service.addressNSECRecord(interfaceName);
       const serviceNsecRecord = service.serviceNSECRecord();
@@ -267,15 +266,6 @@ export class Announcer {
         }
         answer.push(aaaaUniqueLocalRecord);
       }
-
-      /*
-      for (const reversMapping of reversMappings) {
-        if (goodbye) {
-          reversMapping.ttl = 0;
-        }
-        answer.push(reversMapping);
-      }
-      */
 
       if (goodbye) {
         if (nsecRecord) {

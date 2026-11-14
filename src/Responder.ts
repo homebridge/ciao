@@ -34,7 +34,7 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
-import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
+import { ERR_INTERFACE_NOT_FOUND, errorMessage } from "./util/errors";
 import { sortedInsert } from "./util/sorted-array";
 import Timeout = NodeJS.Timeout;
 import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
@@ -357,7 +357,7 @@ export class Responder implements PacketHandler {
           try {
             return this.advertiseService(service, callback);
           } catch (error) {
-            callback(error);
+            callback(error instanceof Error? error: new Error(String(error)));
           }
         });
       }
@@ -1154,13 +1154,13 @@ export class Responder implements PacketHandler {
           debug("Sending (delayed %dms) response via multicast on network interface %s (took %d ms): %s",
             Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asLoggingString());
         } catch (error) {
-          if (error.name === ERR_INTERFACE_NOT_FOUND) {
+          if (error instanceof Error && error.name === ERR_INTERFACE_NOT_FOUND) {
             debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
               Math.round(response.getTimeSinceCreation()), interfaceName);
           } else {
             // This runs from a timer, where a throw is an uncaught exception that ends the process.
             // Losing one delayed response is not worth that - the querier simply asks again
-            console.warn(`CIAO: Failed to send a delayed response on ${interfaceName}: ${error?.message ?? error}`);
+            console.warn(`CIAO: Failed to send a delayed response on ${interfaceName}: ${errorMessage(error)}`);
           }
         }
       });

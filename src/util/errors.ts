@@ -22,3 +22,17 @@ export class NameLimitExceededError extends Error {
   }
 
 }
+
+/**
+ * The message of a caught value: the message of an Error, and the text of anything else, as a throw may carry any value.
+ */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error? error.message: String(error);
+}
+
+/**
+ * The stack trace of a caught value, for a log line: the stack of an Error, its message where it holds no stack, and the text of anything else.
+ */
+export function errorStack(error: unknown): string {
+  return error instanceof Error? error.stack ?? error.message: String(error);
+}

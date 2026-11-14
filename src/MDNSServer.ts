@@ -23,7 +23,7 @@ import {
   NetworkUpdate,
 } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
-import { InterfaceNotFoundError } from "./util/errors";
+import { errorMessage, errorStack, InterfaceNotFoundError } from "./util/errors";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -690,10 +690,10 @@ export class MDNSServer {
         } catch (error) {
           try {
             socket.close();
-          } catch (error) {
-            debug("Error while closing socket which failed to bind. Error may be expected: " + error.message);
+          } catch (closeError) {
+            debug("Error while closing socket which failed to bind. Error may be expected: " + errorMessage(closeError));
           }
-          reject(new Error("Error binding socket on " + networkInterface.name + ": " + error.stack));
+          reject(new Error("Error binding socket on " + networkInterface.name + ": " + errorStack(error)));
         }
       });
     });
@@ -766,7 +766,7 @@ export class MDNSServer {
     } catch (error) {
       debug("Received a malformed packet from %o on interface %s. This might or might not be a problem. " +
         "Here is the received packet for debugging purposes '%s'. " +
-        "Packet decoding failed with %s", rinfo, name, buffer.toString("base64"), error.stack);
+        "Packet decoding failed with %s", rinfo, name, buffer.toString("base64"), errorStack(error));
       return;
     }
 
@@ -790,7 +790,7 @@ export class MDNSServer {
       try {
         this.handler.handleQuery(packet, endpoint);
       } catch (error) {
-        console.warn("Error occurred handling incoming (on " + name + ") dns query packet: " + error.stack);
+        console.warn("Error occurred handling incoming (on " + name + ") dns query packet: " + errorStack(error));
       }
     } else if (packet.type === PacketType.RESPONSE) {
       if (rinfo.port !== MDNSServer.MDNS_PORT) {
@@ -802,7 +802,7 @@ export class MDNSServer {
       try {
         this.handler.handleResponse(packet, endpoint);
       } catch (error) {
-        console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + error.stack);
+        console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + errorStack(error));
       }
     }
   }
@@ -885,7 +885,7 @@ export class MDNSServer {
       try {
         run();
       } catch (error) {
-        debug("Error %s for the %s socket on %s: %s", step, family, name, error.message);
+        debug("Error %s for the %s socket on %s: %s", step, family, name, errorMessage(error));
       }
     };
 
@@ -930,7 +930,7 @@ export class MDNSServer {
       await this.bindSocket(socket, networkInterface, family);
     } catch (reason) {
       // A failed bind is not retried on its own; the family binds again when its address next changes and an address of that family remains.
-      console.log("Could not bind detected network interface: " + reason.stack);
+      console.log("Could not bind detected network interface: " + errorStack(reason));
     }
   }
 

@@ -7,6 +7,7 @@ import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
 import { canonicalizeIPv6, getNetAddress } from "./util/domain-formatter";
+import { errorMessage, errorStack } from "./util/errors";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
@@ -236,7 +237,7 @@ export class NetworkManager extends EventEmitter {
       await this.detectInterfaceChanges();
     } catch (error) {
       // debug, not console: a read that keeps failing would otherwise print every 15 seconds (homebridge/ciao#72)
-      debug("Checking the network interfaces failed, trying again in %d seconds: %s", NetworkManager.POLLING_TIME / 1000, error?.stack ?? error);
+      debug("Checking the network interfaces failed, trying again in %d seconds: %s", NetworkManager.POLLING_TIME / 1000, errorStack(error));
     }
 
     if (this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
@@ -368,7 +369,7 @@ export class NetworkManager extends EventEmitter {
       try {
         names = await NetworkManager.getNetworkInterfaceNames();
       } catch (error) {
-        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${error.message})`);
+        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${errorMessage(error)})`);
         // fallback way of gathering network interfaces (remember, there are docker images where the arp command is not installed)
         names = NetworkManager.assumeNetworkInterfaceNames();
       }

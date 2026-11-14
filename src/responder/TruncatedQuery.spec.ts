@@ -42,6 +42,39 @@ describe(TruncatedQuery, () => {
   }, 1000);
 
   describe("timer lifecycle", () => {
+    // The Responder deletes a truncated query by its endpoint on TIMEOUT, so a timeout firing after ABORT deleted the query that endpoint had started since.
+    it("fires no timeout after the query was aborted", () => {
+      jest.useFakeTimers();
+
+      try {
+        const truncatedPacket = (): DNSPacket => {
+          const packet = DNSPacket.createDNSQueryPacket({ questions: [new Question("test.local", QType.A)], answers: [answerA1()] });
+
+          packet.flags.truncation = true;
+          return packet;
+        };
+        const truncatedQuery = new TruncatedQuery(truncatedPacket());
+        const timeout = jest.fn();
+        let result = TruncatedQueryResult.AGAIN_TRUNCATED;
+
+        truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, timeout);
+
+        // A truncated packet every 300 ms keeps the query waiting, until the first packet is more than 5 seconds old.
+        for (let i = 0; i < 20 && result === TruncatedQueryResult.AGAIN_TRUNCATED; i++) {
+          jest.advanceTimersByTime(300);
+          result = truncatedQuery.appendDNSPacket(truncatedPacket());
+        }
+
+        expect(result).toBe(TruncatedQueryResult.ABORT);
+
+        jest.advanceTimersByTime(1000);
+        expect(timeout).not.toHaveBeenCalled();
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it("does not pin the event loop on the finalisation timer", () => {
       const packet = DNSPacket.createDNSQueryPacket({
         questions: [new Question("test.local", QType.A)],

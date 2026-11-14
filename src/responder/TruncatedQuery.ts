@@ -58,6 +58,11 @@ export class TruncatedQuery extends EventEmitter {
       const time = Date.now();
 
       if (time - this.timeOfArrival > 5 * 1000) { // if the first packet, is more than 5 seconds old, we abort
+        // The query is over, so its timer must not fire anymore: the Responder forgets this query by its endpoint, and the timeout would forget whatever
+        // query the same endpoint has started by then.
+        clearTimeout(this.timer);
+        this.removeAllListeners();
+
         return TruncatedQueryResult.ABORT;
       }
 

@@ -13,6 +13,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: handle a conflict or an advertise() that arrives during a TTL correction
 - fix: keep checking the network interfaces after a check fails
 - fix: ignore shutdown() on a responder that is already shut down
+- fix: stop the timer of a truncated query that was given up on
 
 ## v1.4.0 (2026-11-01)
 

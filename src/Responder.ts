@@ -1216,19 +1216,10 @@ export class Responder implements PacketHandler {
         }
 
         return serviceResponses; // if we got in this if-body, it was a pointer name and we handled it correctly
-      } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
-          const address = ipAddressFromReversAddressName(loweredQuestionName);
+      }
 
-          for (const service of this.announcedServices.values()) {
-            const record = service.reverseAddressMapping(address);
-            if (record) {
-              mainResponse.addAnswer(record);
-            }
-          }
-        }
-        We won't actually respond to reverse address queries.
-        This typically confuses responders like avahi, which then over and over try to increment the hostname.
-        */
+      // We won't actually respond to reverse address queries (names under "in-addr.arpa" and "ip6.arpa").
+      // This typically confuses responders like avahi, which then over and over try to increment the hostname.
     }
 
     for (const service of this.announcedServices.values()) {

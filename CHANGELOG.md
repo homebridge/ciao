@@ -24,6 +24,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore: stop publishing the test helper
 - refactor: remove commented-out code from CiaoService
 - refactor: remove commented-out code from Announcer
+- refactor: remove commented-out code from Responder
 
 ## v1.4.0 (2026-11-01)
 

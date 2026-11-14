@@ -51,10 +51,8 @@
   },
   "files": [
     "lib",
-    "types",
     "README.md",
     "LICENSE",
-    "package.json",
     "package-lock.json"
   ],
   "dependencies": {

@@ -55,8 +55,7 @@ export class Announcer {
   private timer?: Timeout;
   private promise?: Promise<void>;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private promiseReject?: (reason?: any) => void;
+  private promiseReject?: (reason?: unknown) => void;
 
   /**
    * Set by {@link cancel}. A send still in flight when the announcer is cancelled resolves later, and by then the service can be ANNOUNCING again under the

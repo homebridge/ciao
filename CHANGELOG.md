@@ -29,6 +29,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: remove commented-out code from QueuedResponse
 - refactor: remove commented-out code from MDNSServer
 - refactor: drop the Node 18 numeric address family checks
+- refactor: type the announcer and prober rejection reasons as unknown
 
 ## v1.4.0 (2026-11-01)
 

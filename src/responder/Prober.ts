@@ -34,8 +34,7 @@ export class Prober {
   private timer?: Timeout;
   private currentInterval: number = PROBE_INTERVAL;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private promiseReject?: (reason?: any) => void;
+  private promiseReject?: (reason?: unknown) => void;
 
   private serviceEncounteredNameChange = false;
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent

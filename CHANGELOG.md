@@ -32,6 +32,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: type the announcer and prober rejection reasons as unknown
 - refactor: type ResourceRecord.clone without a ts-expect-error
 - refactor: type caught errors as unknown
+- docs(readme): fix typing mistakes
 
 ## v1.4.0 (2026-11-01)
 

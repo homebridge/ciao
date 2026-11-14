@@ -91,6 +91,10 @@ export class Responder implements PacketHandler {
 
   private refCount = 1;
   private optionsString = "";
+  /**
+   * The Promise of the {@link shutdown} call that released the last reference, set once the Responder is shut down.
+   */
+  private shutdownPromise?: Promise<void>;
 
   /**
    * Announced services is indexed by the {@link dnsLowerCase} if the fqdn (as of RFC 1035 3.1).
@@ -220,17 +224,29 @@ export class Responder implements PacketHandler {
    * network is informed of the shutdown of this machine.
    * Calling the shutdown method is mandatory for a clean termination (sending goodbye packets).
    *
-   * The shutdown method must only be called ONCE.
+   * The shutdown method must be called ONCE for every call of {@link getResponder} that returned this instance. A call on a Responder that is already
+   * shut down changes nothing and returns the Promise of the call that shut it down.
    *
    * @returns The Promise settles once every goodbye has settled and the server has shut down. It resolves when every goodbye was sent, and otherwise
    * rejects with the first goodbye that failed, taking the services in the order they were announced. It resolves immediately if any other users
    * have a reference to this Responder instance.
    */
   public shutdown(): Promise<void> {
-    this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
+    // A Responder that is shut down has left INSTANCES, and its options may name a newer Responder there by now, which a second run of the code below would
+    // remove from the table while it is in use.
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.refCount--;
     if (this.refCount > 0) {
       return Promise.resolve();
     }
+
+    return (this.shutdownPromise = this.shutdownNow());
+  }
+
+  private shutdownNow(): Promise<void> {
 
     this.shutdownController.abort();
 

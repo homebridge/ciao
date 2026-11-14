@@ -850,6 +850,31 @@ describe(Responder, () => {
       });
     });
 
+    it("a second shutdown() changes nothing: it leaves a newer Responder with the same options registered, and shuts the server down once", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const instances: Map<string, unknown> = (Responder as any).INSTANCES;
+      const old = makeChainResponder();
+      const newer = makeChainResponder();
+
+      try {
+        instances.set("", old.internals);
+        const firstShutdown = old.internals.shutdown();
+
+        await firstShutdown;
+        expect(instances.has("")).toBe(false);
+
+        // getResponder() registers a new Responder under the options the old one had.
+        instances.set("", newer.internals);
+
+        expect(old.internals.shutdown()).toBe(firstShutdown);
+        await drainJobs();
+        expect(instances.get("")).toBe(newer.internals);
+        expect(old.server.shutdown).toHaveBeenCalledTimes(1);
+      } finally {
+        instances.delete("");
+      }
+    });
+
     it("shutdown() while a probe retry is pending resolves that advertise(), and no probe or timer follows", async () => {
       const { internals, server } = makeChainResponder();
       const { callbacks, service } = makeChainService(internals, "Retrying");

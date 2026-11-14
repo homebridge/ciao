@@ -12,6 +12,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: keep a service type listed while another service of that type is announced
 - fix: handle a conflict or an advertise() that arrives during a TTL correction
 - fix: keep checking the network interfaces after a check fails
+- fix: ignore shutdown() on a responder that is already shut down
 
 ## v1.4.0 (2026-11-01)
 

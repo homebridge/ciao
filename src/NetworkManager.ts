@@ -227,7 +227,24 @@ export class NetworkManager extends EventEmitter {
     this.currentTimer.unref(); // this timer won't prevent shutdown
   }
 
+  /* One check of the polling job. It runs from a timer, so nothing awaits it: a rejection would go unhandled, which ends the host process, and would leave
+   * without scheduling the next check, so the interfaces were never read again. A check that fails is therefore logged and the next one scheduled as after
+   * any other.
+   */
   private async checkForNewInterfaces(): Promise<void> {
+    try {
+      await this.detectInterfaceChanges();
+    } catch (error) {
+      // debug, not console: a read that keeps failing would otherwise print every 15 seconds (homebridge/ciao#72)
+      debug("Checking the network interfaces failed, trying again in %d seconds: %s", NetworkManager.POLLING_TIME / 1000, error?.stack ?? error);
+    }
+
+    if (this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
+      this.scheduleNextJob();
+    }
+  }
+
+  private async detectInterfaceChanges(): Promise<void> {
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
     if (!this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
       return;
@@ -336,8 +353,6 @@ export class NetworkManager extends EventEmitter {
         changes: changes,
       });
     }
-
-    this.scheduleNextJob();
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {

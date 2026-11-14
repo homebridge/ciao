@@ -35,6 +35,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - docs(readme): fix typing mistakes
 - docs: say the server binds IPv4 and IPv6 sockets
 - chore: drop paths that don't exist from the files list and the jest config
+- chore: declare the same Node.js versions as HAP-NodeJS
 
 ## v1.4.0 (2026-11-01)
 

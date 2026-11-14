@@ -494,7 +494,19 @@ export class Responder implements PacketHandler {
     const typePTR = service.getLowerCasedTypePTR();
     const subtypePTRs = service.getLowerCasedSubtypePTRs(); // possibly undefined
 
-    this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    // The type enumeration holds one pointer per service type, shared by every service of that type, so it stays while another service of the type is
+    // announced and goes with the last one.
+    let typeStillAnnounced = false;
+    for (const other of this.announcedServices.values()) {
+      if (other !== service && other.getLowerCasedTypePTR() === typePTR) {
+        typeStillAnnounced = true;
+        break;
+      }
+    }
+
+    if (!typeStillAnnounced) {
+      this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    }
     this.removePTR(typePTR, serviceFQDN);
     if (subtypePTRs) {
       for (const ptr of subtypePTRs) {

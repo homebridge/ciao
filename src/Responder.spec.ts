@@ -767,6 +767,29 @@ describe(Responder, () => {
       expect(jest.getTimerCount()).toBe(0);
     });
 
+    it("end() of one of two services of a type keeps the type in the service type enumeration until the last one ends", async () => {
+      const { internals } = makeChainResponder();
+      const first = await makeAnnouncedChainService(internals, "First");
+      const second = await makeAnnouncedChainService(internals, "Second");
+      const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+      // The types the responder answers a service type enumeration question (RFC 6763 9.) with.
+      const enumeratedTypes = (): string[] => internals.answerQuestion(new Question(Responder.SERVICE_TYPE_ENUMERATION_NAME, QType.PTR, false), endpoint)
+        .flatMap(response => [...response.asPacket().answers.values()])
+        .map(record => (record as PTRRecord).ptrName);
+
+      expect(enumeratedTypes()).toEqual(["_http._tcp.local."]);
+
+      void first.service.end();
+      await advance(10);
+      expect(first.service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(enumeratedTypes()).toEqual(["_http._tcp.local."]);
+
+      void second.service.end();
+      await advance(10);
+      expect(enumeratedTypes()).toEqual([]);
+      expect(internals.servicePointer.size).toBe(0);
+    });
+
     it("shutdown() while a probe retry is pending resolves that advertise(), and no probe or timer follows", async () => {
       const { internals, server } = makeChainResponder();
       const { callbacks, service } = makeChainService(internals, "Retrying");

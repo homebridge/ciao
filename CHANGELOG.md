@@ -10,6 +10,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: don't crash when a service's records are too big for one packet
 - fix: stop a cancelled announcement sending again after the goodbye
 - fix: keep a service type listed while another service of that type is announced
+- fix: handle a conflict or an advertise() that arrives during a TTL correction
 
 ## v1.4.0 (2026-11-01)
 

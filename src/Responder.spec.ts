@@ -1,5 +1,5 @@
 import { CiaoService, InternalServiceEvent, PublishCallback, ServiceEvent, ServiceOptions, ServiceState, UnpublishCallback } from "./CiaoService";
-import { DNSPacket, QType, RType } from "./coder/DNSPacket";
+import { DNSPacket, PacketType, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
 import { EndpointInfo, MDNSServer, TimedSendResult } from "./MDNSServer";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
@@ -9,6 +9,7 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse } from "./responder/QueryResponse";
 import { NSECRecord } from "./coder/records/NSECRecord";
 import { PTRRecord } from "./coder/records/PTRRecord";
+import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 
@@ -62,6 +63,7 @@ interface ChainResponder {
   servicePointer: Map<string, string[]>;
   advertiseService(service: CiaoService, callback: PublishCallback): Promise<void>;
   answerQuestion(question: Question, endpoint: EndpointInfo): QueryResponse[];
+  handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void;
   probe(service: CiaoService): Promise<void>;
   republishService(service: CiaoService, callback: PublishCallback, delayAnnounce?: boolean): Promise<void>;
   retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void>;
@@ -788,6 +790,64 @@ describe(Responder, () => {
       await advance(10);
       expect(enumeratedTypes()).toEqual([]);
       expect(internals.servicePointer.size).toBe(0);
+    });
+
+    describe("while the packet correcting a ttl is being sent", () => {
+      const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+
+      /* An announced service hears its own SRV record with a ttl under half its own, and answers with one packet to correct the neighbouring caches
+       * (RFC 6762 10.), which is held in flight. Until that packet is sent the service is ANNOUNCING again, under an announcer whose cancellation leaves
+       * it ANNOUNCED, where every other announcer leaves it UNANNOUNCED.
+       */
+      async function correctingTTL(): Promise<{ internals: ChainResponder; release: () => void; server: ChainServer; service: CiaoService }> {
+        const { internals, server } = makeChainResponder();
+        const { service } = await makeAnnouncedChainService(internals, "Kitchen");
+        let release = (): void => undefined;
+
+        server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+        server.send.mockImplementationOnce(() => new Promise(resolve => {
+          release = () => resolve({ interface: "en0", status: "fulfilled" });
+        }));
+
+        internals.handleResponse(new DNSPacket({ answers: [new SRVRecord(service.getFQDN(), service.getHostname(), 4711, true, 10)], type: PacketType.RESPONSE }),
+          endpoint);
+        await advance(0);
+        expect(server.send).toHaveBeenCalledTimes(1);
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
+
+        return { internals, release: () => release(), server, service };
+      }
+
+      it("a conflicting record is still resolved: the service probes again and is announced again", async () => {
+        const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+        const { internals, release, server, service } = await correctingTTL();
+
+        expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(3);
+
+        // Another host claims the service's name with an SRV record of its own.
+        internals.handleResponse(new DNSPacket({ answers: [new SRVRecord(service.getFQDN(), "other.local.", 9999, true)], type: PacketType.RESPONSE }), endpoint);
+        await drainJobs();
+        release();
+
+        // The republish waits a second, then probes for 750 ms and announces.
+        await advance(6000);
+        expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(6);
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+        expect(warnSpy).not.toHaveBeenCalled();
+      });
+
+      it("advertise() rejects as for any announced service, where it stayed pending", async () => {
+        const { release, service } = await correctingTTL();
+        const advertised = track(service.advertise());
+
+        await drainJobs();
+        release();
+        await advance(6000);
+
+        expect(advertised.state).toBe("rejected");
+        expect(String(advertised.reason)).toContain("Can't publish a service that is already announced");
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+      });
     });
 
     it("shutdown() while a probe retry is pending resolves that advertise(), and no probe or timer follows", async () => {

@@ -333,7 +333,17 @@ export class Responder implements PacketHandler {
       if (service.currentAnnouncer!.isSendingGoodbye()) {
         return Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement()).then(() => this.advertiseService(service, callback));
       } else {
-        return service.currentAnnouncer!.cancel().then(() => this.advertiseService(service, callback));
+        /* Cancelling an announcement leaves the service UNANNOUNCED, and the advertisement starts over. Cancelling the single packet that corrects a ttl
+         * (see handleResponse) leaves it ANNOUNCED instead, and advertising it again is refused as for any announced service. That refusal is thrown, and
+         * here nothing above would catch it, so it is handed to the caller, whose advertise() rejects with it.
+         */
+        return service.currentAnnouncer!.cancel().then(() => {
+          try {
+            return this.advertiseService(service, callback);
+          } catch (error) {
+            callback(error);
+          }
+        });
       }
     }
 
@@ -428,7 +438,11 @@ export class Responder implements PacketHandler {
         ? Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement())
         : service.currentAnnouncer!.cancel();
 
-      return promise.then(() => this.advertiseService(service, callback));
+      // A cancelled announcement leaves the service UNANNOUNCED, ready to be advertised again. The single packet that corrects a ttl (see handleResponse)
+      // leaves it ANNOUNCED when cancelled, so the republish starts over from there, where advertiseService would refuse an announced service.
+      return promise.then(() => service.serviceState === ServiceState.ANNOUNCED
+        ? this.republishService(service, callback, delayAnnounce)
+        : this.advertiseService(service, callback));
     }
 
     // first of all remove it from our advertisedService Map and remove all the maintained PTRs
@@ -919,7 +933,6 @@ export class Responder implements PacketHandler {
 
 
       if (conflictingRData) {
-        // noinspection JSIgnoredPromiseFromCall
         this.republishService(service, error => {
           if (error) {
             console.log(`FATAL Error occurred trying to resolve conflict for service ${service.getFQDN()}! We can't recover from this!`);
@@ -928,7 +941,10 @@ export class Responder implements PacketHandler {
             // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
             // for situations where it makes sense
           }
-        }, true);
+        }, true).catch(error => {
+          // Terminal handler: nothing awaits the republish, so a rejection would otherwise go unhandled and end the host process.
+          console.warn(`CIAO: [${service.getFQDN()}] Failed to resolve a conflict: ${error?.message ?? error}`);
+        });
       } else if (ttlConflicts && !service.currentAnnouncer) {
         service.serviceState = ServiceState.ANNOUNCING; // all code above doesn't expect an Announcer object in state ANNOUNCED
 

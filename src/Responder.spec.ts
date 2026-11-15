@@ -584,6 +584,41 @@ describe(Responder, () => {
       expect(queued.serviceState).toBe(ServiceState.ANNOUNCING);
     });
 
+    it("a probe that keeps failing warns on the console once, at the fifth failure in a row, and again only after an announcement got through", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Failing");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+
+      // Four failed attempts: at 0, 2, 4 and 6 seconds.
+      await advance(7000);
+      expect(warn).not.toHaveBeenCalled();
+
+      await advance(2000);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[Failing._http._tcp.local.] Failed probing 5 times in a row"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Last reason: Probing failed as of socket errors!"));
+
+      await advance(20000);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // The sends work again: the service is announced, and the count starts over.
+      server.sendQueryBroadcast.mockImplementation(async () => []);
+      await advance(6000);
+      expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+
+      void service.end();
+      await advance(3000);
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+      await advance(9000);
+      expect(warn).toHaveBeenCalledTimes(2);
+    });
+
     it("end() on a queued advertisement resolves it, its step probes nothing, and the service after it is unaffected", async () => {
       const { internals, server } = makeChainResponder();
       const first = makeChainService(internals, "First").service;

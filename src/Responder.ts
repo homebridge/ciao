@@ -111,6 +111,13 @@ export class Responder implements PacketHandler {
    */
   private readonly servicePointer: Map<string, string[]> = new Map();
 
+  /* The attempts to probe or announce a service that failed in a row. A failed attempt is retried every 2 seconds and logged to debug only, as the first
+   * retry usually succeeds. At the fifth failure in a row one warning goes to the console, so a service that can never be advertised, such as one whose
+   * records fit no packet, is not retried in silence for good. An announcement that gets through starts the count again.
+   */
+  private static readonly RETRY_WARNING_ATTEMPTS = 5;
+  private static readonly failedAttempts: WeakMap<CiaoService, number> = new WeakMap();
+
   private readonly truncatedQueries: Record<string, TruncatedQuery> = {}; // indexed by <ip>:<port>
   private readonly delayedMulticastResponses: QueuedResponse[] = [];
 
@@ -326,6 +333,17 @@ export class Responder implements PacketHandler {
    * advertisement covers it by then, and re-entering advertiseService would cancel that advertisement's announcer, so the callback it carries is called
    * instead.
    */
+  private static noteFailedAttempt(service: CiaoService, step: "probing" | "announcing", reason: unknown): void {
+    const attempts = (Responder.failedAttempts.get(service) ?? 0) + 1;
+
+    Responder.failedAttempts.set(service, attempts);
+
+    if (attempts === Responder.RETRY_WARNING_ATTEMPTS) {
+      console.warn(`CIAO: [${service.getFQDN()}] Failed ${step} ${attempts} times in a row, so the service is not advertised. `
+        + `It is retried every 2 seconds. Last reason: ${errorMessage(reason)}`);
+    }
+  }
+
   private retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void> {
     return this.delay(2000).then(() => {
       if (service.serviceState !== ServiceState.UNANNOUNCED) {
@@ -405,13 +423,16 @@ export class Responder implements PacketHandler {
       }
 
       // we are not returning the promise returned by announced here, only PROBING is synchronized
-      this.announce(service).catch(reason => {
+      this.announce(service).then(() => {
+        Responder.failedAttempts.delete(service);
+      }).catch(reason => {
         // handle announce errors
         // debug, not console: this retries itself in 2 seconds and usually succeeds, so it is
         // not something the consumer can act on. Whatever actually broke - a socket or bind
         // error - is still reported loudly by MDNSServer, which owns it. Logging every retry
         // here as well put a line on the console every 2 seconds forever (homebridge/ciao#72).
         debug(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
+        Responder.noteFailedAttempt(service, "announcing", reason);
         return this.retryAdvertisement(service, () => {
           // The caller was called back when announcing began, so the retry has nobody left to settle.
         });
@@ -436,6 +457,7 @@ export class Responder implements PacketHandler {
       }
 
       debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+      Responder.noteFailedAttempt(service, "probing", reason);
       return this.retryAdvertisement(service, callback);
     });
   }

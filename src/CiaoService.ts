@@ -17,6 +17,7 @@ import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./Netwo
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";
 import { escapeLabel, splitLabels, splitRelativeName, wireLength } from "./util/dns-labels";
+import { errorStack } from "./util/errors";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
@@ -933,12 +934,25 @@ export class CiaoService extends EventEmitter {
   informAboutNameUpdates(): void {
     // we trust the prober that this function is only called when the name was actually changed
 
-    const nameCalled = this.emit(ServiceEvent.NAME_CHANGED, this.name);
-    const hostnameCalled = this.emit(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname, this.serviceDomain));
+    const nameCalled = this.emitNameUpdate(ServiceEvent.NAME_CHANGED, this.name);
+    const hostnameCalled = this.emitNameUpdate(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname, this.serviceDomain));
 
     // at least one event should be listened to. We can figure out the number from one or another
     if (!nameCalled && !hostnameCalled) {
       console.warn(`CIAO: [${this.name}] Service changed name but nobody was listening on the 'name-change' event!`);
+    }
+  }
+
+  /* Emits one of the two name events, and reports whether anyone listened. A listener is the app's code, and it is called from the Prober's timer, where
+   * an error it throws would be an uncaught exception that ends the process half way through advertising. So the error is logged here instead, and the
+   * service goes on to be announced under its new name.
+   */
+  private emitNameUpdate(event: ServiceEvent.NAME_CHANGED | ServiceEvent.HOSTNAME_CHANGED, value: string): boolean {
+    try {
+      return super.emit(event, value);
+    } catch (error) {
+      console.warn(`CIAO: [${this.name}] A listener of the '${event}' event threw an error: ${errorStack(error)}`);
+      return true;
     }
   }
 

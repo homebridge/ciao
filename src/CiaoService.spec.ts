@@ -555,6 +555,30 @@ describe(CiaoService, () => {
     });
   });
 
+  describe("a listener of a name event that throws", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("is logged, and the other name event is still emitted", () => {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      const hostnames: string[] = [];
+
+      service.on("name-change", () => {
+        throw new Error("The app could not save the name.");
+      });
+      service.on("hostname-change", hostname => hostnames.push(hostname));
+      service.incrementName();
+
+      expect(() => service.informAboutNameUpdates()).not.toThrow();
+      expect(hostnames).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("A listener of the 'name-change' event threw an error: Error: The app could not save the name."));
+    });
+  });
+
   describe("ServiceType", () => {
     // A service type holds letters, digits and hyphens (RFC 6335 5.1), and the IANA registry names HTTP's alternate port "http-alt".
     it("should spell the http-alt type as registered, so it is advertised under _http-alt._tcp", () => {

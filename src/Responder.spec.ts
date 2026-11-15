@@ -638,6 +638,26 @@ describe(Responder, () => {
       expect(warn).toHaveBeenCalledTimes(2);
     });
 
+    it("a probe failure count starts over when end() withdraws the advertisement", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Failing");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+
+      // Four failed attempts: at 0, 2, 4 and 6 seconds. end() withdraws the advertisement before the fifth.
+      await advance(7000);
+      void service.end();
+      await advance(3000);
+      expect(warn).not.toHaveBeenCalled();
+
+      // A new advertisement that fails once has failed once in a row, not five times.
+      void service.advertise();
+      await advance(1000);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
     it("end() on a queued advertisement resolves it, its step probes nothing, and the service after it is unaffected", async () => {
       const { internals, server } = makeChainResponder();
       const first = makeChainService(internals, "First").service;

@@ -455,6 +455,8 @@ export class Responder implements PacketHandler {
        * for the reason the announce retry above gives.
        */
       if (reason === Prober.CANCEL_REASON) {
+        // The advertisement was withdrawn, so the failures it met are over: a later advertise() counts its own from zero.
+        Responder.failedAttempts.delete(service);
         callback();
         return;
       }

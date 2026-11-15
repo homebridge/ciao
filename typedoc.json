@@ -4,6 +4,7 @@
   "entryPoints": [
     "src/index.ts"
   ],
+  "intentionallyNotExported": ["PacketHandler"],
   "excludePrivate": true,
   "excludeProtected": true,
   "excludeExternals": true,

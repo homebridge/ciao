@@ -5,6 +5,7 @@ import { ResourceRecord } from "./coder/ResourceRecord";
 import { EndpointInfo, MDNSServer } from "./MDNSServer";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
 import { Responder } from "./Responder";
+import { InterfaceNotFoundError } from "./util/errors";
 
 /* How the Responder sends its answers to a query (RFC 6762 6.): at once or after a random delay, by multicast or by unicast, alone or merged with an answer
  * already waiting. The Responder is built without its constructor, which would bind sockets, around a server that records what it is asked to send, and it
@@ -239,6 +240,35 @@ describe("Responder.handleQuery", () => {
       jest.advanceTimersByTime(1000);
 
       expect(sent).toHaveLength(0);
+    });
+
+    it("drops the answer of a timed-out truncated query, without throwing out of the timer, when its interface has gone", () => {
+      const { responder, service } = makeQueryResponder();
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      // The interface went away while the query waited for its next packet, so its socket is gone, and the send throws as MDNSServer.send does.
+      (responder as unknown as { server: { sendResponse: () => void } }).server.sendResponse = () => {
+        throw new InterfaceNotFoundError("Could not find socket for given network interface 'en0'");
+      };
+
+      // An SRV record is unique, so its answer goes out at once, from the timer of the truncated query.
+      responder.handleQuery(query([new Question(service.getFQDN(), QType.SRV)], [], true), multicastQuerier);
+
+      expect(() => jest.advanceTimersByTime(500)).not.toThrow();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("logs any other error answering a timed-out truncated query, without throwing out of the timer", () => {
+      const { responder, service } = makeQueryResponder();
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      (responder as unknown as { server: { sendResponse: () => void } }).server.sendResponse = () => {
+        throw new Error("encode failed");
+      };
+
+      responder.handleQuery(query([new Question(service.getFQDN(), QType.SRV)], [], true), multicastQuerier);
+
+      expect(() => jest.advanceTimersByTime(500)).not.toThrow();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("encode failed");
     });
   });
 });

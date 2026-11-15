@@ -54,6 +54,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore: drop the stale maintainers field from package.json
 - ci: name the labeler job labeler, not stale
 - ci: fix the labeler comment that says alpha pull requests get the beta label
+- fix: don't crash when a timed-out truncated query is answered on an interface that has gone
 
 ## v1.4.0 (2026-11-01)
 

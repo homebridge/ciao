@@ -810,7 +810,18 @@ export class Responder implements PacketHandler {
         debug("[%s] Timeout passed since the last truncated query was received. Answering the %d packets received in %d ms.",
           endpointId, truncatedQuery.getArrivedPacketCount(), truncatedQuery.getTotalWaitTime());
         this.truncatedQueries.delete(endpointId);
-        this.answerQuery(truncatedQuery.getPacket(), endpoint, Date.now());
+
+        // This runs from the query's timer, not from MDNSServer's packet handler, whose try/catch covers a query answered at once. A throw here would be an
+        // uncaught exception that ends the process, and a send throws when the interface the query came in on has gone while we waited.
+        try {
+          this.answerQuery(truncatedQuery.getPacket(), endpoint, Date.now());
+        } catch (error) {
+          if (error instanceof Error && error.name === ERR_INTERFACE_NOT_FOUND) {
+            debug("[%s] The answer to the truncated query was dropped, as the network interface %s is no longer available!", endpointId, endpoint.interface);
+          } else {
+            console.warn(`CIAO: Failed to answer a truncated query from ${endpointId}: ${errorMessage(error)}`);
+          }
+        }
       });
 
       return; // wait for the next query

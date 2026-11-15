@@ -52,8 +52,7 @@
   "files": [
     "lib",
     "README.md",
-    "LICENSE",
-    "package-lock.json"
+    "LICENSE"
   ],
   "dependencies": {
     "debug": "^4.4.3",

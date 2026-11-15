@@ -44,6 +44,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: log an error thrown by a name-change listener instead of crashing
 - refactor: hold the truncated queries in a Map
 - refactor: move Protocol to its own file so no module imports index.ts
+- refactor: move the PromiseTimeout helper into the one test that uses it
 
 ## v1.4.0 (2026-11-01)
 

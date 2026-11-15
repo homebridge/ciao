@@ -1,8 +1,14 @@
 import { DNSPacket, QType } from "../coder/DNSPacket";
 import { Question } from "../coder/Question";
 import { ARecord } from "../coder/records/ARecord";
-import { PromiseTimeout } from "../util/promise-utils";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./TruncatedQuery";
+
+// Waits the given number of milliseconds on the real clock.
+function PromiseTimeout(timeout: number): Promise<void> {
+  return new Promise<void>(resolve => {
+    setTimeout(() => resolve(), timeout);
+  });
+}
 
 const answerA1 = () => {
   return new ARecord("test.local", "1.1.1.1", true);

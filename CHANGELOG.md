@@ -48,6 +48,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore: drop package-lock.json from the files list, as npm never packs it
 - docs: tell typedoc the internal PacketHandler type is left out on purpose
 - docs: fix paths in the Copilot instructions that point at nothing
+- ci: keep the npm publish token to the publish job, stay on npm 11 and pass refs as env
 
 ## v1.4.0 (2026-11-01)
 

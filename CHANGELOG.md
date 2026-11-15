@@ -38,6 +38,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - chore: declare the same Node.js versions as HAP-NodeJS
 - fix: fall back to the default packet size when CIAO_UPS is not a number
 - test: cover delayed and merged responses, query handling and type names
+- fix: answer a truncated query whose next packet never arrives
 
 ## v1.4.0 (2026-11-01)
 

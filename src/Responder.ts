@@ -781,15 +781,21 @@ export class Responder implements PacketHandler {
       const truncatedQuery = new TruncatedQuery(packet);
       this.truncatedQueries[endpointId] = truncatedQuery;
       truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
-        // called when more than 400-500ms pass until the next packet arrives
-        debug("[%s] Timeout passed since the last truncated query was received. Discarding %d packets received in %d ms.",
+        // RFC 6762 7.2: the querier had 400 to 500 ms to send the rest of its known answers. None came, so the query is answered with what arrived.
+        debug("[%s] Timeout passed since the last truncated query was received. Answering the %d packets received in %d ms.",
           endpointId, truncatedQuery.getArrivedPacketCount(), truncatedQuery.getTotalWaitTime());
         delete this.truncatedQueries[endpointId];
+        this.answerQuery(truncatedQuery.getPacket(), endpoint, Date.now());
       });
 
       return; // wait for the next query
     }
 
+    this.answerQuery(packet, endpoint, start);
+  }
+
+  // Answers a query that has arrived whole: a single packet, or every packet of a truncated query joined into one.
+  private answerQuery(packet: DNSPacket, endpoint: EndpointInfo, start: number): void {
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
     const isProbeQuery = packet.authorities.size > 0;
 

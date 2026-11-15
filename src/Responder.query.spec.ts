@@ -214,15 +214,29 @@ describe("Responder.handleQuery", () => {
       expect(typesOf(sent[0][0].additionals)).not.toContain(RType.TXT);
     });
 
-    it("drops a truncated query whose next packet does not arrive within half a second", () => {
+    it("answers a truncated query with what arrived when its next packet does not come within half a second", () => {
       const { responder, sent, service } = makeQueryResponder();
 
       responder.handleQuery(query([new Question(service.getTypePTR(), QType.PTR)], [], true), multicastQuerier);
-      jest.advanceTimersByTime(500);
+      jest.advanceTimersByTime(399);
+      expect(sent).toHaveLength(0);
+
+      // The wait is 400 ms with Math.random at zero, then 20 ms for the delayed answer of a shared record.
+      jest.advanceTimersByTime(21);
+      expect(sent).toHaveLength(1);
+      expect(typesOf(sent[0][0].answers)).toEqual([RType.PTR]);
 
       // A packet arriving now starts a query of its own, and it carries no question to answer.
       responder.handleQuery(query([], [service.txtRecord()]), multicastQuerier);
       jest.advanceTimersByTime(200);
+      expect(sent).toHaveLength(1);
+    });
+
+    it("leaves out the answers a timed-out truncated query listed as known", () => {
+      const { responder, sent, service } = makeQueryResponder();
+
+      responder.handleQuery(query([new Question(service.getTypePTR(), QType.PTR)], [service.ptrRecord()], true), multicastQuerier);
+      jest.advanceTimersByTime(1000);
 
       expect(sent).toHaveLength(0);
     });

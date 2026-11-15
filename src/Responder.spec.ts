@@ -371,7 +371,7 @@ describe(Responder, () => {
 
     // A responder whose server holds the named sockets of one dual-stack interface and answers each question with a fresh PTR response. A send
     // naming a socket the server does not hold throws, as the server's own send does.
-    function broadcastOn(bound: string[]) {
+    function broadcastOn(bound: string[], typePTRs = ["_hap._tcp.local."]) {
       const networkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2", ipv4Netaddress: "192.168.1.0", ipv6: "fe80::1" };
       const sendResponse = jest.fn((packet: unknown, name: string) => {
         if (!bound.includes(name)) {
@@ -385,15 +385,34 @@ describe(Responder, () => {
         getBoundInterfaceNames: () => bound.values(),
         sendResponse,
       };
-      (responder as any).answerQuestion = () => {
+      (responder as any).announcedServices = new Map(typePTRs.map((typePTR, index) => [ "service" + index, { getTypePTR: () => typePTR }]));
+      const answerQuestion = jest.fn((question: Question) => {
         const response = new QueryResponse();
-        response.addAnswer(new PTRRecord("_hap._tcp.local.", "Test._hap._tcp.local."));
+        response.addAnswer(new PTRRecord(question.name, "Test." + question.name));
         return [response];
-      };
+      });
+      (responder as any).answerQuestion = answerQuestion;
       const broadcast = () => (responder as any).handlePeriodicBroadcasts();
       /* eslint-enable @typescript-eslint/no-explicit-any */
-      return { broadcast, sendResponse };
+      return { answerQuestion, broadcast, sendResponse };
     }
+
+    it("asks itself for every announced service type once, whatever the type", () => {
+      const { answerQuestion, broadcast, sendResponse } = broadcastOn(["eth0"], [ "_http._tcp.local.", "_hap._tcp.local.", "_http._tcp.local." ]);
+
+      broadcast();
+
+      expect(answerQuestion.mock.calls.map(call => call[0].name)).toEqual([ "_http._tcp.local.", "_hap._tcp.local." ]);
+      expect(sendResponse).toHaveBeenCalled();
+    });
+
+    it("sends nothing while no service is announced", () => {
+      const { broadcast, sendResponse } = broadcastOn(["eth0"], []);
+
+      broadcast();
+
+      expect(sendResponse).not.toHaveBeenCalled();
+    });
 
     it("sends on the IPv6 socket of an interface whose IPv4 socket is not bound", () => {
       const { broadcast, sendResponse } = broadcastOn(["eth0/6"]);

@@ -40,6 +40,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - test: cover delayed and merged responses, query handling and type names
 - fix: answer a truncated query whose next packet never arrives
 - fix: warn once when a service keeps failing to probe or announce
+- fix: send the periodic broadcast for every announced service type
 
 ## v1.4.0 (2026-11-01)
 

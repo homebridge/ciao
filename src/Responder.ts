@@ -169,27 +169,30 @@ export class Responder implements PacketHandler {
 
     const boundInterfaceNames = Array.from(this.server.getBoundInterfaceNames());
 
+    // One question per service type that is announced, whatever the type, so the broadcast covers every service and not those of one type alone.
+    const questions = Array.from(new Set(Array.from(this.announcedServices.values(), service => service.getTypePTR())),
+      typePTR => new Question(typePTR, QType.PTR, false));
+
     for (const networkInterface of this.server.getNetworkManager().getInterfaceMap().values()) {
-      const question = new Question("_hap._tcp.local.", QType.PTR, false);
+      const responses: QueryResponse[] = [];
 
-      let responses4: QueryResponse[] = [], responses6: QueryResponse[] = [];
-
-      if (boundInterfaceNames.includes(networkInterface.name)) {
-        responses4 = this.answerQuestion(question, {
-          port: 5353,
-          address: networkInterface.ipv4Netaddress!,
-          interface: networkInterface.name,
-        });
+      for (const question of questions) {
+        if (boundInterfaceNames.includes(networkInterface.name)) {
+          responses.push(...this.answerQuestion(question, {
+            port: 5353,
+            address: networkInterface.ipv4Netaddress!,
+            interface: networkInterface.name,
+          }));
+        }
+        if (boundInterfaceNames.includes(networkInterface.name + "/6")) {
+          responses.push(...this.answerQuestion(question, {
+            port: 5353,
+            address: networkInterface.ipv6!,
+            interface: networkInterface.name + "/6",
+          }));
+        }
       }
-      if (boundInterfaceNames.includes(networkInterface.name + "/6")) {
-        responses6 = this.answerQuestion(question, {
-          port: 5353,
-          address: networkInterface.ipv6!,
-          interface: networkInterface.name + "/6",
-        });
-      }
 
-      const responses = [...responses4, ...responses6];
       QueryResponse.combineResponses(responses);
 
       // The responses go out on the IPv4 socket when it is bound and on the IPv6 socket otherwise. With neither bound there are no responses, so a send

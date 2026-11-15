@@ -56,6 +56,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - ci: fix the labeler comment that says alpha pull requests get the beta label
 - fix: don't crash when a timed-out truncated query is answered on an interface that has gone
 - fix: start the failed-advertising count over when end() withdraws the advertisement
+- fix: stop the truncated queries still waiting when the responder shuts down
 
 ## v1.4.0 (2026-11-01)
 

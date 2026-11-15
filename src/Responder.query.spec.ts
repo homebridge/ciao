@@ -242,6 +242,29 @@ describe("Responder.handleQuery", () => {
       expect(sent).toHaveLength(0);
     });
 
+    it("forgets a truncated query that is still waiting when the Responder shuts down", async () => {
+      const { responder, sent, service } = makeQueryResponder();
+      const shutdown = jest.fn();
+      Object.assign(responder, {
+        optionsString: "truncated-query-shutdown",
+        refCount: 1,
+        server: { sendResponse: (packet: DNSPacket, destination: EndpointInfo | string) => sent.push([ packet, destination ]), shutdown },
+        shutdownController: new AbortController(),
+      });
+
+      responder.handleQuery(query([new Question(service.getFQDN(), QType.SRV)], [], true), multicastQuerier);
+      // No service is announced, so the shutdown sends no goodbye and only closes the server.
+      (responder as unknown as { announcedServices: Map<string, CiaoService> }).announcedServices.clear();
+      await (responder as unknown as Responder).shutdown();
+
+      expect(shutdown).toHaveBeenCalledTimes(1);
+      // The query's timer is stopped, so the shut-down Responder answers nothing later.
+      expect(jest.getTimerCount()).toBe(0);
+      expect((responder as unknown as { truncatedQueries: Map<string, unknown> }).truncatedQueries.size).toBe(0);
+      jest.advanceTimersByTime(1000);
+      expect(sent).toHaveLength(0);
+    });
+
     it("drops the answer of a timed-out truncated query, without throwing out of the timer, when its interface has gone", () => {
       const { responder, service } = makeQueryResponder();
       const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);

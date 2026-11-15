@@ -275,6 +275,12 @@ export class Responder implements PacketHandler {
     }
     this.delayedMulticastResponses.splice(0);
 
+    // A truncated query still waiting for its next packet would be answered from its timer, by a Responder that is shut down by then.
+    for (const truncatedQuery of this.truncatedQueries.values()) {
+      truncatedQuery.cancel();
+    }
+    this.truncatedQueries.clear();
+
     Responder.INSTANCES.delete(this.optionsString);
 
     debug("Shutting down Responder...");

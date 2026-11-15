@@ -53,6 +53,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - build: stop publishing the 36 declaration map files, which point at sources that are not published
 - chore: drop the stale maintainers field from package.json
 - ci: name the labeler job labeler, not stale
+- ci: fix the labeler comment that says alpha pull requests get the beta label
 
 ## v1.4.0 (2026-11-01)
 

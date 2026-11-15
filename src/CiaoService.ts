@@ -12,7 +12,7 @@ import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
-import { Protocol } from "./index";
+import { Protocol } from "./Protocol";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";

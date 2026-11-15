@@ -1,7 +1,7 @@
 import assert from "assert";
 import net from "net";
 import { ServiceType } from "../CiaoService";
-import { Protocol } from "../index";
+import { Protocol } from "../Protocol";
 import { escapeLabel, splitLabels, splitRelativeName } from "./dns-labels";
 import { getIPFromV4Mapped, isIPv4Mapped } from "./v4mapped";
 

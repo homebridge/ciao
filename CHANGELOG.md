@@ -51,6 +51,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - ci: keep the npm publish token to the publish job, stay on npm 11 and pass refs as env
 - ci: pin the third-party actions to a commit
 - build: stop publishing the 36 declaration map files, which point at sources that are not published
+- chore: drop the stale maintainers field from package.json
 
 ## v1.4.0 (2026-11-01)
 

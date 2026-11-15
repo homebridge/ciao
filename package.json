@@ -4,9 +4,6 @@
   "description": "ciao is a RFC 6763 compliant dns-sd library, advertising on multicast dns (RFC 6762) implemented in plain Typescript/JavaScript",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "maintainers": [
-    "Andreas Bauer <mail@anderl-bauer.de>"
-  ],
   "author": "Andreas Bauer <mail@anderl-bauer.de>",
   "homepage": "https://github.com/homebridge/ciao",
   "license": "MIT",

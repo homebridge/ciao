@@ -47,6 +47,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - refactor: move the PromiseTimeout helper into the one test that uses it
 - chore: drop package-lock.json from the files list, as npm never packs it
 - docs: tell typedoc the internal PacketHandler type is left out on purpose
+- docs: fix paths in the Copilot instructions that point at nothing
 
 ## v1.4.0 (2026-11-01)
 

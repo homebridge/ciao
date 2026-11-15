@@ -13,7 +13,7 @@ All pull requests and changes that touch mDNS, DNS-SD, responder behavior, disco
 - RFC 6762 (Multicast DNS)
 - RFC 6763 (DNS-Based Service Discovery)
 
-This repository contains an additional instructions file (`.github/instructions/*.instructions.md`) that states: "All changes need to be reviewed for compliance with RFC 6762 and RFC 6763" — ensure you follow that requirement for any relevant changes.
+All changes need to be reviewed for compliance with RFC 6762 and RFC 6763 — ensure you follow that requirement for any relevant changes.
 
 ## Pull Request guidance
 
@@ -49,7 +49,7 @@ Primary rule for reviewers invoked on a PR: when asked to review a pull request,
 
 Detection heuristics (scan PR diffs for):
 
-- File path or filename patterns: `src/**/MDNSServer*`, `src/**/Responder*`, `src/**/CiaoService*`, `src/**/responder/**`, `src/**/mdns/**`, `src/**/dns/**`.
+- File path or filename patterns: `src/**/MDNSServer*`, `src/**/Responder*`, `src/**/CiaoService*`, `src/**/responder/**`, `src/**/coder/**`.
 - Keywords in diffs: `mDNS`, `mdns`, `DNS-SD`, `DNS-SD`, `service`, `probe`, `announce`, `SRV`, `PTR`, `TXT`, `A/AAAA`, `TTL`, `unicast`, `suppression`, `conflict`, `probe`, `announce`, `collision`, `name-change`.
 - Changes to serialization/packet-building code, message timing, or probe/announce logic.
 
@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-2. Run any MDNS conformance or integration tests in `test/` that exercise responder behavior. Example:
+2. Run the tests that exercise responder behavior. The tests live next to the source, as `src/**/*.spec.ts`. Example:
 
 ```bash
 # Run mdns/responder tests only (example pattern)

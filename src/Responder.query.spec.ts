@@ -39,7 +39,7 @@ function makeQueryResponder(): { responder: QueryResponder; sent: SentResponse[]
       [ Responder.SERVICE_TYPE_ENUMERATION_NAME, [service.getLowerCasedTypePTR()] ],
       [ service.getLowerCasedTypePTR(), [service.getLowerCasedFQDN()] ],
     ]),
-    truncatedQueries: {},
+    truncatedQueries: new Map(),
   });
 
   return { responder: responder as unknown as QueryResponder, sent, service };

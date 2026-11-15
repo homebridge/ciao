@@ -118,7 +118,7 @@ export class Responder implements PacketHandler {
   private static readonly RETRY_WARNING_ATTEMPTS = 5;
   private static readonly failedAttempts: WeakMap<CiaoService, number> = new WeakMap();
 
-  private readonly truncatedQueries: Record<string, TruncatedQuery> = {}; // indexed by <ip>:<port>
+  private readonly truncatedQueries: Map<string, TruncatedQuery> = new Map(); // indexed by <ip>:<port>:<interface>
   private readonly delayedMulticastResponses: QueuedResponse[] = [];
 
   private currentProber?: Prober;
@@ -778,13 +778,13 @@ export class Responder implements PacketHandler {
 
     const endpointId = endpoint.address + ":" + endpoint.port + ":" + endpoint.interface; // used to match truncated queries
 
-    const previousQuery = this.truncatedQueries[endpointId];
+    const previousQuery = this.truncatedQueries.get(endpointId);
     if (previousQuery) {
       const truncatedQueryResult = previousQuery.appendDNSPacket(packet);
 
       switch (truncatedQueryResult) {
         case TruncatedQueryResult.ABORT: // returned when we detect, that continuously TC queries are sent
-          delete this.truncatedQueries[endpointId];
+          this.truncatedQueries.delete(endpointId);
           debug("[%s] Aborting to wait for more truncated queries. Waited a total of %d ms receiving %d queries",
             endpointId, previousQuery.getTotalWaitTime(), previousQuery.getArrivedPacketCount());
           return;
@@ -792,7 +792,7 @@ export class Responder implements PacketHandler {
           debug("[%s] Received a query marked as truncated, waiting for more to arrive", endpointId);
           return; // wait for the next packet
         case TruncatedQueryResult.FINISHED:
-          delete this.truncatedQueries[endpointId];
+          this.truncatedQueries.delete(endpointId);
           packet = previousQuery.getPacket(); // replace packet with the complete deal
 
           debug("[%s] Last part of the truncated query arrived. Received %d packets taking a total of %d ms",
@@ -804,12 +804,12 @@ export class Responder implements PacketHandler {
       debug("Received truncated query from " + JSON.stringify(endpoint) + " waiting for more to come!");
 
       const truncatedQuery = new TruncatedQuery(packet);
-      this.truncatedQueries[endpointId] = truncatedQuery;
+      this.truncatedQueries.set(endpointId, truncatedQuery);
       truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
         // RFC 6762 7.2: the querier had 400 to 500 ms to send the rest of its known answers. None came, so the query is answered with what arrived.
         debug("[%s] Timeout passed since the last truncated query was received. Answering the %d packets received in %d ms.",
           endpointId, truncatedQuery.getArrivedPacketCount(), truncatedQuery.getTotalWaitTime());
-        delete this.truncatedQueries[endpointId];
+        this.truncatedQueries.delete(endpointId);
         this.answerQuery(truncatedQuery.getPacket(), endpoint, Date.now());
       });
 

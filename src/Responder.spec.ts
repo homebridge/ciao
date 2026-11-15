@@ -90,7 +90,7 @@ function makeChainResponder(): { internals: ChainResponder; server: ChainServer 
     server,
     servicePointer: new Map(),
     shutdownController: new AbortController(),
-    truncatedQueries: {},
+    truncatedQueries: new Map(),
   });
 
   return { internals: responder as unknown as ChainResponder, server };

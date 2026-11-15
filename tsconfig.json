@@ -6,7 +6,6 @@
         "importHelpers": true,
         "lib": ["es2024"],
         "declaration": true,
-        "declarationMap": true,
         "sourceMap": true,
         "outDir": "lib",
         "rootDir": "src",

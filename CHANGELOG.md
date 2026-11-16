@@ -57,6 +57,7 @@ All notable changes to `@homebridge/ciao` will be documented in this file. This 
 - fix: don't crash when a timed-out truncated query is answered on an interface that has gone
 - fix: start the failed-advertising count over when end() withdraws the advertisement
 - fix: stop the truncated queries still waiting when the responder shuts down
+- chore(deps): dependency updates
 
 ## v1.4.0 (2026-11-01)
 

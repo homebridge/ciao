@@ -1,4 +1,4 @@
-import { DNSPacket, QClass, QType, RType } from "./DNSPacket";
+import { DNSPacket, QClass, QType, RType, udpPayloadSizeFromEnv } from "./DNSPacket";
 import { Question } from "./Question";
 import { AAAARecord } from "./records/AAAARecord";
 import { ARecord } from "./records/ARecord";
@@ -102,5 +102,27 @@ describe(DNSPacket, () => {
 
     expect(DNSPacket.decode(context, packet(61)).answers.size).toBe(2); // 62 + 193 = 255 bytes
     expect(() => DNSPacket.decode(context, packet(62))).toThrow(/maximum length/); // 256 bytes
+  });
+});
+
+describe(udpPayloadSizeFromEnv, () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("should use the default of 1440 bytes when CIAO_UPS is not set or empty", () => {
+    expect(udpPayloadSizeFromEnv(undefined)).toBe(1440);
+    expect(udpPayloadSizeFromEnv("")).toBe(1440);
+  });
+
+  it("should use the number of bytes CIAO_UPS gives", () => {
+    expect(udpPayloadSizeFromEnv("1232")).toBe(1232);
+  });
+
+  it.each([ "abc", "0", "-5" ])("should refuse CIAO_UPS=%s with a warning and use the default", value => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+
+    expect(udpPayloadSizeFromEnv(value)).toBe(1440);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Ignoring CIAO_UPS='" + value + "'"));
   });
 });

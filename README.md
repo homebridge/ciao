@@ -110,9 +110,9 @@ if you don't want to advertise on all available addresses/network interfaces.
 The [advertise](https://developers.homebridge.io/ciao/classes/CiaoService.html#advertise) method can now be called
 on the `service` object to start advertising the service on the network.
 An application should ideally listen to the [NAME_CHANGED](https://developers.homebridge.io/ciao/enums/ServiceEvent.html#NAME_CHANGED)
-event, in oder to persist any changes happening to the service name resulting of the conflict resolution algorithm.
+event, in order to persist any changes happening to the service name resulting from the conflict resolution algorithm.
 The method [updateTxt](https://developers.homebridge.io/ciao/classes/CiaoService.html#updateTxt) can be used
-to update the contest of the txt exposed by the service.
+to update the content of the txt exposed by the service.
 
 Any application SHOULD hook up a listener on events like SIGTERM or SIGINT and call the 
 [shutdown](https://developers.homebridge.io/ciao/classes/Responder.html#shutdown) method of the responder object.
@@ -125,8 +125,8 @@ Otherwise, stale data will remain in the caches of surrounding mdns browsers.
 As of [RFC 6762 17. Multicast DNS Message Size](https://tools.ietf.org/html/rfc6762#section-17) DNS packets must avoid
 IP Fragmentation and ensure that all sent packets are smaller than the Maximum Transmission Unit (MTU) defined by
 the network interface. The MTU defaults to 1500 Bytes on pretty much all network cards for Ethernet and Wi-Fi.
-`ciao` can't reliable detect modifications made to this default MTU size.
-Thus , we rely on a hardcoded value, which is `1440` for the **UDP Payload Size** (Remember: the MTU defines the amount
+`ciao` can't reliably detect modifications made to this default MTU size.
+Thus, we rely on a hardcoded value, which is `1440` for the **UDP Payload Size** (Remember: the MTU defines the amount
 of bytes Ethernet or Wi-Fi can transport on the local link. There is additional overhead caused by the IP Header 
 and the UDP Header. So the amount of bytes we are able to fit into a single UDP packet is smaller).  
 If you know, that the MTU differs on your machine, you can set the true **UDP Payload Size** in bytes
@@ -143,7 +143,7 @@ The RFC lists three possible issues:
     As multiple sockets (from multiple responders) are bound to the port 5353, only one can receive unicast responses.
     Unicast responses is a way to reduce traffic on the multicast address, as answers to a particular question can be
     sent directly to the querier. As ciao does not hold the primary socket on port 5353, it can't receive unicast responses
-    and thus must sent any queries without setting the QU (unicast response) flag. Any responses to our questions are 
+    and thus must send any queries without setting the QU (unicast response) flag. Any responses to our questions are 
     sent on multicast and thus increase the load on the network.  
     This currently isn't really a problem, as the only time we send queries is in the probing step before we 
     advertise a new service (Future query functionality is much more affected).

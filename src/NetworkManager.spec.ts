@@ -225,6 +225,58 @@ describe(NetworkManager, () => {
       expect(manager.isLoopbackNetaddressV4("127.0.0.0")).toBe(true);
     });
 
+    // The check runs from a timer, so nothing awaits it. A failed read used to reject, which is an unhandled rejection, and returned before the next
+    // check was scheduled, so the interfaces were never read again.
+    it("schedules the next check after a check that failed, without rejecting", async () => {
+      const manager = makeBareManager();
+      const scheduleNextJob = jest.fn();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).scheduleNextJob = scheduleNextJob;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).getCurrentNetworkInterfaces = jest.fn().mockRejectedValue(new Error("uv_interface_addresses returned Unknown system error 13"));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect((manager as any).checkForNewInterfaces()).resolves.toBeUndefined();
+      expect(scheduleNextJob).toHaveBeenCalledTimes(1);
+    });
+
+    it("schedules the next check after a listener of the network update threw, without rejecting", async () => {
+      const manager = makeBareManager();
+      const scheduleNextJob = jest.fn();
+      const lo: NetworkInterface = { name: "lo", loopback: true, mac: "00:00:00:00:00:00", ipv4: "127.0.0.1", ipv4Netaddress: "127.0.0.0" };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).scheduleNextJob = scheduleNextJob;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).getCurrentNetworkInterfaces = jest.fn().mockResolvedValue(new Map([["lo", lo]]));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).emit = () => {
+        throw new Error("a listener failed");
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect((manager as any).checkForNewInterfaces()).resolves.toBeUndefined();
+      expect(scheduleNextJob).toHaveBeenCalledTimes(1);
+    });
+
+    it("schedules no further check once the manager was shut down during a check", async () => {
+      const manager = makeBareManager();
+      const scheduleNextJob = jest.fn();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).scheduleNextJob = scheduleNextJob;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).getCurrentNetworkInterfaces = jest.fn(async () => {
+        manager.shutdown();
+        return new Map();
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (manager as any).checkForNewInterfaces();
+      expect(scheduleNextJob).not.toHaveBeenCalled();
+    });
+
     // Regression: getCurrentNetworkInterfaces asserted that every listed
     // interface exposed at least one usable IP — but the newer `ip -o link
     // show` helper enumerates more virtual/down interfaces, and `excludeIpv6`

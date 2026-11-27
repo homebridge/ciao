@@ -7,6 +7,7 @@ import deepEqual from "fast-deep-equal";
 import net from "net";
 import os, { NetworkInterfaceInfo } from "os";
 import { canonicalizeIPv6, getNetAddress } from "./util/domain-formatter";
+import { errorMessage, errorStack } from "./util/errors";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:NetworkManager");
@@ -227,7 +228,24 @@ export class NetworkManager extends EventEmitter {
     this.currentTimer.unref(); // this timer won't prevent shutdown
   }
 
+  /* One check of the polling job. It runs from a timer, so nothing awaits it: a rejection would go unhandled, which ends the host process, and would leave
+   * without scheduling the next check, so the interfaces were never read again. A check that fails is therefore logged and the next one scheduled as after
+   * any other.
+   */
   private async checkForNewInterfaces(): Promise<void> {
+    try {
+      await this.detectInterfaceChanges();
+    } catch (error) {
+      // debug, not console: a read that keeps failing would otherwise print every 15 seconds (homebridge/ciao#72)
+      debug("Checking the network interfaces failed, trying again in %d seconds: %s", NetworkManager.POLLING_TIME / 1000, errorStack(error));
+    }
+
+    if (this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
+      this.scheduleNextJob();
+    }
+  }
+
+  private async detectInterfaceChanges(): Promise<void> {
     const latestInterfaces = await this.getCurrentNetworkInterfaces();
     if (!this.currentTimer) { // if the timer is undefined, NetworkManager was shut down
       return;
@@ -336,8 +354,6 @@ export class NetworkManager extends EventEmitter {
         changes: changes,
       });
     }
-
-    this.scheduleNextJob();
   }
 
   private async getCurrentNetworkInterfaces(): Promise<Map<InterfaceName, NetworkInterface>> {
@@ -353,7 +369,7 @@ export class NetworkManager extends EventEmitter {
       try {
         names = await NetworkManager.getNetworkInterfaceNames();
       } catch (error) {
-        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${error.message})`);
+        debug(`WARNING Detecting network interfaces for platform '${os.platform()}' failed. Trying to assume network interfaces! (${errorMessage(error)})`);
         // fallback way of gathering network interfaces (remember, there are docker images where the arp command is not installed)
         names = NetworkManager.assumeNetworkInterfaceNames();
       }
@@ -380,11 +396,9 @@ export class NetworkManager extends EventEmitter {
           internal = true;
         }
 
-        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
-        if ((info.family === "IPv4" || info.family === 4) && !ipv4Info) {
+        if (info.family === "IPv4" && !ipv4Info) {
           ipv4Info = info;
-        // @ts-expect-error Nodejs 18+ uses the number 4 instead of the string "IPv4"
-        } else if (info.family === "IPv6" || info.family === 6) {
+        } else if (info.family === "IPv6") {
           if (this.excludeIpv6) {
             continue;
           }
@@ -562,8 +576,7 @@ export class NetworkManager extends EventEmitter {
         // unique global or unique local ipv6 addresses give an indication that we are truly connected to "the Internet"
         // as something like SLAAC must be going on
         // in the end
-        // @ts-expect-error Nodejs 18+ uses the number 4/6 instead of the string "IPv4"/"IPv6"
-        if (info.internal || (info.family === "IPv4" || info.family === 4) || (info.family === "IPv6" || info.family === 6) && info.scopeid === 0) {
+        if (info.internal || info.family === "IPv4" || info.family === "IPv6" && info.scopeid === 0) {
           if (!names.includes(name)) {
             names.push(name);
           }

@@ -95,6 +95,63 @@ describe(Announcer, () => {
     });
   });
 
+  describe("sendResponseAddingAddressRecords - send timeout", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Every send used to leave a 200 ms timer running after the packet was out, which held the event loop open for that long.
+    it("leaves no timer behind once the packet is sent", async () => {
+      jest.useFakeTimers();
+
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Kitchen", port: 4711, type: "hap" });
+      const server = {
+        getBoundInterfaceNames: () => ["eth0"],
+        send: jest.fn(() => Promise.resolve({ status: "fulfilled", interface: "eth0" })),
+      };
+
+      service.rebuildServiceRecords();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results = await (Announcer as any).sendResponseAddingAddressRecords(server, service, [service.srvRecord()], false);
+
+      expect(results).toEqual([{ status: "fulfilled", interface: "eth0" }]);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe("an announcement whose records are too big for one packet", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Eight TXT entries of 200 octets take the record set past the 1440 octets of one packet, and the packet build throws. The send runs from the
+    // announcer's timer, so the throw escaped as an uncaught exception.
+    it("rejects the announcement instead of throwing out of its timer", async () => {
+      jest.useFakeTimers();
+
+      const eth0: NetworkInterface = { name: "eth0", loopback: false, mac: "00:00:5e:00:53:01", ipv4: "192.0.2.1" };
+      const networkManager = { getInterfaceMap: () => new Map([[ eth0.name, eth0 ]]) } as unknown as NetworkManager;
+      const txt = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [ "key" + index, "x".repeat(200) ]));
+      const service = new CiaoService(networkManager, { name: "Kitchen", port: 4711, txt, type: "hap" });
+      const server = {
+        getBoundInterfaceNames: () => ["eth0"],
+        send: jest.fn(() => Promise.resolve({ status: "fulfilled", interface: "eth0" })),
+      };
+
+      service.rebuildServiceRecords();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const announcement = new Announcer(server as any, service, { repetitions: 1 }).announce();
+      const outcome = announcement.then(() => "resolved", (reason: Error) => reason.message);
+
+      expect(() => jest.advanceTimersByTime(0)).not.toThrow();
+      await expect(outcome).resolves.toMatch(/Couldn't construct a dns response packet/);
+      expect(server.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe("goodbye keeping the address records (#20)", () => {
     function sentRecords(keepAddressRecords: boolean) {
       const packetSpy = jest.spyOn(DNSPacket, "createDNSResponsePacketsFromRRSet").mockReturnValue({} as DNSPacket);

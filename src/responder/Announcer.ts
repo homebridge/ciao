@@ -7,10 +7,9 @@ import {
   MDNSServer,
   SendResultFailedRatio,
   SendResultFormatError,
-  SendTimeoutResult,
   TimedSendResult,
+  withSendTimeout,
 } from "../MDNSServer";
-import { PromiseTimeout } from "../util/promise-utils";
 import Timeout = NodeJS.Timeout;
 
 const debug = createDebug("ciao:Announcer");
@@ -56,9 +55,13 @@ export class Announcer {
   private timer?: Timeout;
   private promise?: Promise<void>;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private promiseReject?: (reason?: any) => void;
+  private promiseReject?: (reason?: unknown) => void;
 
+  /**
+   * Set by {@link cancel}. A send still in flight when the announcer is cancelled resolves later, and by then the service can be ANNOUNCING again under the
+   * announcer that took over, the goodbye of an {@link CiaoService.end} above all, so the service state alone cannot tell the send that it is stale.
+   */
+  private cancelled = false;
   private sentAnnouncements = 0;
   private sentLastAnnouncement = false;
   private nextInterval = 1000;
@@ -107,6 +110,7 @@ export class Announcer {
 
   public async cancel(): Promise<void> {
     debug("[%s] Canceling %s", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
+    this.cancelled = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -160,7 +164,20 @@ export class Announcer {
       this.sentLastAnnouncement = true;
     }
 
-    Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye, this.keepAddressRecords).then(results => {
+    /* Building the packets throws synchronously when the records cannot be encoded, a record set too big for one packet among them. This runs from a
+     * setTimeout callback, where an escaping throw is an uncaught exception that ends the host process, so the throw rejects the announcement instead, as a
+     * failed send does. It goes to debug for the reason the Prober gives for its own build failure: the Responder retries a rejected announcement.
+     */
+    let sending: Promise<TimedSendResult[]>;
+    try {
+      sending = Announcer.sendResponseAddingAddressRecords(this.server, this.service, records, this.goodbye, this.keepAddressRecords);
+    } catch (error) {
+      debug(`[${this.service.getFQDN()}] Failed to build the ${this.goodbye? "goodbye": "announcement"}: ${error instanceof Error? error.message: String(error)}`);
+      this.promiseReject!(error instanceof Error? error: new Error(String(error)));
+      return;
+    }
+
+    sending.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         // debug: rejected below, and the Responder logs and retries it (homebridge/ciao#72)
@@ -174,6 +191,12 @@ export class Announcer {
         // at this point we are not responsible for removing stale network interfaces or something
         debug(SendResultFormatError(results, `Some of the ${this.goodbye? "goodbye": "announcement"} requests for '${this.service.getFQDN()}' encountered an error`));
         // SEE no return here
+      }
+
+      // A cancelled announcer must not arm its timer again: the next repetition would announce the service after whatever cancelled it, a goodbye included.
+      if (this.cancelled) {
+        debug("[%s] The %s was cancelled while a packet was being sent. Stopping.", this.service.getFQDN(), this.goodbye? "goodbye": "announcement");
+        return;
       }
 
       if (this.service.serviceState !== ServiceState.ANNOUNCING) {
@@ -213,7 +236,6 @@ export class Announcer {
       const aaaaRecord = keepAddressRecords? undefined: service.aaaaRecord(interfaceName);
       const aaaaRoutableRecord = keepAddressRecords? undefined: service.aaaaRoutableRecord(interfaceName);
       const aaaaUniqueLocalRecord = keepAddressRecords? undefined: service.aaaaUniqueLocalRecord(interfaceName);
-      //const reversMappings: PTRRecord[] = service.reverseAddressMappings(networkInterface);
       // The address NSEC lists the address types this interface carries, and none exists where it carries neither.
       const nsecRecord = keepAddressRecords? undefined: service.addressNSECRecord(interfaceName);
       const serviceNsecRecord = service.serviceNSECRecord();
@@ -243,15 +265,6 @@ export class Announcer {
         }
         answer.push(aaaaUniqueLocalRecord);
       }
-
-      /*
-      for (const reversMapping of reversMappings) {
-        if (goodbye) {
-          reversMapping.ttl = 0;
-        }
-        answer.push(reversMapping);
-      }
-      */
 
       if (goodbye) {
         if (nsecRecord) {
@@ -287,14 +300,7 @@ export class Announcer {
         });
       }
 
-      promises.push(Promise.race([
-        sendPromise,
-        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
-          <SendTimeoutResult>{
-            status: "timeout",
-            interface: name,
-          }),
-      ]));
+      promises.push(withSendTimeout(sendPromise, name));
     }
 
     return Promise.all(promises);

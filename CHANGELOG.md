@@ -2,6 +2,63 @@
 
 All notable changes to `@homebridge/ciao` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v1.4.1 (Pending Release)
+
+### Changes
+
+- fix: reject a TXT entry longer than 255 bytes
+- fix: don't crash when a service's records are too big for one packet
+- fix: stop a cancelled announcement sending again after the goodbye
+- fix: keep a service type listed while another service of that type is announced
+- fix: handle a conflict or an advertise() that arrives during a TTL correction
+- fix: keep checking the network interfaces after a check fails
+- fix: ignore shutdown() on a responder that is already shut down
+- fix: stop the timer of a truncated query that was given up on
+- fix: let destroy() be called again on a destroyed service
+- fix: spell the http-alt service type with a dash
+- fix: don't take a goodbye record for a name conflict while probing
+- fix: keep Buffer TXT values as raw bytes and leave out undefined or null ones
+- perf: match a known answer whatever its letter case
+- perf: stop the send timeout once the packet is sent
+- refactor: remove the unreachable process.exit calls
+- chore: stop publishing the test helper
+- refactor: remove commented-out code from CiaoService
+- refactor: remove commented-out code from Announcer
+- refactor: remove commented-out code from Responder
+- refactor: remove commented-out code from Prober
+- refactor: remove commented-out code from QueuedResponse
+- refactor: remove commented-out code from MDNSServer
+- refactor: drop the Node 18 numeric address family checks
+- refactor: type the announcer and prober rejection reasons as unknown
+- refactor: type ResourceRecord.clone without a ts-expect-error
+- refactor: type caught errors as unknown
+- docs(readme): fix typing mistakes
+- docs: say the server binds IPv4 and IPv6 sockets
+- chore: drop paths that don't exist from the files list and the jest config
+- chore: declare the same Node.js versions as HAP-NodeJS
+- fix: fall back to the default packet size when CIAO_UPS is not a number
+- test: cover delayed and merged responses, query handling and type names
+- fix: answer a truncated query whose next packet never arrives
+- fix: warn once when a service keeps failing to probe or announce
+- fix: send the periodic broadcast for every announced service type
+- fix: log an error thrown by a name-change listener instead of crashing
+- refactor: hold the truncated queries in a Map
+- refactor: move Protocol to its own file so no module imports index.ts
+- refactor: move the PromiseTimeout helper into the one test that uses it
+- chore: drop package-lock.json from the files list, as npm never packs it
+- docs: tell typedoc the internal PacketHandler type is left out on purpose
+- docs: fix paths in the Copilot instructions that point at nothing
+- ci: keep the npm publish token to the publish job, stay on npm 11 and pass refs as env
+- ci: pin the third-party actions to a commit
+- build: stop publishing the 36 declaration map files, which point at sources that are not published
+- chore: drop the stale maintainers field from package.json
+- ci: name the labeler job labeler, not stale
+- ci: fix the labeler comment that says alpha pull requests get the beta label
+- fix: don't crash when a timed-out truncated query is answered on an interface that has gone
+- fix: start the failed-advertising count over when end() withdraws the advertisement
+- fix: stop the truncated queries still waiting when the responder shuts down
+- chore(deps): dependency updates
+
 ## v1.4.0 (2026-11-01)
 
 ### Changes

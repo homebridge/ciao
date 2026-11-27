@@ -2,7 +2,7 @@ import assert from "assert";
 import createDebug from "debug";
 import { AddressInfo } from "net";
 import { dnsLowerCase } from "../util/dns-equal";
-import { NameLimitExceededError } from "../util/errors";
+import { errorStack, NameLimitExceededError } from "../util/errors";
 import { dnsTypeToString } from "./dns-string-utils";
 import { DNSLabelCoder, NonCompressionLabelCoder } from "./DNSLabelCoder";
 import { DecodedData, DNSRecord, OptionalDecodedData, RClass, RType } from "./DNSPacket";
@@ -133,9 +133,8 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
   public abstract dataEquals(record: ResourceRecord): boolean;
 
   public static clone<T extends ResourceRecord>(records: T[]): T[] {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error
-    return records.map(record => record.clone());
+    // clone() is declared to return a ResourceRecord, and each subclass narrows it to its own type, so the copy of a T is a T.
+    return records.map(record => record.clone() as T);
   }
 
   protected getRecordRepresentation(): RecordRepresentation {
@@ -198,7 +197,7 @@ export abstract class ResourceRecord implements DNSRecord { // RFC 1035 4.1.3.
       }
 
       debug(`Received malformed rdata section for ${dnsTypeToString(header.type)} ${header.name} ${header.ttl} \
-from ${context.address}:${context.port} with data '${rdata.subarray(offset).toString("hex")}': ${error.stack}`);
+from ${context.address}:${context.port} with data '${rdata.subarray(offset).toString("hex")}': ${errorStack(error)}`);
 
       return { readBytes: readBytes };
     } finally {

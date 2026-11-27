@@ -6,7 +6,6 @@
         "importHelpers": true,
         "lib": ["es2024"],
         "declaration": true,
-        "declarationMap": true,
         "sourceMap": true,
         "outDir": "lib",
         "rootDir": "src",
@@ -14,13 +13,13 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "preserveConstEnums": true,
-        "useUnknownInCatchVariables": false,
         "types": ["node", "jest"]
     },
     "include": [
         "src/"
     ],
     "exclude": [
-        "**/*.spec.ts"
+        "**/*.spec.ts",
+        "**/test-utils.ts"
     ]
 }

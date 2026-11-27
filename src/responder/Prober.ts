@@ -34,8 +34,7 @@ export class Prober {
   private timer?: Timeout;
   private currentInterval: number = PROBE_INTERVAL;
   private promiseResolve?: (value?: void | PromiseLike<void>) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private promiseReject?: (reason?: any) => void;
+  private promiseReject?: (reason?: unknown) => void;
 
   private serviceEncounteredNameChange = false;
   private sentFirstProbeQuery = false; // we MUST ignore responses received BEFORE the first probe is sent
@@ -146,7 +145,7 @@ export class Prober {
       this.records = [
         this.service.srvRecord(), this.service.txtRecord(),
         this.service.ptrRecord(), ...this.service.subtypePtrRecords(),
-        ...this.service.allAddressRecords(), //...this.service.allReverseAddressMappings(),
+        ...this.service.allAddressRecords(),
       ].sort(rrComparator); // we sort them for the tiebreaking algorithm
       this.records.forEach(record => record.flushFlag = false);
     }
@@ -259,16 +258,20 @@ export class Prober {
       return;
     }
 
+    // A record with a ttl of zero is a goodbye (RFC 6762 10.1): its sender is giving the name up, not holding it, so it answers no probe.
+    const holdsProbedName = (record: ResourceRecord): boolean => record.ttl !== 0
+      && (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname());
+
     let containsAnswer = false;
     // search answers and additionals for answers to our probe queries
     for (const record of packet.answers.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (holdsProbedName(record)) {
         containsAnswer = true;
         break;
       }
     }
     for (const record of packet.additionals.values()) {
-      if (record.getLowerCasedName() === this.service.getLowerCasedFQDN() || record.getLowerCasedName() === this.service.getLowerCasedHostname()) {
+      if (holdsProbedName(record)) {
         containsAnswer = true;
         break;
       }
@@ -362,9 +365,9 @@ export class Prober {
       // If it wasn't a stale probe packet, the other host will correctly respond to our probe queries by then
       this.timer = setTimeout(this.sendProbeRequest.bind(this), 1000);
       this.timer.unref();
-    } else {
-      //debug("Tiebreaking for '%s' detected exact same records on the network. There is actually no conflict!", this.service.getFQDN());
     }
+    // Otherwise it is a tie: both sides hold exactly the same records, so there is no conflict. This is the common case, as we receive our own probe
+    // queries too, so it is not logged.
   }
 
 }

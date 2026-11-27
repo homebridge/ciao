@@ -1,5 +1,5 @@
 import os from "os";
-import { CiaoService, ServiceOptions } from "./CiaoService";
+import { CiaoService, InternalServiceEvent, PublishCallback, ServiceOptions, ServiceState, ServiceType } from "./CiaoService";
 import { DNSLabelCoder } from "./coder/DNSLabelCoder";
 import { RClass, RType } from "./coder/DNSPacket";
 import { AAAARecord } from "./coder/records/AAAARecord";
@@ -552,6 +552,156 @@ describe(CiaoService, () => {
       } finally {
         emit.mockRestore();
       }
+    });
+  });
+
+  describe("a listener of a name event that throws", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("is logged, and the other name event is still emitted", () => {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      const hostnames: string[] = [];
+
+      service.on("name-change", () => {
+        throw new Error("The app could not save the name.");
+      });
+      service.on("hostname-change", hostname => hostnames.push(hostname));
+      service.incrementName();
+
+      expect(() => service.informAboutNameUpdates()).not.toThrow();
+      expect(hostnames).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("A listener of the 'name-change' event threw an error: Error: The app could not save the name."));
+    });
+  });
+
+  describe("ServiceType", () => {
+    // A service type holds letters, digits and hyphens (RFC 6335 5.1), and the IANA registry names HTTP's alternate port "http-alt".
+    it("should spell the http-alt type as registered, so it is advertised under _http-alt._tcp", () => {
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 8080, type: ServiceType.HTTP_ALT });
+
+      expect(service.getTypePTR()).toBe("_http-alt._tcp.local.");
+    });
+  });
+
+  describe("destroy()", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should resolve when called again on a destroyed service, with the first call's Promise", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const first = service.destroy();
+
+      // A second call while the first is in progress, and a third once it is done.
+      expect(service.destroy()).toBe(first);
+      await expect(first).resolves.toBeUndefined();
+      await expect(service.destroy()).resolves.toBeUndefined();
+      expect(service.isDestroyed()).toBe(true);
+    });
+
+    it("should still refuse end(), advertise() and updateTxt() on a destroyed service", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+
+      await service.destroy();
+
+      expect(() => service.end()).toThrow("Cannot end destroyed service!");
+      expect(() => service.advertise()).toThrow("Cannot publish destroyed service!");
+      expect(() => service.updateTxt({ a: "1" })).toThrow("Cannot update destroyed service!");
+    });
+
+    it("should leave the service usable, and destroyable again, when the end() it runs fails", async () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+      const end = jest.spyOn(service, "end").mockRejectedValueOnce(new Error("The goodbye failed."));
+
+      await expect(service.destroy()).rejects.toThrow("The goodbye failed.");
+      expect(service.isDestroyed()).toBe(false);
+
+      await expect(service.destroy()).resolves.toBeUndefined();
+      expect(end).toHaveBeenCalledTimes(2);
+      expect(service.isDestroyed()).toBe(true);
+    });
+  });
+
+  describe("a network update on an announced service", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("should report a republish that fails with a warning, and never end the process", () => {
+      const exit = jest.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const log = jest.spyOn(console, "log").mockImplementation(() => { /* swallow */ });
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+      const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, type: "http" });
+
+      service.on(InternalServiceEvent.REPUBLISH, (callback: PublishCallback) => callback(new Error("The republish failed.")));
+      service.serviceState = ServiceState.ANNOUNCED;
+      service.handleNetworkInterfaceUpdate({ added: [{ name: "en1", loopback: false, mac: "00:00:5e:00:53:02", ipv4: "192.0.2.7" }] });
+
+      expect(exit).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to re-announce the service after a network change"));
+    });
+  });
+
+  describe("TXT values", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should advertise a Buffer value byte for byte", () => {
+      // 0xff and 0xfe are no valid UTF-8, so turning the Buffer into text and back would replace each with the three bytes of U+FFFD.
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { raw: Buffer.from([ 0xff, 0x00, 0xfe ]) }, type: "http" });
+
+      expect(service.getTXT()).toEqual([Buffer.from([ 0x72, 0x61, 0x77, 0x3d, 0xff, 0x00, 0xfe ])]);
+    });
+
+    it("should leave out a key whose value is undefined or null, and keep the others as text", () => {
+      const service = new CiaoService(networkManager, {
+        name: "Test Service",
+        port: 4711,
+        txt: { a: undefined, b: null, c: "", d: 0, e: false, f: true, g: "text" },
+        type: "http",
+      });
+
+      expect(service.getTXT().map(entry => entry.toString())).toEqual([ "c=", "d=0", "e=false", "f=true", "g=text" ]);
+
+      service.updateTxt({ a: undefined, g: "next" });
+      expect(service.getTXT().map(entry => entry.toString())).toEqual(["g=next"]);
+    });
+
+    it("should measure a Buffer value by its bytes against the 255 octets of an entry", () => {
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { raw: Buffer.alloc(252, 0xff) }, type: "http" }))
+        .toThrow(/The txt entry 'raw' takes 256 octets/);
+    });
+  });
+
+  describe("a TXT entry longer than 255 octets", () => {
+    const networkManager = { getInterfaceMap: () => new Map() } as unknown as NetworkManager;
+
+    it("should refuse the service at creation, naming the key", () => {
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { ok: "fine", big: "x".repeat(252) }, type: "http" }))
+        .toThrow("The txt entry 'big' takes 256 octets as 'key=value', more than the 255 a TXT entry may hold.");
+    });
+
+    it("should count octets, so a multi-byte value is measured by its bytes", () => {
+      // "k=" and 127 two-byte characters take 256 octets, in 129 characters.
+      expect(() => new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { k: "\u00e9".repeat(127) }, type: "http" })).toThrow(/takes 256 octets/);
+    });
+
+    it("should accept an entry of exactly 255 octets", () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { big: "x".repeat(251) }, type: "http" });
+
+      expect(service.getTXT()[0].length).toBe(255);
+    });
+
+    it("should refuse updateTxt() and leave the txt as it was", () => {
+      const service = new CiaoService(networkManager, { name: "Test Service", port: 4711, txt: { a: "1" }, type: "http" });
+
+      expect(() => service.updateTxt({ a: "2", big: "x".repeat(300) })).toThrow(/The txt entry 'big' takes 304 octets/);
+      expect(service.getTXT().map(entry => entry.toString())).toEqual(["a=1"]);
     });
   });
 });

@@ -1,12 +1,9 @@
 {
   "name": "@homebridge/ciao",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "ciao is a RFC 6763 compliant dns-sd library, advertising on multicast dns (RFC 6762) implemented in plain Typescript/JavaScript",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "maintainers": [
-    "Andreas Bauer <mail@anderl-bauer.de>"
-  ],
   "author": "Andreas Bauer <mail@anderl-bauer.de>",
   "homepage": "https://github.com/homebridge/ciao",
   "license": "MIT",
@@ -47,15 +44,12 @@
     "url": "https://github.com/homebridge/ciao/issues"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.12.0 || ^24 || ^26"
   },
   "files": [
     "lib",
-    "types",
     "README.md",
-    "LICENSE",
-    "package.json",
-    "package-lock.json"
+    "LICENSE"
   ],
   "dependencies": {
     "debug": "^4.4.3",
@@ -70,11 +64,11 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.6",
     "@types/source-map-support": "^0.5.10",
-    "@typescript-eslint/eslint-plugin": "^8.72.1",
-    "@typescript-eslint/parser": "^8.72.1",
-    "eslint": "^10.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.2",
+    "@typescript-eslint/parser": "^8.72.2",
+    "eslint": "^10.15.0",
     "jest": "^30.5.2",
-    "rimraf": "^6.1.3",
+    "rimraf": "^6.1.4",
     "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
     "typedoc": "^0.28.20",

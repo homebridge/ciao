@@ -23,8 +23,7 @@ import {
   NetworkUpdate,
 } from "./NetworkManager";
 import { getNetAddress } from "./util/domain-formatter";
-import { InterfaceNotFoundError } from "./util/errors";
-import { PromiseTimeout } from "./util/promise-utils";
+import { errorMessage, errorStack, InterfaceNotFoundError } from "./util/errors";
 
 const debug = createDebug("ciao:MDNSServer");
 
@@ -129,6 +128,24 @@ export function SendResultFormatError(results: SendResult[] | TimedSendResult[],
 }
 
 /**
+ * Settles with the result of a send, or with a timeout result once the send has taken longer than {@link MDNSServer.SEND_TIMEOUT}.
+ * The timer is stopped as soon as the send settles, and it never holds the event loop open, so a send leaves no timer behind.
+ *
+ * @param send - The pending send.
+ * @param name - The name of the socket the packet is sent on, reported with a timeout.
+ */
+export function withSendTimeout(send: Promise<TimedSendResult>, name: InterfaceName): Promise<TimedSendResult> {
+  let timer: NodeJS.Timeout | undefined = undefined;
+
+  const timeout = new Promise<SendTimeoutResult>(resolve => {
+    timer = setTimeout(() => resolve({ status: "timeout", interface: name }), MDNSServer.SEND_TIMEOUT);
+    timer.unref();
+  });
+
+  return Promise.race([ send, timeout ]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Defines the options passed to the underlying mdns server.
  */
 export interface MDNSServerOptions {
@@ -172,7 +189,8 @@ export interface PacketHandler {
 /**
  * This class can be used to create a mdns server to send and receive mdns packets on the local network.
  *
- * Currently only udp4 sockets will be advertised.
+ * It binds one udp4 socket for every interface that holds an IPv4 address, and one udp6 socket for every interface that holds a link-local IPv6
+ * address when {@link MDNSServerOptions.advertiseIpv6} is set. An IPv6 socket goes by the interface's name with "/6" appended.
  */
 export class MDNSServer {
 
@@ -391,14 +409,7 @@ export class MDNSServer {
         });
       });
 
-      promises.push(Promise.race([
-        promise,
-        PromiseTimeout(MDNSServer.SEND_TIMEOUT).then(() =>
-          <SendTimeoutResult>{
-            status: "timeout",
-            interface: name,
-          }),
-      ]));
+      promises.push(withSendTimeout(promise, name));
     }
 
     return Promise.all(promises);
@@ -647,7 +658,6 @@ export class MDNSServer {
 
         const multicastAddress = isIPv6 ? MDNSServer.MULTICAST_IPV6 : MDNSServer.MULTICAST_IPV4;
 
-        // assert(interfaceAddress, "Interface address for " + networkInterface.name + " cannot be undefined!");
         if (!interfaceAddress) {
           // There isn't necessarily an IPv4 and IPv6 address assigned to every interface even on dual-stack systems.
           // Because that is normal rather than a fault, it goes to debug: this fires once per interface per family
@@ -669,7 +679,6 @@ export class MDNSServer {
           // carries no scope, so the kernel would pick the default multicast interface, or refuse (EADDRNOTAVAIL)
           socket.addMembership(multicastAddress, isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
-          // socket.setMulticastInterface(isIPv6 ? "::%" + networkInterface.name : interfaceAddress!);
           socket.setMulticastInterface(isIPv6 ? interfaceAddress + "%" + networkInterface.name : interfaceAddress!);
 
           socket.setMulticastTTL(MDNSServer.MDNS_TTL); // outgoing multicast datagrams
@@ -682,10 +691,10 @@ export class MDNSServer {
         } catch (error) {
           try {
             socket.close();
-          } catch (error) {
-            debug("Error while closing socket which failed to bind. Error may be expected: " + error.message);
+          } catch (closeError) {
+            debug("Error while closing socket which failed to bind. Error may be expected: " + errorMessage(closeError));
           }
-          reject(new Error("Error binding socket on " + networkInterface.name + ": " + error.stack));
+          reject(new Error("Error binding socket on " + networkInterface.name + ": " + errorStack(error)));
         }
       });
     });
@@ -758,7 +767,7 @@ export class MDNSServer {
     } catch (error) {
       debug("Received a malformed packet from %o on interface %s. This might or might not be a problem. " +
         "Here is the received packet for debugging purposes '%s'. " +
-        "Packet decoding failed with %s", rinfo, name, buffer.toString("base64"), error.stack);
+        "Packet decoding failed with %s", rinfo, name, buffer.toString("base64"), errorStack(error));
       return;
     }
 
@@ -782,7 +791,7 @@ export class MDNSServer {
       try {
         this.handler.handleQuery(packet, endpoint);
       } catch (error) {
-        console.warn("Error occurred handling incoming (on " + name + ") dns query packet: " + error.stack);
+        console.warn("Error occurred handling incoming (on " + name + ") dns query packet: " + errorStack(error));
       }
     } else if (packet.type === PacketType.RESPONSE) {
       if (rinfo.port !== MDNSServer.MDNS_PORT) {
@@ -794,7 +803,7 @@ export class MDNSServer {
       try {
         this.handler.handleResponse(packet, endpoint);
       } catch (error) {
-        console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + error.stack);
+        console.warn("Error occurred handling incoming (on " + name + ") dns response packet: " + errorStack(error));
       }
     }
   }
@@ -877,7 +886,7 @@ export class MDNSServer {
       try {
         run();
       } catch (error) {
-        debug("Error %s for the %s socket on %s: %s", step, family, name, error.message);
+        debug("Error %s for the %s socket on %s: %s", step, family, name, errorMessage(error));
       }
     };
 
@@ -922,7 +931,7 @@ export class MDNSServer {
       await this.bindSocket(socket, networkInterface, family);
     } catch (reason) {
       // A failed bind is not retried on its own; the family binds again when its address next changes and an address of that family remains.
-      console.log("Could not bind detected network interface: " + reason.stack);
+      console.log("Could not bind detected network interface: " + errorStack(reason));
     }
   }
 

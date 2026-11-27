@@ -6,7 +6,6 @@ const config: Config = {
   coverageReporters: ["lcov"],
   collectCoverageFrom: [
     "src/**",
-    "!src/internal/**",
   ],
 };
 

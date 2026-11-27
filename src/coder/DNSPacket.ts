@@ -132,11 +132,35 @@ export interface DNSRecord {
 
 }
 
+const DEFAULT_UDP_PAYLOAD_SIZE = 1440;
+
+/**
+ * Reads the UDP payload size, in bytes, from the value of the `CIAO_UPS` environment variable. A value that is no positive number is refused with a warning
+ * and the default is used: as NaN it would make every size comparison false, and no packet would be held to any size.
+ *
+ * @param value - The raw value of `CIAO_UPS`, undefined when it is not set.
+ */
+export function udpPayloadSizeFromEnv(value: string | undefined): number {
+  if (!value) {
+    return DEFAULT_UDP_PAYLOAD_SIZE;
+  }
+
+  const size = parseInt(value, 10);
+  if (!(size > 0)) { // NaN fails this comparison as well
+    console.warn(`CIAO: Ignoring CIAO_UPS='${value}', as it is not a positive number of bytes. Using the default of ${DEFAULT_UDP_PAYLOAD_SIZE}.`);
+    return DEFAULT_UDP_PAYLOAD_SIZE;
+  }
+
+  return size;
+}
+
+const UDP_PAYLOAD_SIZE = udpPayloadSizeFromEnv(process.env.CIAO_UPS);
+
 export class DNSPacket {
 
-  public static readonly UDP_PAYLOAD_SIZE_IPV4 = (process.env.CIAO_UPS? parseInt(process.env.CIAO_UPS): 1440);
+  public static readonly UDP_PAYLOAD_SIZE_IPV4 = UDP_PAYLOAD_SIZE;
   // noinspection JSUnusedGlobalSymbols
-  public static readonly UDP_PAYLOAD_SIZE_IPV6 = (process.env.CIAO_UPS? parseInt(process.env.CIAO_UPS): 1440);
+  public static readonly UDP_PAYLOAD_SIZE_IPV6 = UDP_PAYLOAD_SIZE;
 
   private static readonly AUTHORITATIVE_ANSWER_MASK = 0x400;
   private static readonly TRUNCATION_MASK = 0x200;

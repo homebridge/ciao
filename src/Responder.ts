@@ -26,6 +26,7 @@ import {
   PacketHandler,
   SendResultFailedRatio,
   SendResultFormatError,
+  TimedSendResult,
 } from "./MDNSServer";
 import { InterfaceName, NetworkManagerEvent, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
@@ -33,7 +34,7 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse, RecordAddMethod } from "./responder/QueryResponse";
 import { QueuedResponse } from "./responder/QueuedResponse";
 import { TruncatedQuery, TruncatedQueryEvent, TruncatedQueryResult } from "./responder/TruncatedQuery";
-import { ERR_INTERFACE_NOT_FOUND } from "./util/errors";
+import { ERR_INTERFACE_NOT_FOUND, errorMessage } from "./util/errors";
 import { sortedInsert } from "./util/sorted-array";
 import Timeout = NodeJS.Timeout;
 import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
@@ -90,6 +91,10 @@ export class Responder implements PacketHandler {
 
   private refCount = 1;
   private optionsString = "";
+  /**
+   * The Promise of the {@link shutdown} call that released the last reference, set once the Responder is shut down.
+   */
+  private shutdownPromise?: Promise<void>;
 
   /**
    * Announced services is indexed by the {@link dnsLowerCase} if the fqdn (as of RFC 1035 3.1).
@@ -106,7 +111,14 @@ export class Responder implements PacketHandler {
    */
   private readonly servicePointer: Map<string, string[]> = new Map();
 
-  private readonly truncatedQueries: Record<string, TruncatedQuery> = {}; // indexed by <ip>:<port>
+  /* The attempts to probe or announce a service that failed in a row. A failed attempt is retried every 2 seconds and logged to debug only, as the first
+   * retry usually succeeds. At the fifth failure in a row one warning goes to the console, so a service that can never be advertised, such as one whose
+   * records fit no packet, is not retried in silence for good. An announcement that gets through starts the count again.
+   */
+  private static readonly RETRY_WARNING_ATTEMPTS = 5;
+  private static readonly failedAttempts: WeakMap<CiaoService, number> = new WeakMap();
+
+  private readonly truncatedQueries: Map<string, TruncatedQuery> = new Map(); // indexed by <ip>:<port>:<interface>
   private readonly delayedMulticastResponses: QueuedResponse[] = [];
 
   private currentProber?: Prober;
@@ -157,27 +169,30 @@ export class Responder implements PacketHandler {
 
     const boundInterfaceNames = Array.from(this.server.getBoundInterfaceNames());
 
+    // One question per service type that is announced, whatever the type, so the broadcast covers every service and not those of one type alone.
+    const questions = Array.from(new Set(Array.from(this.announcedServices.values(), service => service.getTypePTR())),
+      typePTR => new Question(typePTR, QType.PTR, false));
+
     for (const networkInterface of this.server.getNetworkManager().getInterfaceMap().values()) {
-      const question = new Question("_hap._tcp.local.", QType.PTR, false);
+      const responses: QueryResponse[] = [];
 
-      let responses4: QueryResponse[] = [], responses6: QueryResponse[] = [];
-
-      if (boundInterfaceNames.includes(networkInterface.name)) {
-        responses4 = this.answerQuestion(question, {
-          port: 5353,
-          address: networkInterface.ipv4Netaddress!,
-          interface: networkInterface.name,
-        });
+      for (const question of questions) {
+        if (boundInterfaceNames.includes(networkInterface.name)) {
+          responses.push(...this.answerQuestion(question, {
+            port: 5353,
+            address: networkInterface.ipv4Netaddress!,
+            interface: networkInterface.name,
+          }));
+        }
+        if (boundInterfaceNames.includes(networkInterface.name + "/6")) {
+          responses.push(...this.answerQuestion(question, {
+            port: 5353,
+            address: networkInterface.ipv6!,
+            interface: networkInterface.name + "/6",
+          }));
+        }
       }
-      if (boundInterfaceNames.includes(networkInterface.name + "/6")) {
-        responses6 = this.answerQuestion(question, {
-          port: 5353,
-          address: networkInterface.ipv6!,
-          interface: networkInterface.name + "/6",
-        });
-      }
 
-      const responses = [...responses4, ...responses6];
       QueryResponse.combineResponses(responses);
 
       // The responses go out on the IPv4 socket when it is bound and on the IPv6 socket otherwise. With neither bound there are no responses, so a send
@@ -219,17 +234,29 @@ export class Responder implements PacketHandler {
    * network is informed of the shutdown of this machine.
    * Calling the shutdown method is mandatory for a clean termination (sending goodbye packets).
    *
-   * The shutdown method must only be called ONCE.
+   * The shutdown method must be called ONCE for every call of {@link getResponder} that returned this instance. A call on a Responder that is already
+   * shut down changes nothing and returns the Promise of the call that shut it down.
    *
    * @returns The Promise settles once every goodbye has settled and the server has shut down. It resolves when every goodbye was sent, and otherwise
    * rejects with the first goodbye that failed, taking the services in the order they were announced. It resolves immediately if any other users
    * have a reference to this Responder instance.
    */
   public shutdown(): Promise<void> {
-    this.refCount--; // we trust the user here, that the shutdown will not be executed twice or something :thinking:
+    // A Responder that is shut down has left INSTANCES, and its options may name a newer Responder there by now, which a second run of the code below would
+    // remove from the table while it is in use.
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.refCount--;
     if (this.refCount > 0) {
       return Promise.resolve();
     }
+
+    return (this.shutdownPromise = this.shutdownNow());
+  }
+
+  private shutdownNow(): Promise<void> {
 
     this.shutdownController.abort();
 
@@ -247,6 +274,12 @@ export class Responder implements PacketHandler {
       response.cancel();
     }
     this.delayedMulticastResponses.splice(0);
+
+    // A truncated query still waiting for its next packet would be answered from its timer, by a Responder that is shut down by then.
+    for (const truncatedQuery of this.truncatedQueries.values()) {
+      truncatedQuery.cancel();
+    }
+    this.truncatedQueries.clear();
 
     Responder.INSTANCES.delete(this.optionsString);
 
@@ -309,6 +342,17 @@ export class Responder implements PacketHandler {
    * advertisement covers it by then, and re-entering advertiseService would cancel that advertisement's announcer, so the callback it carries is called
    * instead.
    */
+  private static noteFailedAttempt(service: CiaoService, step: "probing" | "announcing", reason: unknown): void {
+    const attempts = (Responder.failedAttempts.get(service) ?? 0) + 1;
+
+    Responder.failedAttempts.set(service, attempts);
+
+    if (attempts === Responder.RETRY_WARNING_ATTEMPTS) {
+      console.warn(`CIAO: [${service.getFQDN()}] Failed ${step} ${attempts} times in a row, so the service is not advertised. `
+        + `It is retried every 2 seconds. Last reason: ${errorMessage(reason)}`);
+    }
+  }
+
   private retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void> {
     return this.delay(2000).then(() => {
       if (service.serviceState !== ServiceState.UNANNOUNCED) {
@@ -332,7 +376,17 @@ export class Responder implements PacketHandler {
       if (service.currentAnnouncer!.isSendingGoodbye()) {
         return Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement()).then(() => this.advertiseService(service, callback));
       } else {
-        return service.currentAnnouncer!.cancel().then(() => this.advertiseService(service, callback));
+        /* Cancelling an announcement leaves the service UNANNOUNCED, and the advertisement starts over. Cancelling the single packet that corrects a ttl
+         * (see handleResponse) leaves it ANNOUNCED instead, and advertising it again is refused as for any announced service. That refusal is thrown, and
+         * here nothing above would catch it, so it is handed to the caller, whose advertise() rejects with it.
+         */
+        return service.currentAnnouncer!.cancel().then(() => {
+          try {
+            return this.advertiseService(service, callback);
+          } catch (error) {
+            callback(error instanceof Error? error: new Error(String(error)));
+          }
+        });
       }
     }
 
@@ -378,13 +432,16 @@ export class Responder implements PacketHandler {
       }
 
       // we are not returning the promise returned by announced here, only PROBING is synchronized
-      this.announce(service).catch(reason => {
+      this.announce(service).then(() => {
+        Responder.failedAttempts.delete(service);
+      }).catch(reason => {
         // handle announce errors
         // debug, not console: this retries itself in 2 seconds and usually succeeds, so it is
         // not something the consumer can act on. Whatever actually broke - a socket or bind
         // error - is still reported loudly by MDNSServer, which owns it. Logging every retry
         // here as well put a line on the console every 2 seconds forever (homebridge/ciao#72).
         debug(`[${service.getFQDN()}] failed announcing with reason: ${reason}. Trying again in 2 seconds!`);
+        Responder.noteFailedAttempt(service, "announcing", reason);
         return this.retryAdvertisement(service, () => {
           // The caller was called back when announcing began, so the retry has nobody left to settle.
         });
@@ -404,11 +461,14 @@ export class Responder implements PacketHandler {
        * for the reason the announce retry above gives.
        */
       if (reason === Prober.CANCEL_REASON) {
+        // The advertisement was withdrawn, so the failures it met are over: a later advertise() counts its own from zero.
+        Responder.failedAttempts.delete(service);
         callback();
         return;
       }
 
       debug(`[${service.getFQDN()}] failed probing with reason: ${reason}. Trying again in 2 seconds!`);
+      Responder.noteFailedAttempt(service, "probing", reason);
       return this.retryAdvertisement(service, callback);
     });
   }
@@ -427,7 +487,11 @@ export class Responder implements PacketHandler {
         ? Responder.goodbyeSettled(service, service.currentAnnouncer!.awaitAnnouncement())
         : service.currentAnnouncer!.cancel();
 
-      return promise.then(() => this.advertiseService(service, callback));
+      // A cancelled announcement leaves the service UNANNOUNCED, ready to be advertised again. The single packet that corrects a ttl (see handleResponse)
+      // leaves it ANNOUNCED when cancelled, so the republish starts over from there, where advertiseService would refuse an announced service.
+      return promise.then(() => service.serviceState === ServiceState.ANNOUNCED
+        ? this.republishService(service, callback, delayAnnounce)
+        : this.advertiseService(service, callback));
     }
 
     // first of all remove it from our advertisedService Map and remove all the maintained PTRs
@@ -493,7 +557,19 @@ export class Responder implements PacketHandler {
     const typePTR = service.getLowerCasedTypePTR();
     const subtypePTRs = service.getLowerCasedSubtypePTRs(); // possibly undefined
 
-    this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    // The type enumeration holds one pointer per service type, shared by every service of that type, so it stays while another service of the type is
+    // announced and goes with the last one.
+    let typeStillAnnounced = false;
+    for (const other of this.announcedServices.values()) {
+      if (other !== service && other.getLowerCasedTypePTR() === typePTR) {
+        typeStillAnnounced = true;
+        break;
+      }
+    }
+
+    if (!typeStillAnnounced) {
+      this.removePTR(Responder.SERVICE_TYPE_ENUMERATION_NAME, typePTR);
+    }
     this.removePTR(typePTR, serviceFQDN);
     if (subtypePTRs) {
       for (const ptr of subtypePTRs) {
@@ -606,8 +682,18 @@ export class Responder implements PacketHandler {
 
     debug("[%s] Updating %d record(s) for given service!", service.getFQDN(), response.answers.length + (response.additionals?.length || 0));
 
+    // sendResponseBroadcast builds and encodes the packet before it sends, and throws when the records cannot be encoded, a record set too big for one packet
+    // among them. This is reached from the txt debounce timer, where an escaping throw is an uncaught exception that ends the host process, so the throw
+    // takes the path of a rejected broadcast below.
+    let broadcast: Promise<TimedSendResult[]>;
+    try {
+      broadcast = this.server.sendResponseBroadcast(response, service);
+    } catch (error) {
+      broadcast = Promise.reject(error);
+    }
+
     // TODO we should do a announcement at this point "in theory"
-    this.server.sendResponseBroadcast(response, service).then(results => {
+    broadcast.then(results => {
       const failRatio = SendResultFailedRatio(results);
       if (failRatio === 1) {
         console.log(SendResultFormatError(results, `Failed to send records update for '${service.getFQDN()}'`));
@@ -628,10 +714,9 @@ export class Responder implements PacketHandler {
         callback();
       }
     }, reason => {
-      // sendResponseBroadcast can reject synchronously (e.g. encode/assert failures
-      // before any send is attempted). Without this handler the rejection would
-      // surface as an unhandled promise rejection — same orphan-rejection footgun
-      // that bit the advertise/goodbye paths in homebridge/ciao#69.
+      // A broadcast that rejects, or that threw while building its packet (see above), ends here. Without
+      // this handler the rejection would surface as an unhandled promise rejection — same orphan-rejection
+      // footgun that bit the advertise/goodbye paths in homebridge/ciao#69.
       console.log(`[${service.getFQDN()}] failed to broadcast records update: ${reason?.message ?? reason}`);
       if (callback) {
         callback(reason instanceof Error ? reason : new Error(String(reason)));
@@ -701,13 +786,13 @@ export class Responder implements PacketHandler {
 
     const endpointId = endpoint.address + ":" + endpoint.port + ":" + endpoint.interface; // used to match truncated queries
 
-    const previousQuery = this.truncatedQueries[endpointId];
+    const previousQuery = this.truncatedQueries.get(endpointId);
     if (previousQuery) {
       const truncatedQueryResult = previousQuery.appendDNSPacket(packet);
 
       switch (truncatedQueryResult) {
         case TruncatedQueryResult.ABORT: // returned when we detect, that continuously TC queries are sent
-          delete this.truncatedQueries[endpointId];
+          this.truncatedQueries.delete(endpointId);
           debug("[%s] Aborting to wait for more truncated queries. Waited a total of %d ms receiving %d queries",
             endpointId, previousQuery.getTotalWaitTime(), previousQuery.getArrivedPacketCount());
           return;
@@ -715,7 +800,7 @@ export class Responder implements PacketHandler {
           debug("[%s] Received a query marked as truncated, waiting for more to arrive", endpointId);
           return; // wait for the next packet
         case TruncatedQueryResult.FINISHED:
-          delete this.truncatedQueries[endpointId];
+          this.truncatedQueries.delete(endpointId);
           packet = previousQuery.getPacket(); // replace packet with the complete deal
 
           debug("[%s] Last part of the truncated query arrived. Received %d packets taking a total of %d ms",
@@ -727,17 +812,34 @@ export class Responder implements PacketHandler {
       debug("Received truncated query from " + JSON.stringify(endpoint) + " waiting for more to come!");
 
       const truncatedQuery = new TruncatedQuery(packet);
-      this.truncatedQueries[endpointId] = truncatedQuery;
+      this.truncatedQueries.set(endpointId, truncatedQuery);
       truncatedQuery.on(TruncatedQueryEvent.TIMEOUT, () => {
-        // called when more than 400-500ms pass until the next packet arrives
-        debug("[%s] Timeout passed since the last truncated query was received. Discarding %d packets received in %d ms.",
+        // RFC 6762 7.2: the querier had 400 to 500 ms to send the rest of its known answers. None came, so the query is answered with what arrived.
+        debug("[%s] Timeout passed since the last truncated query was received. Answering the %d packets received in %d ms.",
           endpointId, truncatedQuery.getArrivedPacketCount(), truncatedQuery.getTotalWaitTime());
-        delete this.truncatedQueries[endpointId];
+        this.truncatedQueries.delete(endpointId);
+
+        // This runs from the query's timer, not from MDNSServer's packet handler, whose try/catch covers a query answered at once. A throw here would be an
+        // uncaught exception that ends the process, and a send throws when the interface the query came in on has gone while we waited.
+        try {
+          this.answerQuery(truncatedQuery.getPacket(), endpoint, Date.now());
+        } catch (error) {
+          if (error instanceof Error && error.name === ERR_INTERFACE_NOT_FOUND) {
+            debug("[%s] The answer to the truncated query was dropped, as the network interface %s is no longer available!", endpointId, endpoint.interface);
+          } else {
+            console.warn(`CIAO: Failed to answer a truncated query from ${endpointId}: ${errorMessage(error)}`);
+          }
+        }
       });
 
       return; // wait for the next query
     }
 
+    this.answerQuery(packet, endpoint, start);
+  }
+
+  // Answers a query that has arrived whole: a single packet, or every packet of a truncated query joined into one.
+  private answerQuery(packet: DNSPacket, endpoint: EndpointInfo, start: number): void {
     const isUnicastQuerier = endpoint.port !== MDNSServer.MDNS_PORT; // explained below
     const isProbeQuery = packet.authorities.size > 0;
 
@@ -897,16 +999,16 @@ export class Responder implements PacketHandler {
 
 
       if (conflictingRData) {
-        // noinspection JSIgnoredPromiseFromCall
         this.republishService(service, error => {
           if (error) {
-            console.log(`FATAL Error occurred trying to resolve conflict for service ${service.getFQDN()}! We can't recover from this!`);
-            console.log(error.stack);
-            process.exit(1); // we have a service which should be announced, though we failed to reannounce.
-            // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
-            // for situations where it makes sense
+            // A republish retries a failed advertisement itself and calls back with no error. Should one ever arrive it is reported here, and what to do
+            // about it is left to the application: a library does not end the process it runs in.
+            console.warn(`CIAO: [${service.getFQDN()}] Failed to re-announce the service after a conflict: ${error.stack ?? error}`);
           }
-        }, true);
+        }, true).catch(error => {
+          // Terminal handler: nothing awaits the republish, so a rejection would otherwise go unhandled and end the host process.
+          console.warn(`CIAO: [${service.getFQDN()}] Failed to resolve a conflict: ${error?.message ?? error}`);
+        });
       } else if (ttlConflicts && !service.currentAnnouncer) {
         service.serviceState = ServiceState.ANNOUNCING; // all code above doesn't expect an Announcer object in state ANNOUNCED
 
@@ -1102,13 +1204,13 @@ export class Responder implements PacketHandler {
           debug("Sending (delayed %dms) response via multicast on network interface %s (took %d ms): %s",
             Math.round(response.getTimeSinceCreation()), interfaceName, time, response.getPacket().asLoggingString());
         } catch (error) {
-          if (error.name === ERR_INTERFACE_NOT_FOUND) {
+          if (error instanceof Error && error.name === ERR_INTERFACE_NOT_FOUND) {
             debug("Multicast response (delayed %dms) was cancelled as the network interface %s is no longer available!",
               Math.round(response.getTimeSinceCreation()), interfaceName);
           } else {
             // This runs from a timer, where a throw is an uncaught exception that ends the process.
             // Losing one delayed response is not worth that - the querier simply asks again
-            console.warn(`CIAO: Failed to send a delayed response on ${interfaceName}: ${error?.message ?? error}`);
+            console.warn(`CIAO: Failed to send a delayed response on ${interfaceName}: ${errorMessage(error)}`);
           }
         }
       });
@@ -1164,19 +1266,10 @@ export class Responder implements PacketHandler {
         }
 
         return serviceResponses; // if we got in this if-body, it was a pointer name and we handled it correctly
-      } /* else if (loweredQuestionName.endsWith(".in-addr.arpa") || loweredQuestionName.endsWith(".ip6.arpa")) { // reverse address lookup
-          const address = ipAddressFromReversAddressName(loweredQuestionName);
+      }
 
-          for (const service of this.announcedServices.values()) {
-            const record = service.reverseAddressMapping(address);
-            if (record) {
-              mainResponse.addAnswer(record);
-            }
-          }
-        }
-        We won't actually respond to reverse address queries.
-        This typically confuses responders like avahi, which then over and over try to increment the hostname.
-        */
+      // We won't actually respond to reverse address queries (names under "in-addr.arpa" and "ip6.arpa").
+      // This typically confuses responders like avahi, which then over and over try to increment the hostname.
     }
 
     for (const service of this.announcedServices.values()) {

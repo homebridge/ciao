@@ -1,5 +1,5 @@
 import { CiaoService, InternalServiceEvent, PublishCallback, ServiceEvent, ServiceOptions, ServiceState, UnpublishCallback } from "./CiaoService";
-import { DNSPacket, QType, RType } from "./coder/DNSPacket";
+import { DNSPacket, PacketType, QType, RType } from "./coder/DNSPacket";
 import { Question } from "./coder/Question";
 import { EndpointInfo, MDNSServer, TimedSendResult } from "./MDNSServer";
 import { NetworkInterface, NetworkManager } from "./NetworkManager";
@@ -9,6 +9,7 @@ import { Prober } from "./responder/Prober";
 import { QueryResponse } from "./responder/QueryResponse";
 import { NSECRecord } from "./coder/records/NSECRecord";
 import { PTRRecord } from "./coder/records/PTRRecord";
+import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 
@@ -62,6 +63,7 @@ interface ChainResponder {
   servicePointer: Map<string, string[]>;
   advertiseService(service: CiaoService, callback: PublishCallback): Promise<void>;
   answerQuestion(question: Question, endpoint: EndpointInfo): QueryResponse[];
+  handleResponse(packet: DNSPacket, endpoint: EndpointInfo): void;
   probe(service: CiaoService): Promise<void>;
   republishService(service: CiaoService, callback: PublishCallback, delayAnnounce?: boolean): Promise<void>;
   retryAdvertisement(service: CiaoService, callback: PublishCallback): Promise<void>;
@@ -88,7 +90,7 @@ function makeChainResponder(): { internals: ChainResponder; server: ChainServer 
     server,
     servicePointer: new Map(),
     shutdownController: new AbortController(),
-    truncatedQueries: {},
+    truncatedQueries: new Map(),
   });
 
   return { internals: responder as unknown as ChainResponder, server };
@@ -236,6 +238,26 @@ describe(Responder, () => {
       expect(logSpy).toHaveBeenCalled();
     });
 
+    // The real sendResponseBroadcast is not async: it builds and encodes the packet first, and a record set too big for one packet throws right there. The
+    // update is emitted from the txt debounce timer, so a throw escaping here ended the host process.
+    it("forwards a synchronous broadcast throw to the callback instead of throwing", async () => {
+      const cause = new Error("Couldn't construct a dns response packet from a rr set which fits in an udp payload sized packet!");
+      const responder = makeBareResponder(() => {
+        throw cause;
+      });
+      const errors: (Error | undefined)[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(() => (responder as any).handleServiceRecordUpdate(makeAnnouncedService(), { answers: [], additionals: [] }, (err?: Error) => errors.push(err)))
+        .not.toThrow();
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(errors).toEqual([cause]);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("failed to broadcast records update"));
+    });
+
     it("wraps a non-Error rejection reason into an Error for the callback", async () => {
       // sendResponseBroadcast theoretically might reject with a non-Error
       // value; the callback signature is RecordsUpdateCallback and expects an
@@ -349,7 +371,7 @@ describe(Responder, () => {
 
     // A responder whose server holds the named sockets of one dual-stack interface and answers each question with a fresh PTR response. A send
     // naming a socket the server does not hold throws, as the server's own send does.
-    function broadcastOn(bound: string[]) {
+    function broadcastOn(bound: string[], typePTRs = ["_hap._tcp.local."]) {
       const networkInterface = { name: "eth0", loopback: false, mac: "00:00:00:00:00:00", ipv4: "192.168.1.2", ipv4Netaddress: "192.168.1.0", ipv6: "fe80::1" };
       const sendResponse = jest.fn((packet: unknown, name: string) => {
         if (!bound.includes(name)) {
@@ -363,15 +385,34 @@ describe(Responder, () => {
         getBoundInterfaceNames: () => bound.values(),
         sendResponse,
       };
-      (responder as any).answerQuestion = () => {
+      (responder as any).announcedServices = new Map(typePTRs.map((typePTR, index) => [ "service" + index, { getTypePTR: () => typePTR }]));
+      const answerQuestion = jest.fn((question: Question) => {
         const response = new QueryResponse();
-        response.addAnswer(new PTRRecord("_hap._tcp.local.", "Test._hap._tcp.local."));
+        response.addAnswer(new PTRRecord(question.name, "Test." + question.name));
         return [response];
-      };
+      });
+      (responder as any).answerQuestion = answerQuestion;
       const broadcast = () => (responder as any).handlePeriodicBroadcasts();
       /* eslint-enable @typescript-eslint/no-explicit-any */
-      return { broadcast, sendResponse };
+      return { answerQuestion, broadcast, sendResponse };
     }
+
+    it("asks itself for every announced service type once, whatever the type", () => {
+      const { answerQuestion, broadcast, sendResponse } = broadcastOn(["eth0"], [ "_http._tcp.local.", "_hap._tcp.local.", "_http._tcp.local." ]);
+
+      broadcast();
+
+      expect(answerQuestion.mock.calls.map(call => call[0].name)).toEqual([ "_http._tcp.local.", "_hap._tcp.local." ]);
+      expect(sendResponse).toHaveBeenCalled();
+    });
+
+    it("sends nothing while no service is announced", () => {
+      const { broadcast, sendResponse } = broadcastOn(["eth0"], []);
+
+      broadcast();
+
+      expect(sendResponse).not.toHaveBeenCalled();
+    });
 
     it("sends on the IPv6 socket of an interface whose IPv4 socket is not bound", () => {
       const { broadcast, sendResponse } = broadcastOn(["eth0/6"]);
@@ -562,6 +603,61 @@ describe(Responder, () => {
       expect(queued.serviceState).toBe(ServiceState.ANNOUNCING);
     });
 
+    it("a probe that keeps failing warns on the console once, at the fifth failure in a row, and again only after an announcement got through", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Failing");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+
+      // Four failed attempts: at 0, 2, 4 and 6 seconds.
+      await advance(7000);
+      expect(warn).not.toHaveBeenCalled();
+
+      await advance(2000);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[Failing._http._tcp.local.] Failed probing 5 times in a row"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Last reason: Probing failed as of socket errors!"));
+
+      await advance(20000);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // The sends work again: the service is announced, and the count starts over.
+      server.sendQueryBroadcast.mockImplementation(async () => []);
+      await advance(6000);
+      expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+
+      void service.end();
+      await advance(3000);
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+      await advance(9000);
+      expect(warn).toHaveBeenCalledTimes(2);
+    });
+
+    it("a probe failure count starts over when end() withdraws the advertisement", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Failing");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      server.sendQueryBroadcast.mockImplementation(async () => [failedSend]);
+      void service.advertise();
+
+      // Four failed attempts: at 0, 2, 4 and 6 seconds. end() withdraws the advertisement before the fifth.
+      await advance(7000);
+      void service.end();
+      await advance(3000);
+      expect(warn).not.toHaveBeenCalled();
+
+      // A new advertisement that fails once has failed once in a row, not five times.
+      void service.advertise();
+      await advance(1000);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
     it("end() on a queued advertisement resolves it, its step probes nothing, and the service after it is unaffected", async () => {
       const { internals, server } = makeChainResponder();
       const first = makeChainService(internals, "First").service;
@@ -706,6 +802,151 @@ describe(Responder, () => {
         expect(secondEnd.state).toBe("resolved");
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("failed goodbye"));
       });
+    });
+
+    it("end() with an announcement packet in flight sends the goodbye last, and the cancelled announcement sends nothing after it", async () => {
+      const { internals, server } = makeChainResponder();
+      const { service } = makeChainService(internals, "Leaving");
+      const releases: Array<(result: TimedSendResult) => void> = [];
+      // The ttl of the type PTR tells an announcement, which carries the record's ttl, from a goodbye, which carries zero.
+      const sent: string[] = [];
+
+      server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+      server.send.mockImplementation(packet => {
+        const ptr = [...(packet as DNSPacket).answers.values()].find(record => record.type === RType.PTR)!;
+
+        sent.push(ptr.ttl === 0 ? "goodbye" : "announcement");
+        return new Promise(resolve => releases.push(resolve));
+      });
+
+      // Probing ends at 750 ms, and the announcer's first packet goes out on the timer after it.
+      void service.advertise();
+      await advance(760);
+      expect(sent).toEqual(["announcement"]);
+
+      // The first announcement is still being sent when end() cancels the announcer and starts the goodbye.
+      const ended = track(service.end());
+
+      await advance(0);
+      expect(sent).toEqual([ "announcement", "goodbye" ]);
+
+      // The cancelled announcement's send completes while the goodbye is in flight, so it finds the service ANNOUNCING, under the goodbye's announcer.
+      releases[0]({ interface: "en0", status: "fulfilled" });
+      await drainJobs();
+      releases[1]({ interface: "en0", status: "fulfilled" });
+      await drainJobs();
+      expect(ended.state).toBe("resolved");
+
+      await advance(10000);
+      expect(sent).toEqual([ "announcement", "goodbye" ]);
+      expect(service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it("end() of one of two services of a type keeps the type in the service type enumeration until the last one ends", async () => {
+      const { internals } = makeChainResponder();
+      const first = await makeAnnouncedChainService(internals, "First");
+      const second = await makeAnnouncedChainService(internals, "Second");
+      const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+      // The types the responder answers a service type enumeration question (RFC 6763 9.) with.
+      const enumeratedTypes = (): string[] => internals.answerQuestion(new Question(Responder.SERVICE_TYPE_ENUMERATION_NAME, QType.PTR, false), endpoint)
+        .flatMap(response => [...response.asPacket().answers.values()])
+        .map(record => (record as PTRRecord).ptrName);
+
+      expect(enumeratedTypes()).toEqual(["_http._tcp.local."]);
+
+      void first.service.end();
+      await advance(10);
+      expect(first.service.serviceState).toBe(ServiceState.UNANNOUNCED);
+      expect(enumeratedTypes()).toEqual(["_http._tcp.local."]);
+
+      void second.service.end();
+      await advance(10);
+      expect(enumeratedTypes()).toEqual([]);
+      expect(internals.servicePointer.size).toBe(0);
+    });
+
+    describe("while the packet correcting a ttl is being sent", () => {
+      const endpoint: EndpointInfo = { address: "192.0.2.9", interface: "en0", port: MDNSServer.MDNS_PORT };
+
+      /* An announced service hears its own SRV record with a ttl under half its own, and answers with one packet to correct the neighbouring caches
+       * (RFC 6762 10.), which is held in flight. Until that packet is sent the service is ANNOUNCING again, under an announcer whose cancellation leaves
+       * it ANNOUNCED, where every other announcer leaves it UNANNOUNCED.
+       */
+      async function correctingTTL(): Promise<{ internals: ChainResponder; release: () => void; server: ChainServer; service: CiaoService }> {
+        const { internals, server } = makeChainResponder();
+        const { service } = await makeAnnouncedChainService(internals, "Kitchen");
+        let release = (): void => undefined;
+
+        server.getBoundInterfaceNames.mockReturnValue(["en0"]);
+        server.send.mockImplementationOnce(() => new Promise(resolve => {
+          release = () => resolve({ interface: "en0", status: "fulfilled" });
+        }));
+
+        internals.handleResponse(new DNSPacket({ answers: [new SRVRecord(service.getFQDN(), service.getHostname(), 4711, true, 10)], type: PacketType.RESPONSE }),
+          endpoint);
+        await advance(0);
+        expect(server.send).toHaveBeenCalledTimes(1);
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCING);
+
+        return { internals, release: () => release(), server, service };
+      }
+
+      it("a conflicting record is still resolved: the service probes again and is announced again", async () => {
+        const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => { /* swallow */ });
+        const { internals, release, server, service } = await correctingTTL();
+
+        expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(3);
+
+        // Another host claims the service's name with an SRV record of its own.
+        internals.handleResponse(new DNSPacket({ answers: [new SRVRecord(service.getFQDN(), "other.local.", 9999, true)], type: PacketType.RESPONSE }), endpoint);
+        await drainJobs();
+        release();
+
+        // The republish waits a second, then probes for 750 ms and announces.
+        await advance(6000);
+        expect(server.sendQueryBroadcast).toHaveBeenCalledTimes(6);
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+        expect(warnSpy).not.toHaveBeenCalled();
+      });
+
+      it("advertise() rejects as for any announced service, where it stayed pending", async () => {
+        const { release, service } = await correctingTTL();
+        const advertised = track(service.advertise());
+
+        await drainJobs();
+        release();
+        await advance(6000);
+
+        expect(advertised.state).toBe("rejected");
+        expect(String(advertised.reason)).toContain("Can't publish a service that is already announced");
+        expect(service.serviceState).toBe(ServiceState.ANNOUNCED);
+      });
+    });
+
+    it("a second shutdown() changes nothing: it leaves a newer Responder with the same options registered, and shuts the server down once", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const instances: Map<string, unknown> = (Responder as any).INSTANCES;
+      const old = makeChainResponder();
+      const newer = makeChainResponder();
+
+      try {
+        instances.set("", old.internals);
+        const firstShutdown = old.internals.shutdown();
+
+        await firstShutdown;
+        expect(instances.has("")).toBe(false);
+
+        // getResponder() registers a new Responder under the options the old one had.
+        instances.set("", newer.internals);
+
+        expect(old.internals.shutdown()).toBe(firstShutdown);
+        await drainJobs();
+        expect(instances.get("")).toBe(newer.internals);
+        expect(old.server.shutdown).toHaveBeenCalledTimes(1);
+      } finally {
+        instances.delete("");
+      }
     });
 
     it("shutdown() while a probe retry is pending resolves that advertise(), and no probe or timer follows", async () => {

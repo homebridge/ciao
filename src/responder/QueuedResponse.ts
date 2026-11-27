@@ -69,13 +69,7 @@ export class QueuedResponse {
    * @returns {@code true} will be returned if the queued response was combined with the specified {@code next} response.
    */
   public combineWithNextPacketIfPossible(next: QueuedResponse): boolean {
-    // below check, which is commented out would be necessary, current implementation will check that
-    // with function above, thus there is no need to check again.
-    /*
-    if (!this.delayWouldBeInTimelyManner(next)) {
-      return false;
-    }
-    */
+    // The caller has already checked delayWouldBeInTimelyManner(next), so it is not checked again here.
     if (this.interfaceName !== next.interfaceName) {
       // can't combine packets which get sent via different interfaces
       return false;

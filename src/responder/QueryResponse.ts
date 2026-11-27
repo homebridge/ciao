@@ -108,7 +108,19 @@ export class QueryResponse {
       return false;
     }
 
-    const knownAnswer = this.knownAnswers.get(record.asString());
+    // The map is keyed by the record as the querier wrote it, which finds a known answer spelled as we spell it at once. Names compare without regard to
+    // letter case though (RFC 1035 3.1), so a miss is followed by a comparison of each known answer by its lowercased name and its data.
+    let knownAnswer = this.knownAnswers.get(record.asString());
+    if (!knownAnswer) {
+      for (const candidate of this.knownAnswers.values()) {
+        if (candidate.type === record.type && candidate.class === record.class && candidate.getLowerCasedName() === record.getLowerCasedName()
+          && record.dataEquals(candidate)) {
+          knownAnswer = candidate;
+          break;
+        }
+      }
+    }
+
     // we will still send the response if the known answer has half of the original ttl according to RFC 6762 7.1.
     // so only if the ttl is more than half than the original ttl we consider it a valid known answer
     return knownAnswer !== undefined && knownAnswer.ttl > record.ttl / 2;

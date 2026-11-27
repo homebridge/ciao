@@ -12,11 +12,12 @@ import { SRVRecord } from "./coder/records/SRVRecord";
 import { TXTRecord } from "./coder/records/TXTRecord";
 import { ResourceRecord } from "./coder/ResourceRecord";
 import { SERVICE_TYPE_ENUMERATION_NAME } from "./dns-sd";
-import { Protocol } from "./index";
+import { Protocol } from "./Protocol";
 import { InterfaceName, IPAddress, NetworkManager, NetworkUpdate } from "./NetworkManager";
 import { Announcer } from "./responder/Announcer";
 import { dnsLowerCase } from "./util/dns-equal";
 import { escapeLabel, splitLabels, splitRelativeName, wireLength } from "./util/dns-labels";
+import { errorStack } from "./util/errors";
 import * as domainFormatter from "./util/domain-formatter";
 import { formatReverseAddressPTRName } from "./util/domain-formatter";
 import Timeout = NodeJS.Timeout;
@@ -79,7 +80,7 @@ export const enum ServiceType {
   HAP = "hap", // used by HomeKit accessories
   HOMEKIT = "homekit", // used by home hubs
   HTTP = "http",
-  HTTP_ALT = "http_alt", // http alternate
+  HTTP_ALT = "http-alt", // http alternate
   IPP = "ipp", // internet printing protocol
   IPPS = "ipps", // internet printing protocol over https
   RAOP = "raop", // remote audio output protocol
@@ -127,6 +128,7 @@ export interface ServiceOptions {
   hostname?: string;
   /**
    * If defined, a txt record will be published with the given service.
+   * Creating the service throws when an entry, written as `key=value`, takes more than 255 octets.
    */
   txt?: ServiceTxt;
 
@@ -164,6 +166,8 @@ export interface ServiceOptions {
 /**
  * A service txt consist of multiple key=value pairs,
  * which get advertised on the network.
+ * A Buffer value is advertised byte for byte, and any other value as its text, so `true` is advertised as "true" and `5` as "5".
+ * A key whose value is `undefined` or `null` is left out.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServiceTxt = Record<string, any>;
@@ -354,6 +358,7 @@ export class CiaoService extends EventEmitter {
   private serviceRecords?: ServiceRecords;
 
   private destroyed = false;
+  private destroyPromise?: Promise<void>;
   /**
    * Whether the service is meant to be on the network: set by {@link advertise}, and cleared only by {@link end} and {@link destroy}. A queued
    * advertisement reads it at its turn and is dropped once it is cleared, while the retry after a failed probe and every republish, which re-enter the
@@ -524,9 +529,15 @@ export class CiaoService extends EventEmitter {
    * If the service is still announced, the service will first be removed
    * from the network by calling {@link end}.
    *
-   * @returns
+   * A call on a service that is destroyed, or is being destroyed, changes nothing and returns the Promise of the call that destroyed it.
+   *
+   * @returns Promise will resolve once the service was removed from the network and freed. It rejects, with the service still usable, when {@link end} does.
    */
-  public async destroy(): Promise<void> {
+  public destroy(): Promise<void> {
+    return this.destroyPromise ??= this.endAndFree();
+  }
+
+  private async endAndFree(): Promise<void> {
     const endPromise = this.end();
     this.destroyed = true;
 
@@ -534,6 +545,7 @@ export class CiaoService extends EventEmitter {
       await endPromise;
     } catch (error) {
       this.destroyed = false;
+      this.destroyPromise = undefined;
       throw error;
     }
 
@@ -624,6 +636,7 @@ export class CiaoService extends EventEmitter {
 
   /**
    * Sets or updates the txt of the service.
+   * The call throws, with the service unchanged, when an entry, written as `key=value`, takes more than 255 octets.
    *
    * @param {ServiceTxt} txt - The updated txt record.
    * @param {boolean} silent - If set to true no announcement is sent for the updated record.
@@ -731,8 +744,19 @@ export class CiaoService extends EventEmitter {
     const result: Buffer[] = [];
 
     Object.entries(txt).forEach(([key, value]) => {
-      const entry = key + "=" + value;
-      result.push(Buffer.from(entry));
+      // A key without a value is left out, where the text "undefined" or "null" would be advertised as its value.
+      if (value === undefined || value === null) {
+        return;
+      }
+
+      // A TXT value is opaque binary data (RFC 6763 6.5), so a Buffer goes out byte for byte, where turning it into text would rewrite every byte
+      // sequence that is not UTF-8. Any other value goes out as its text.
+      const entry = Buffer.isBuffer(value)? Buffer.concat([ Buffer.from(key + "="), value ]): Buffer.from(key + "=" + value);
+
+      // The length of a TXT entry is written in one octet (RFC 6763 6.1), and an entry past it could not be encoded: the packet build would throw later, out
+      // of a timer, so it is refused here, where the caller can catch it.
+      assert(entry.length <= 255, "The txt entry '" + key + "' takes " + entry.length + " octets as 'key=value', more than the 255 a TXT entry may hold.");
+      result.push(entry);
     });
 
     return result;
@@ -777,11 +801,9 @@ export class CiaoService extends EventEmitter {
       // thus, when sending the first request, the socket will be bound, and we don't need to wait here
       this.emit(InternalServiceEvent.REPUBLISH, error => {
         if (error) {
-          console.log("FATAL Error occurred trying to re-announce service " + this.fqdn + "! We can't recover from this!");
-          console.log(error.stack);
-          process.exit(1); // we have a service which should be announced, though we failed to re-announce.
-          // if this should ever happen in reality, whe might want to introduce a more sophisticated recovery
-          // for situations where it makes sense
+          // The Responder retries a failed advertisement itself and hands a republish no error. Should one ever arrive it is reported here, and what
+          // to do about it is left to the application: a library does not end the process it runs in.
+          console.warn(`CIAO: [${this.fqdn}] Failed to re-announce the service after a network change: ${error.stack ?? error}`);
         }
       });
     }
@@ -912,12 +934,25 @@ export class CiaoService extends EventEmitter {
   informAboutNameUpdates(): void {
     // we trust the prober that this function is only called when the name was actually changed
 
-    const nameCalled = this.emit(ServiceEvent.NAME_CHANGED, this.name);
-    const hostnameCalled = this.emit(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname, this.serviceDomain));
+    const nameCalled = this.emitNameUpdate(ServiceEvent.NAME_CHANGED, this.name);
+    const hostnameCalled = this.emitNameUpdate(ServiceEvent.HOSTNAME_CHANGED, domainFormatter.removeTLD(this.hostname, this.serviceDomain));
 
     // at least one event should be listened to. We can figure out the number from one or another
     if (!nameCalled && !hostnameCalled) {
       console.warn(`CIAO: [${this.name}] Service changed name but nobody was listening on the 'name-change' event!`);
+    }
+  }
+
+  /* Emits one of the two name events, and reports whether anyone listened. A listener is the app's code, and it is called from the Prober's timer, where
+   * an error it throws would be an uncaught exception that ends the process half way through advertising. So the error is logged here instead, and the
+   * service goes on to be announced under its new name.
+   */
+  private emitNameUpdate(event: ServiceEvent.NAME_CHANGED | ServiceEvent.HOSTNAME_CHANGED, value: string): boolean {
+    try {
+      return super.emit(event, value);
+    } catch (error) {
+      console.warn(`CIAO: [${this.name}] A listener of the '${event}' event threw an error: ${errorStack(error)}`);
+      return true;
     }
   }
 
@@ -1195,41 +1230,5 @@ export class CiaoService extends EventEmitter {
   hasAddress(address: IPAddress): boolean {
     return !!this.serviceRecords!.reverseAddressPTRs[address];
   }
-  /*
-  reverseAddressMapping(address: string): PTRRecord | undefined {
-    const record = this.serviceRecords.reverseAddressPTRs[address];
-    return record? record.clone(): undefined;
-  }
-
-  reverseAddressMappings(networkInterface: NetworkInterface): PTRRecord[] {
-    const records: PTRRecord[] = [];
-
-    if (networkInterface.ipv4) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.ipv4];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-
-    if (networkInterface.ipv6) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.ipv6];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-    if (networkInterface.globallyRoutableIpv6) {
-      const reverseRecord = this.serviceRecords.reverseAddressPTRs[networkInterface.globallyRoutableIpv6];
-      if (reverseRecord) {
-        records.push(reverseRecord.clone());
-      }
-    }
-
-    return records;
-  }
-
-  allReverseAddressMappings(): PTRRecord[] {
-    return ResourceRecord.clone(Object.values(this.serviceRecords.reverseAddressPTRs));
-  }
-  */
 
 }
